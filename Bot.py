@@ -40,7 +40,7 @@ import settlement as st
 from views import RoomSettingsView, DiscardInputModal, BoardRefreshView
 
 intents = discord.Intents.default()
-intents.message_content = True
+# 全部使用斜線指令與按鈕，不需讀取一般訊息內容 → 不要求特權意圖
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
