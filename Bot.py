@@ -40,7 +40,7 @@ import settlement as st
 from views import RoomSettingsView, DiscardInputModal, BoardRefreshView
 
 intents = discord.Intents.default()
-# 全部使用斜線指令與按鈕，不需讀取一般訊息內容 → 不要求特權意圖
+intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
@@ -857,6 +857,7 @@ async def play_hand(gid: str, channel: discord.TextChannel,
                 await asyncio.sleep(0.6)
                 continue   # 補摸後重新行動
             # 摸到的牌先併回手牌，再從手牌選一張打出（避免遺失摸牌）
+            drawn = player.drawn_tile
             if player.drawn_tile is not None:
                 player.hand.append(player.drawn_tile)
                 player.drawn_tile = None
@@ -866,8 +867,9 @@ async def play_hand(gid: str, channel: discord.TextChannel,
                 return ("draw", tenpai)
             player.hand.remove(discard_tile)
             player.discards.append(discard_tile)
+            giri = "摸切" if (drawn is not None and discard_tile == drawn) else "手切"
             nxt = gs.players[(player.seat + 1) % len(gs.players)].username
-            await render(f"🤖 {player.username} 打出了，輪到 {nxt}")
+            await render(f"🤖 {player.username} 出牌了（{giri}），輪到 {nxt}")
             await asyncio.sleep(1.0)
 
         # ── Human turn ──────────────────────────────────────────
@@ -1039,6 +1041,8 @@ async def play_hand(gid: str, channel: discord.TextChannel,
                 discard_tile = turn_view.discard_tile
 
             nxt = gs.players[(player.seat + 1) % len(gs.players)].username
+            # 摸切＝打出剛摸到的牌；手切＝打出原本手裡的牌
+            giri = "摸切" if (player.drawn_tile is not None and discard_tile == player.drawn_tile) else "手切"
             if turn_view.action == "riichi" and not player.riichi:
                 player.riichi     = True
                 gs.riichi_sticks += 1
@@ -1046,11 +1050,11 @@ async def play_hand(gid: str, channel: discord.TextChannel,
                 # 第一巡且無人鳴牌 → 兩立直
                 double_rii[player.seat] = (not any_call) and (len(player.discards) == 0)
                 ippatsu[player.seat]    = True   # 取得一發資格（本回合不會過期）
-                status_text = f"🀄 {player.username} 宣告立直！輪到 {nxt}"
+                status_text = f"🀄 {player.username} 宣告立直！（{giri}）輪到 {nxt}"
             elif auto:
-                status_text = f"⏰ {player.username} 超時自動打出，輪到 {nxt}"
+                status_text = f"⏰ {player.username} 超時自動打出（{giri}），輪到 {nxt}"
             else:
-                status_text = f"{player.username} 打出了，輪到 {nxt}"
+                status_text = f"{player.username} 出牌了（{giri}），輪到 {nxt}"
 
             # 摸到的牌先併回手牌，再移除要打的那張（避免遺失摸牌）
             if player.drawn_tile is not None:

@@ -69,6 +69,10 @@ python Bot.py
 
 需要 Python 3.10+ 與 `discord.py>=2.3`。
 
+> ⚠️ 首次啟動前，請到 [Discord Developer Portal](https://discord.com/developers/applications/) →
+> 你的應用 → **Bot → Privileged Gateway Intents** 開啟 **Message Content Intent**，
+> 否則登入會出現 `PrivilegedIntentsRequired` 錯誤。
+
 ---
 
 ## 🕹️ 指令
