@@ -1,5 +1,7 @@
 # 🀄 Discord 日本麻將機器人
 
+> 🤖 本專案以 **vibe coding**（AI 輔助開發）方式完成。
+
 在 Discord 上遊玩完整規則的日本麻將（立直麻將）。支援四麻／三麻、東風戰／半莊戰、AI 對局、觀戰模式，並以單一面板訊息持續編輯（不洗版）。
 
 > 規則細節（役種、符點、精算、振聽等）請見 **[Rules guide.MD](Rules%20guide.MD)**。本檔只說明專案結構與使用方式。
@@ -133,7 +135,7 @@ Copyright (C) 2026  AFAlimru
 若無，請見 <https://www.gnu.org/licenses/>。
 ```
 
-簡單說，GPLv3 允許任何人自由使用、修改、散布本專案，但**衍生作品也必須以 GPLv3 開源**（copyleft）。
+簡單說，GPLv3 允許任何人自由使用、修改、散布本專案，但**衍生作品也必須以 GPLv3 開源**（copyleft）。完整授權說明：[https://www.gnu.org/licenses/](https://www.gnu.org/licenses/)。
 
 ---
 
