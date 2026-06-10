@@ -258,44 +258,47 @@ class PlayerState:
             return ("", "")
         
         sorted_hand = sorted(self.hand, key=lambda t: (t.suit, t.value))
-        
+
         # Unicode 显示（每个牌之间空格）
         unicode_display = " ".join(str(t) for t in sorted_hand)
-        
-        # 牌名显示：按花色合并，字牌用中文（123m456p東南西北中白發）
-        name_display = ""
-        current_suit = -1
-        current_values = []
-        
-        # 定义字牌名称
+
+        # 牌名显示：花色字母在前，例如 m123456 s123 p55 東東中
+        suit_letter = {0: 'm', 1: 's', 2: 'p'}
         wind_names = ["東", "南", "西", "北"]
-        dragon_names = ["中", "白", "發"]
-        
+        dragon_names = ["中", "發", "白"]   # value 1=中 2=發 3=白
+
+        groups: list[str] = []
+        honors: list[str] = []
+        cur_suit = -1
+        cur_vals: list[str] = []
+
+        def _flush():
+            nonlocal cur_suit, cur_vals
+            if cur_vals:
+                groups.append(suit_letter[cur_suit] + "".join(cur_vals))
+                cur_vals = []
+                cur_suit = -1
+
         for t in sorted_hand:
-            if t.suit == 3:  # 风牌
-                if current_values:
-                    name_display += "".join(current_values) + ['m', 's', 'p'][current_suit]
-                    current_values = []
-                current_suit = -1
-                name_display += wind_names[t.value - 1]
-            elif t.suit == 4:  # 龙牌
-                if current_values:
-                    name_display += "".join(current_values) + ['m', 's', 'p'][current_suit]
-                    current_values = []
-                current_suit = -1
-                name_display += dragon_names[t.value - 1]
+            s = int(t.suit)
+            if s == 3:       # 风牌
+                _flush()
+                honors.append(wind_names[t.value - 1])
+            elif s == 4:     # 龙牌
+                _flush()
+                honors.append(dragon_names[t.value - 1])
             else:
-                if t.suit != current_suit:
-                    if current_values:
-                        name_display += "".join(current_values) + ['m', 's', 'p'][current_suit]
-                    current_suit = t.suit
-                    current_values = [str(t.value)]
-                else:
-                    current_values.append(str(t.value))
-        
-        if current_values:
-            name_display += "".join(current_values) + ['m', 's', 'p'][current_suit]
-        
+                if s != cur_suit:
+                    _flush()
+                    cur_suit = s
+                cur_vals.append(str(t.value))
+        _flush()
+
+        parts = groups[:]
+        if honors:
+            parts.append("".join(honors))
+        name_display = " ".join(parts)
+
         return (unicode_display, name_display)
 
     def to_dict(self) -> dict:

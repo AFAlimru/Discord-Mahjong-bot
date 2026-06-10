@@ -675,7 +675,8 @@ async def collect_reactions(
         chi_text = ""
         for i, (t1, t2) in enumerate(info["chi_options"], 1):
             srt = sorted([t1, t2, discard_tile], key=lambda t: (t.suit, t.value))
-            chi_text += f"\n  選項{i}：{srt[0].short}＋{srt[1].short}＋{srt[2].short}　→　`/chi {i}`"
+            tiles_uni = " ".join(str(t) for t in srt)
+            chi_text += f"\n選項{i}（`/chi {i}`）：\n# {tiles_uni}"
 
         try:
             await user.send(
@@ -905,7 +906,7 @@ async def play_hand(gid: str, channel: discord.TextChannel,
             turn_view = TurnView(
                 gid, player.user_id, player.hand, player.drawn_tile,
                 can_tsumo, can_riichi, ankan_opts,
-                timeout=float(thinking_time),
+                timeout=600,   # 視圖本身用長逾時（避免顯示中過期使按鈕失效）；實際回合時間由倒數控制
                 kakan_opts=kakan_opts,
                 kita_ok=kita_ok,
             )
@@ -938,6 +939,7 @@ async def play_hand(gid: str, channel: discord.TextChannel,
                 turn_view.timed_out = True
                 done_task.cancel()
 
+            turn_view.stop()   # 回合結束關閉視圖，釋放資源
             _active_turn.pop(player.user_id, None)
 
             # ── Tsumo ──────────────────────────────────────────
@@ -1314,9 +1316,10 @@ async def match_loop(gid: str, channel: discord.TextChannel,
             if st.is_game_over(gs, length, tobi):
                 break
 
-            # ── 開新局：建立新的牌桌主訊息 ──
+            # ── 開新局：建立新的牌桌主訊息（每局用全新的視圖物件，避免跨訊息重用導致按鈕失效）──
             new_gs = deal_next_hand(gid, players_info, gs)
             _games[gid] = new_gs
+            base_view = make_base_view(gid)
             main_msg = await channel.send(
                 content=make_board_text(new_gs, f"🀄 {new_gs.round_label} 開始，輪到莊家。", open_hand),
                 view=base_view,
