@@ -1,0 +1,140 @@
+# 🀄 Discord 日本麻將機器人
+
+在 Discord 上遊玩完整規則的日本麻將（立直麻將）。支援四麻／三麻、東風戰／半莊戰、AI 對局、觀戰模式，並以單一面板訊息持續編輯（不洗版）。
+
+> 規則細節（役種、符點、精算、振聽等）請見 **[Rules guide.MD](Rules%20guide.MD)**。本檔只說明專案結構與使用方式。
+
+---
+
+## ✨ 功能總覽
+
+- **完整計分**：42 役 + 七對子／國士、副露減飜、無役不可和、符數與點數（標準精算）。
+- **情境役**：立直／一發／兩立直、海底／河底、嶺上開花、槍槓、天和／地和。
+- **振聽**：捨牌／同巡／立直振聽，全程強制。
+- **三麻**：108 張牌、拔北（北寶牌）、禁止吃牌。
+- **多局對戰**：東風戰／半莊戰、連莊／本場、立直棒、流局聽牌罰符、擊飛、賽末順位馬點精算。
+- **加槓／搶槓、暗槓／大明槓**。
+- **AI 玩家**：純內建啟發式（無外接 API），三麻會自動拔北。
+- **觀戰模式**：`/mahjong watch` 全 AI 自動對局、公開手牌。
+- **公平性**：採麻雀一番街公開方案 — 密碼學安全洗牌、牌山編碼 + SHA-256，可逐局自行驗證。
+- **體驗**：單一面板訊息持續編輯、即時倒數、聽牌／可立直等敏感資訊走私訊、和牌逐項揭曉役種的儀式感。
+
+---
+
+## 🗂️ 檔案結構
+
+```
+Suzume Tsuk/
+├── Bot.py              # 主程式：Discord 指令、對局流程、UI、AI
+├── mahjong_engine.py   # 牌 / 牌山(SHA-256) / 牌局狀態 / 和牌型判定 / 聽牌
+├── scoring.py          # 役種判定 + 符數 + 點數（取代舊 yaku.py）
+├── settlement.py       # 對局結算（移轉/本場/立直棒/流局）+ 金流馬點精算
+├── views.py            # Discord UI 元件（設定面板、出牌輸入框）
+├── database.py         # SQLite 持久化（games / players / stats / game_log）
+├── Rules guide.MD      # 規則速查（役種、符點、精算、流程）
+├── Readme.MD           # 本檔
+├── requirements.txt    # 依賴
+├── .env                # DISCORD_TOKEN 等（勿提交）
+└── mahjong.db          # SQLite 資料庫（執行後產生）
+```
+
+### 模組職責
+
+| 模組 | 內容 |
+|------|------|
+| `Bot.py` | 指令、`play_hand`（單局流程）、`match_loop`（多局）、AI、TurnView/大廳/和牌儀式 |
+| `mahjong_engine.py` | `Tile`/`GameState`/`PlayerState`、牌山生成與編碼、`is_complete`/`is_tenpai`/待牌 |
+| `scoring.py` | `score_hand()` → 役、飜、符、點；`WinContext` 帶入立直/寶牌/規則旗標 |
+| `settlement.py` | `apply_ron/tsumo/ryuukyoku`、`advance_after_*`、`final_standings`（馬點） |
+| `views.py` | `RoomSettingsView`（戰長/擊飛/三麻/規則/數值）、`DiscardInputModal` |
+| `database.py` | 牌局、玩家、戰績、牌譜的 CRUD |
+
+---
+
+## 🚀 安裝與啟動
+
+```bash
+# 1. 安裝依賴
+pip install -r requirements.txt
+
+# 2. 設定 .env
+#    DISCORD_TOKEN=你的_bot_token
+#    DATABASE_PATH=mahjong.db   （選填，預設 mahjong.db）
+
+# 3. 啟動（資料庫會在啟動時自動初始化）
+python Bot.py
+```
+
+需要 Python 3.10+ 與 `discord.py>=2.3`。
+
+---
+
+## 🕹️ 指令
+
+| 指令 | 說明 |
+|------|------|
+| `/mahjong start` | 開房（設定戰長／擊飛／三麻／規則／數值），用按鈕或 `/mahjong join` 加入 |
+| `/mahjong join [host]` | 加入此頻道的房間 |
+| `/mahjong watch [half] [sanma]` | 觀戰模式：全 AI、公開手牌 |
+| `/mahjong status` | 查看當前牌局 |
+| `/mahjong end` | 房主強制結束 |
+| `/mahjong stats` | 個人統計 |
+| `/help`、`/mahjong help` | 出牌輸入說明 |
+| `/ron` `/pon` `/chi` `/kan` | 反應：榮和／碰／吃／槓 |
+| `/tsumo` `/riichi 牌名` `/kita` `/skip` | 自摸／立直／拔北（三麻）／跳過 |
+
+出牌輸入：`1m`~`9m`/`1p`~`9p`/`1s`~`9s`（大小寫皆可）、紅寶 `0m`/`0p`/`0s`、字牌 `e/s/w/n`＝東南西北、`r`=中、`wh`=白、`g`=發（也可直接打中文）。
+
+---
+
+## ⚙️ 房間設定
+
+開房「⚙️ 數值設定」與切換按鈕可調整：
+
+- **戰長**：東風戰 / 半莊戰
+- **擊飛**：負分即結束（預設開啟）
+- **三麻模式**
+- **規則**：預設（含雙倍役滿、馬點 10-20）/ 完全天鳳式（役滿一律單倍）
+- **思考秒數**：5~300
+- **起始點數**：0~1000000（四麻預設 25000、三麻 35000；返點＝原點＋5000）
+
+---
+
+## 🗄️ 資料庫（SQLite）
+
+四張表：`games`（牌局狀態 + 牌山編碼）、`players`（座位/分數）、`stats`（戰績）、`game_log`（牌譜）。
+牌局結束後牌山編碼存於 `games.game_data`，「🔐 公平性驗證」按鈕即由此讀取供校驗。
+
+---
+
+## 🛣️ 後續規劃（Roadmap）
+
+- **網頁資訊面板**：在網頁上**顯示**牌局／戰績／牌譜資訊（不在網頁上遊玩，遊玩仍在 Discord）。
+- **多語系**：介面支援 **英文** 與 **日文**（目前為繁體中文，文字尚未抽離成語言檔）。
+- **資料庫**：目前為 SQLite；視規模再評估其他方案（例如 PostgreSQL）或加上遷移工具。
+
+---
+
+## 📜 授權（License）
+
+本專案採用 **GNU General Public License v3.0（GPLv3）**，完整條款見 [LICENSE](LICENSE)。
+
+```
+Suzume Tsuk — Discord 日本麻將機器人
+Copyright (C) 2026  AFAlimru
+
+本程式為自由軟體：你可以依據自由軟體基金會發佈的 GNU 通用公共授權條款
+（GPL 第三版，或你選擇的任何更新版本）重新散布及／或修改本程式。
+
+本程式希望能對你有幫助，但不提供任何擔保；甚至不含適售性或特定用途
+適用性的默示擔保。詳見 GNU 通用公共授權條款。
+
+你應已隨本程式收到一份 GNU 通用公共授權條款副本；
+若無，請見 <https://www.gnu.org/licenses/>。
+```
+
+簡單說，GPLv3 允許任何人自由使用、修改、散布本專案，但**衍生作品也必須以 GPLv3 開源**（copyleft）。
+
+---
+
+**祝遊戲愉快！🀄✨**

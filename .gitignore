@@ -1,0 +1,22 @@
+# 環境變數（含 Discord Token，切勿提交！）
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# SQLite 資料庫與 WAL 檔
+*.db
+*.db-wal
+*.db-shm
+
+# 編輯器 / 工具 / 系統
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db
