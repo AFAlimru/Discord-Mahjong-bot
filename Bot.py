@@ -1285,7 +1285,7 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
         add_btn("跳過", discord.ButtonStyle.danger, "skip", None)
 
         def prompt_text(rem):
-            return f"⬇️ **{from_name}** 打出 **{discard_tile}**！請選擇（剩 {rem} 秒）"
+            return f"## ⬇️ {from_name} 打出\n# {discard_tile}\n請選擇（剩 {rem} 秒）"
 
         try:
             prompt_msg = await pt.send(prompt_text(int(thinking_time)), view=view)
