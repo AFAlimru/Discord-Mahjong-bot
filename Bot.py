@@ -87,12 +87,12 @@ async def on_message(message: discord.Message) -> None:
     if q is not None and message.channel.id == _input_thread.get(uid):
         await q.put((message.content.strip(), message))
         return
-    # 公開牌桌討論串：限制打字，直接刪除（保持乾淨）
+    # 只有「觀戰牌桌串」禁止打字（board_msg 存在）；真人對局的聊天串可自由聊天
     gid = _thread_game.get(message.channel.id)
     if gid:
         th = _threads.get(gid)
         pub = th.get("public") if th else None
-        if pub is not None and message.channel.id == pub.id:
+        if pub is not None and message.channel.id == pub.id and th.get("board_msg") is not None:
             try:
                 await message.delete()
             except Exception:
@@ -445,7 +445,7 @@ def make_thread_board(gs: GameState, status: str = "") -> str:
         if idx > 0:
             # 玩家之間：長分隔線 + 上下留白，明顯分開
             lines.append("")
-            lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
+            lines.append("━" * 35)
             lines.append("")
         wind     = WIND_LABELS[p.seat]
         cur      = "▶" if p.seat == gs.current_seat else "　"
@@ -507,7 +507,50 @@ def make_river_text(gs: GameState) -> str:
         lines.append(f"{WIND_LABELS[p.seat]} {p.username}（{len(p.discards)}）")
         lines.append(f"# {disc}")
     lines.append("")
-    lines.append("＊這是當下快照；關閉後再按一次「看牌河」可看最新。")
+    lines.append("＊這是當下快照；關閉後再按一次可看最新。")
+    return "\n".join(lines)
+
+
+def result_body(header: str, hand_str: str, result, log, gs: GameState,
+                tenpai=None) -> str:
+    """一局結果的靜態文字（送到聊天串與各私人討論串）。"""
+    if result is None:
+        tnames = "、".join(gs.players[s].username for s in (tenpai or [])) or "無人"
+        return f"# 🀄 流局\n聽牌：{tnames}\n\n{log.describe(gs)}"
+    top = f"# 🎉 {header}\n## {hand_str}"
+    if result.yakuman:
+        yaku = "\n".join(f"・**{n}**" for n, _ in result.yakuman)
+        score_line = f"## ✨ {result.name}　{result.points} 點"
+    else:
+        yaku = "\n".join(f"・{n} {h}飜" for n, h in result.yaku)
+        nm = f"　{result.name}" if result.name else ""
+        score_line = f"## {result.han} 飜 {result.fu} 符{nm}　{result.points} 點"
+    return top + "\n" + yaku + f"\n\n{score_line}\n\n" + log.describe(gs)
+
+
+def make_score_text(gs: GameState) -> str:
+    """各家點數＋風位（給「看點數」按鈕用）。"""
+    lines = [f"**📊 點數**　{gs.round_label}　本場 {gs.honba} ・ 立直棒 {gs.riichi_sticks} ・ 牌山 {gs.tiles_left}"]
+    for p in gs.players:
+        cur    = "▶" if p.seat == gs.current_seat else "　"
+        bot    = "🤖" if p.is_bot else ""
+        riichi = "【立直】" if p.riichi else ""
+        kita   = f"　拔北×{p.kita}" if getattr(p, "kita", 0) else ""
+        lines.append(f"{cur} {WIND_LABELS[p.seat]}　{bot}{p.username}{riichi}：**{p.score}** 點{kita}")
+    return "\n".join(lines)
+
+
+def make_meld_text(gs: GameState) -> str:
+    """各家副露＋風位（給「看副露」按鈕用）。"""
+    lines = ["**🀜 各家副露**"]
+    any_meld = False
+    for p in gs.players:
+        if p.melds:
+            any_meld = True
+            melds = "　".join(str(m) for m in p.melds)
+            lines.append(f"{WIND_LABELS[p.seat]}　{p.username}：{melds}")
+    if not any_meld:
+        lines.append("（目前無人副露）")
     return "\n".join(lines)
 
 
@@ -519,34 +562,60 @@ class HandHelpButton(discord.ui.Button):
         await interaction.response.send_message(HELP_TEXT, ephemeral=True)
 
 
-class RiverButton(discord.ui.Button):
-    def __init__(self, gid: str):
-        super().__init__(label="🀫 看牌河", style=discord.ButtonStyle.secondary)
+class _GameInfoButton(discord.ui.Button):
+    """共用：點擊顯示某種牌局資訊（私密）。"""
+    def __init__(self, gid: str, label: str, builder):
+        super().__init__(label=label, style=discord.ButtonStyle.secondary)
         self.gid = gid
+        self._builder = builder
 
     async def callback(self, interaction: discord.Interaction):
         gs = _games.get(self.gid)
         if not gs:
             await interaction.response.send_message("❌ 牌局已結束。", ephemeral=True)
             return
-        await interaction.response.send_message(make_river_text(gs), ephemeral=True)
+        await interaction.response.send_message(self._builder(gs), ephemeral=True)
+
+
+def RiverButton(gid: str):
+    return _GameInfoButton(gid, "🀫 看牌河", make_river_text)
+
+
+def ScoreButton(gid: str):
+    return _GameInfoButton(gid, "📊 看點數", make_score_text)
+
+
+def MeldButton(gid: str):
+    return _GameInfoButton(gid, "🀜 看副露", make_meld_text)
 
 
 def make_hand_view(gid: str) -> discord.ui.View:
-    """手牌面板常駐按鈕：說明 + 看牌河。"""
+    """手牌面板常駐按鈕：說明 + 看牌河 / 看點數 / 看副露。"""
     v = discord.ui.View(timeout=None)
     v.add_item(HandHelpButton())
     v.add_item(RiverButton(gid))
+    v.add_item(ScoreButton(gid))
+    v.add_item(MeldButton(gid))
     return v
 
 
-async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState) -> None:
-    """建立公開遊戲討論串 + 每位真人玩家的私人討論串。"""
-    public = await channel.create_thread(
-        name=f"🀄 麻將 {gs.round_label}",
-        type=discord.ChannelType.public_thread,
-    )
-    board_msg = await public.send(make_thread_board(gs, "🀄 遊戲開始，輪到莊家。"))
+async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
+                        watch: bool = False) -> None:
+    """建立公開討論串 + 每位真人玩家的私人討論串。
+    watch=True（觀戰）：公開串當牌桌；否則當聊天/和牌資訊串（牌桌資訊改用按鈕看）。"""
+    if watch:
+        public = await channel.create_thread(
+            name=f"🀄 麻將牌桌 {gs.round_label}",
+            type=discord.ChannelType.public_thread,
+        )
+        board_msg = await public.send(make_thread_board(gs, "🀄 遊戲開始，輪到莊家。"))
+    else:
+        public = await channel.create_thread(
+            name=f"💬 麻將聊天／結果 {gs.round_label}",
+            type=discord.ChannelType.public_thread,
+        )
+        await public.send("💬 這裡會顯示每局和牌／流局結果，也可以自由聊天。")
+        board_msg = None
 
     private: dict[str, discord.Thread] = {}
     hand_msg: dict[str, discord.Message] = {}
@@ -1383,6 +1452,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
     hand_msg      = th["hand_msg"]
 
     async def render_board(status=""):
+        if board_msg is None:   # 真人對局沒有公開牌桌（資訊改用按鈕看）
+            return
         try:
             await board_msg.edit(content=make_thread_board(gs, status))
         except Exception:
@@ -1703,30 +1774,40 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
 
             db.update_game_state(gid, "playing", gs.to_dict())
 
+            # 公開串：和牌儀式（觀戰）或結果文字（聊天串）
             if result is not None:
                 result_msg = await win_ceremony(public, gs, header, hand_str, result, log)
             else:
-                tnames = "、".join(gs.players[s].username for s in tenpai) or "無人"
-                result_msg = await public.send(f"# 🀄 流局\n聽牌：{tnames}\n\n{log.describe(gs)}")
+                result_msg = await public.send(result_body("", "", None, log, gs, tenpai))
+            # 各私人討論串也顯示一局結果（主要都看自己的牌）
+            body = result_body(header, hand_str, result, log, gs, tenpai)
+            priv_msgs = []
+            for pt in th.get("private", {}).values():
+                try:
+                    priv_msgs.append(await pt.send(body))
+                except Exception:
+                    pass
             await asyncio.sleep(6)
 
             if st.is_game_over(gs, length, tobi):
                 break
 
-            # 換下一局：刪掉上一局的和牌／流局訊息
-            if result_msg:
-                try:
-                    await result_msg.delete()
-                except Exception:
-                    pass
+            # 換下一局：刪掉上一局的結果訊息（公開＋各私人）
+            for m in [result_msg, *priv_msgs]:
+                if m:
+                    try:
+                        await m.delete()
+                    except Exception:
+                        pass
 
             new_gs = deal_next_hand(gid, players_info, gs)
             _games[gid] = new_gs
-            try:
-                await th["board_msg"].edit(
-                    content=make_thread_board(new_gs, f"🀄 {new_gs.round_label} 開始，輪到莊家。"))
-            except Exception:
-                pass
+            if th.get("board_msg"):
+                try:
+                    await th["board_msg"].edit(
+                        content=make_thread_board(new_gs, f"🀄 {new_gs.round_label} 開始，輪到莊家。"))
+                except Exception:
+                    pass
             for p in new_gs.players:
                 if not p.is_bot:
                     hm = th["hand_msg"].get(p.user_id)
@@ -2351,9 +2432,9 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
     db.create_game(gid, str(channel.guild.id), str(channel.id), gs.wall_seed)
     db.update_game_state(gid, "playing", gs.to_dict())
 
-    # 0.2：建立公開遊戲討論串 + 每位真人的私人討論串
+    # 0.2：建立公開討論串 + 每位真人的私人討論串（觀戰模式才用牌桌）
     try:
-        await setup_threads(gid, channel, gs)
+        await setup_threads(gid, channel, gs, watch=config.get("open_hand", False))
     except Exception as e:
         await channel.send(f"❌ 建立討論串失敗：{e}\n（需確認 bot 有「建立公開／私人討論串、管理討論串」權限）")
         _cleanup(gid, str(channel.id))
