@@ -1774,6 +1774,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             if outcome is None:
                 return
             gs = _games[gid]
+            tenpai = None
 
             if outcome[0] == "tsumo":
                 _, wseat, result, hand_str = outcome
