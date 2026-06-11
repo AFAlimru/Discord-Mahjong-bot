@@ -183,10 +183,10 @@ def wall_to_layout(wall: list[Tile]) -> dict:
     is_sanma = len(wall) == 108
     
     if is_sanma:
-        # 三麻：70张摸牌 + 14张死牌
-        live_count = 70
+        # 三麻：108 張 − 14 張死牌 ＝ 94 張活牌（含配牌）
+        live_count = 94
     else:
-        # 四麻：122张摸牌 + 14张死牌
+        # 四麻：136 張 − 14 張死牌 ＝ 122 張活牌（含配牌）
         live_count = 122
     
     return {
