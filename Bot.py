@@ -66,6 +66,8 @@ _threads:           dict[str, dict]             = {}
 _input_queues:      dict[str, asyncio.Queue]    = {}
 # user_id -> 該玩家應輸入的討論串 channel id（驗證打字來源）
 _input_thread:      dict[str, int]              = {}
+# thread channel id -> game_id（讓 /end 等指令能在討論串內使用）
+_thread_game:       dict[int, str]              = {}
 
 WIND_LABELS = ["東", "南", "西", "北"]
 AI_NAMES    = ["小春", "小夏", "小秋", "小冬"]
@@ -383,14 +385,15 @@ def make_thread_board(gs: GameState, status: str = "") -> str:
         f"本場 {gs.honba} ・ 立直棒 {gs.riichi_sticks} ・ 牌山 {gs.tiles_left} 張",
         f"寶牌：# {ind_str}",
     ]
-    for p in gs.players:
+    for idx, p in enumerate(gs.players):
+        lines.append("---")   # 每位玩家之間加分隔線
         wind     = WIND_LABELS[p.seat]
         cur      = "▶" if p.seat == gs.current_seat else "　"
         riichi   = "【立直】" if p.riichi else ""
         bot_mark = "🤖" if p.is_bot else ""
         kita     = f"　拔北×{p.kita}" if getattr(p, "kita", 0) else ""
-        # 玩家整行放大，名字用「」標註
-        lines.append(f"## {cur} {wind} {bot_mark}「{p.username}」{riichi}（{p.score}點）{kita}")
+        # 玩家整行放大、加引言 >、名字用「」標註
+        lines.append(f"> ## {cur} {wind} {bot_mark}「{p.username}」{riichi}（{p.score}點）{kita}")
         # 副露只在有時顯示
         if p.melds:
             lines.append("副露：" + "　".join(str(m) for m in p.melds))
@@ -455,7 +458,12 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState) -
     _threads[gid] = {
         "public": public, "board_msg": board_msg,
         "private": private, "hand_msg": hand_msg,
+        "result_msg": None,   # 上一局和牌/流局訊息（換局時刪除）
     }
+    # 討論串 → gid（讓指令能在討論串內使用）
+    _thread_game[public.id] = gid
+    for pt in private.values():
+        _thread_game[pt.id] = gid
 
 
 def _cleanup(gid: str, channel_id: str) -> None:
@@ -466,6 +474,13 @@ def _cleanup(gid: str, channel_id: str) -> None:
             _active_turn.pop(p.user_id, None)
             _input_queues.pop(p.user_id, None)
             _input_thread.pop(p.user_id, None)
+    th = _threads.get(gid)
+    if th:
+        pub = th.get("public")
+        if pub:
+            _thread_game.pop(pub.id, None)
+        for pt in th.get("private", {}).values():
+            _thread_game.pop(pt.id, None)
     _waiting.pop(gid, None)
     _room_owners.pop(gid, None)
     _room_configs.pop(gid, None)
@@ -1044,46 +1059,52 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
         pt = private.get(p.user_id)
         if not pt:
             return None
-        act_str = " / ".join(f"`{a}`" for a in actions if a != "chi")
-        chi_str = ""
+        uid = p.user_id
+        fut = asyncio.get_event_loop().create_future()
+        view = discord.ui.View(timeout=thinking_time + 5)
+
+        def add_btn(label, style, choice, extra):
+            b = discord.ui.Button(label=label, style=style)
+            async def cb(inter):
+                if str(inter.user.id) != uid:
+                    await inter.response.send_message("❌ 不是你的回應", ephemeral=True)
+                    return
+                await inter.response.defer()
+                if not fut.done():
+                    fut.set_result((choice, extra))
+            b.callback = cb
+            view.add_item(b)
+
+        if "ron" in actions:
+            add_btn("🀄 榮和", discord.ButtonStyle.success, "ron", None)
+        if "pon" in actions:
+            add_btn("碰", discord.ButtonStyle.primary, "pon", None)
+        if "kan" in actions:
+            add_btn("槓", discord.ButtonStyle.primary, "kan", None)
         if "chi" in actions:
-            for i, (t1, t2) in enumerate(chi_opts, 1):
+            for t1, t2 in chi_opts:
                 srt = sorted([t1, t2, discard_tile], key=lambda t: (t.suit, t.value))
-                chi_str += f"\n吃選項{i}（打 `chi {i}`）：\n# " + " ".join(str(t) for t in srt)
+                add_btn("吃 " + "".join(str(t) for t in srt), discord.ButtonStyle.secondary, "chi", (t1, t2))
+        add_btn("跳過", discord.ButtonStyle.danger, "skip", None)
+
         try:
             prompt_msg = await pt.send(
-                f"🀄 **{from_name}** 打出 **{discard_tile}**！\n"
-                f"可回應：{act_str} 或 `skip`{chi_str}\n（{thinking_time} 秒）"
+                f"🀄 **{from_name}** 打出 **{discard_tile}**！請選擇（{thinking_time} 秒）",
+                view=view,
             )
         except Exception:
             return None
-
-        def validate(raw):
-            lw = raw.strip().lower()
-            if lw in ("skip", "跳過", "pass", "s"):
-                return (True, ("skip", None), "")
-            if lw in ("ron", "榮", "榮和", "胡") and "ron" in actions:
-                return (True, ("ron", None), "")
-            if lw in ("pon", "碰") and "pon" in actions:
-                return (True, ("pon", None), "")
-            if lw in ("kan", "槓", "杠") and "kan" in actions:
-                return (True, ("kan", None), "")
-            if (lw.startswith("chi") or lw.startswith("吃")) and "chi" in actions:
-                num = "".join(ch for ch in lw if ch.isdigit())
-                idx = (int(num) - 1) if num else 0
-                if 0 <= idx < len(chi_opts):
-                    return (True, ("chi", chi_opts[idx]), "")
-                return (False, None, "吃選項編號無效")
-            return (False, None, f"可回應：{act_str} 或 skip")
-
-        res = await wait_typed(p.user_id, pt, pt.id, thinking_time, validate)
+        try:
+            res = await asyncio.wait_for(fut, timeout=thinking_time)
+        except asyncio.TimeoutError:
+            res = ("skip", None)
         try:
             await prompt_msg.delete()
         except Exception:
             pass
-        if res is None or res[0] == "skip":
-            return None
         choice, extra = res
+        if choice == "skip":
+            return None
         pr = {"ron": 0, "pon": 1, "kan": 1, "chi": 2}.get(choice, 9)
         return (pr, p.seat, choice, extra)
 
@@ -1096,6 +1117,120 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
     results.sort(key=lambda x: x[0])
     _, seat, choice, extra = results[0]
     return (choice, gs.players[seat].user_id, extra)
+
+
+async def _warn(thread, text: str) -> None:
+    try:
+        w = await thread.send(f"❌ {text}")
+        asyncio.create_task(_delete_later(w, 4))
+    except Exception:
+        pass
+
+
+async def wait_turn_action(player, pt, hand_msg, thinking_time,
+                           can_tsumo, can_riichi, kita_ok, ankan_opts,
+                           prompt_base, tenpai_note):
+    """輪到玩家：自摸/立直/暗槓/拔北用按鈕，出牌用打字。回傳 (action, arg) 或 None（逾時）。"""
+    uid   = player.user_id
+    fut   = asyncio.get_event_loop().create_future()
+    state = {"riichi": False}
+    view  = discord.ui.View(timeout=float(thinking_time) + 10)
+
+    def panel(rem):
+        extra = "🀄 已宣告立直，請**打字**打出宣言牌" if state["riichi"] else f"{prompt_base}　（剩 {rem} 秒）"
+        return make_hand_panel(player, extra, tenpai_note)
+
+    async def refresh(rem):
+        try:
+            await hand_msg.edit(content=panel(rem), view=view)
+        except Exception:
+            pass
+
+    def add_btn(label, style, kind):
+        b = discord.ui.Button(label=label, style=style)
+        async def cb(inter):
+            if str(inter.user.id) != uid:
+                await inter.response.send_message("❌ 不是你的回合", ephemeral=True)
+                return
+            await inter.response.defer()
+            if kind == "riichi":
+                state["riichi"] = True
+                await refresh(0)
+            elif not fut.done():
+                fut.set_result(kind)
+        b.callback = cb
+        view.add_item(b)
+
+    if can_tsumo:
+        add_btn("自摸", discord.ButtonStyle.success, ("tsumo", None))
+    if can_riichi:
+        add_btn("立直", discord.ButtonStyle.success, "riichi")
+    if ankan_opts:
+        add_btn("暗槓", discord.ButtonStyle.secondary, ("ankan", ankan_opts[0]))
+    if kita_ok:
+        add_btn("拔北", discord.ButtonStyle.secondary, ("kita", None))
+
+    await refresh(int(thinking_time))
+
+    q = asyncio.Queue()
+    _input_queues[uid] = q
+    _input_thread[uid] = pt.id
+
+    async def countdown():
+        rem = int(thinking_time)
+        while rem > 0:
+            await asyncio.sleep(1)
+            rem -= 1
+            if not state["riichi"]:
+                await refresh(rem)
+
+    async def reader():
+        while not fut.done():
+            raw, msg = await q.get()
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            if state["riichi"]:
+                t = parse_tile(raw, player.hand, player.drawn_tile)
+                if not t:
+                    await _warn(pt, f"看不懂「{raw}」")
+                    continue
+                test = list(player.hand)
+                dt = player.drawn_tile
+                if t == dt:
+                    dt = None
+                elif t in test:
+                    test.remove(t)
+                if is_tenpai(test + ([dt] if dt else [])):
+                    if not fut.done():
+                        fut.set_result(("riichi", t))
+                    return
+                await _warn(pt, "打出該牌後未聽牌，不能立直")
+            else:
+                ok, val, err = _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts)
+                if ok:
+                    if not fut.done():
+                        fut.set_result(val)
+                    return
+                await _warn(pt, err)
+
+    cd = asyncio.create_task(countdown())
+    rd = asyncio.create_task(reader())
+    try:
+        result = await asyncio.wait_for(fut, timeout=float(thinking_time))
+    except asyncio.TimeoutError:
+        result = None
+    finally:
+        cd.cancel()
+        rd.cancel()
+        _input_queues.pop(uid, None)
+        _input_thread.pop(uid, None)
+        try:
+            await hand_msg.edit(view=None)
+        except Exception:
+            pass
+    return result
 
 
 async def play_hand_t(gid: str, channel: discord.TextChannel):
@@ -1196,34 +1331,21 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 waits = get_tenpai_waits(player.hand)
                 tenpai_note = f"🀄 **聽牌！** 待牌：{' '.join(str(t) for t in waits)}"
 
-            opts = ["打出的牌（如 `5m` `東`）"]
-            if can_tsumo:  opts.append("`tsumo`")
-            if can_riichi: opts.append("`立直 5m`")
-            if kita_ok:    opts.append("`!n`")
-            if ankan_opts: opts.append(f"`暗槓 {ankan_opts[0].short}`")
-            prompt_base = f"✍️ 在此輸入：{' / '.join(opts)}"
+            prompt_base = "✍️ **打字**丟牌（如 `5m` `東`）；自摸／立直／暗槓／拔北用下方按鈕"
 
             await render_board(f"輪到 <@{player.user_id}>（{WIND_LABELS[player.seat]}）出牌")
-            await render_hand(player, f"{prompt_base}　（剩 {int(thinking_time)} 秒）", tenpai_note)
 
             pt = private.get(player.user_id)
+            hm = hand_msg.get(player.user_id)
             result = None
-            if pt:
-                # 即時倒數：另開任務每秒更新手牌面板的剩餘秒數
-                async def _countdown():
-                    rem = int(thinking_time)
-                    while rem > 0:
-                        await asyncio.sleep(1)
-                        rem -= 1
-                        await render_hand(player, f"{prompt_base}　（剩 {rem} 秒）", tenpai_note)
-                cd_task = asyncio.create_task(_countdown())
-                try:
-                    result = await wait_typed(
-                        player.user_id, pt, pt.id, thinking_time,
-                        lambda raw: _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts),
-                    )
-                finally:
-                    cd_task.cancel()
+            if pt and hm:
+                result = await wait_turn_action(
+                    player, pt, hm, thinking_time,
+                    can_tsumo, can_riichi, kita_ok, ankan_opts,
+                    prompt_base, tenpai_note,
+                )
+            else:
+                await render_hand(player, prompt_base, tenpai_note)
 
             timed = result is None
             action, arg = ("discard", None) if timed else result
@@ -1421,14 +1543,21 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             db.update_game_state(gid, "playing", gs.to_dict())
 
             if result is not None:
-                await win_ceremony(public, gs, header, hand_str, result, log)
+                result_msg = await win_ceremony(public, gs, header, hand_str, result, log)
             else:
                 tnames = "、".join(gs.players[s].username for s in tenpai) or "無人"
-                await public.send(f"# 🀄 流局\n聽牌：{tnames}\n\n{log.describe(gs)}")
+                result_msg = await public.send(f"# 🀄 流局\n聽牌：{tnames}\n\n{log.describe(gs)}")
             await asyncio.sleep(6)
 
             if st.is_game_over(gs, length, tobi):
                 break
+
+            # 換下一局：刪掉上一局的和牌／流局訊息
+            if result_msg:
+                try:
+                    await result_msg.delete()
+                except Exception:
+                    pass
 
             new_gs = deal_next_hand(gid, players_info, gs)
             _games[gid] = new_gs
@@ -1954,6 +2083,7 @@ async def win_ceremony(channel: discord.TextChannel, gs: GameState,
         await msg.edit(content=body)
     except Exception:
         pass
+    return msg
 
 
 async def match_loop(gid: str, channel: discord.TextChannel,
@@ -2313,20 +2443,22 @@ async def cmd_join(interaction: discord.Interaction, host: discord.Member = None
 async def cmd_end(interaction: discord.Interaction) -> None:
     channel_id = str(interaction.channel_id)
     user_id    = str(interaction.user.id)
-    gid        = _channel_games.get(channel_id)
+    # 可在主頻道或任一遊戲討論串內使用
+    gid = _channel_games.get(channel_id) or _thread_game.get(int(channel_id))
     if not gid:
         await interaction.response.send_message("❌ 沒有進行中的牌局。", ephemeral=True)
         return
     if _room_owners.get(gid) != user_id:
         await interaction.response.send_message("❌ 只有房主可以結束牌局。", ephemeral=True)
         return
-    # 先取消正在跑的遊戲迴圈（即使有人正在思考也能立即中止）
+    # 找出主頻道 id（給 _cleanup 用）
+    parent_cid = next((c for c, g in _channel_games.items() if g == gid), channel_id)
     task = _game_tasks.get(gid)
     th   = _threads.get(gid)
-    _cleanup(gid, channel_id)
+    _cleanup(gid, parent_cid)
     if task and not task.done():
         task.cancel()
-    await interaction.response.send_message("✅ 牌局已強制結束，討論串將關閉。")
+    await interaction.response.send_message("✅ 牌局已強制結束，討論串將關閉。", ephemeral=True)
     if th:
         await _delete_threads(th)
 
