@@ -439,7 +439,8 @@ def make_thread_board(gs: GameState, status: str = "") -> str:
     lines = [
         f"## 🀄 {gs.round_label}　{mode}",
         f"本場 {gs.honba} ・ 立直棒 {gs.riichi_sticks} ・ 牌山 {gs.tiles_left} 張",
-        f"寶牌：# {ind_str}",
+        f"寶牌：",
+        f"# {ind_str}",
     ]
     for idx, p in enumerate(gs.players):
         if idx > 0:
@@ -480,7 +481,8 @@ def _board_info(gs: GameState) -> str:
     shown  = [str(t) for t in gs.dora_indicators[:gs.revealed_dora]]
     hidden = ["🀫"] * (total_ind - gs.revealed_dora)
     ind    = " ".join(shown + hidden)
-    return f"🀄 {gs.round_label}　本場 {gs.honba}　牌山 {gs.tiles_left}\n寶牌：{ind}"
+    return (f"🀄 {gs.round_label}　本場 {gs.honba}　牌山 {gs.tiles_left}\n"
+            f"寶牌：\n# {ind}")
 
 
 def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = "",
