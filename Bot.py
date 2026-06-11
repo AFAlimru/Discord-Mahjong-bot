@@ -204,13 +204,31 @@ def get_shouminkan_options(player: PlayerState) -> list[Tile]:
 
 def parse_tile(text: str, hand: list[Tile], drawn: Optional[Tile] = None) -> Optional[Tile]:
     text = text.strip().lower()
+    pool = list(hand) + ([drawn] if drawn else [])
     aliases = {"e": "東", "s": "南", "w": "西", "n": "北",
                "r": "中", "wh": "白", "g": "發"}
     if text in aliases:
         text = aliases[text]
-    for t in (list(hand) + ([drawn] if drawn else [])):
+
+    # 紅寶牌：0m / 0p / 0s ＝ 該花色的紅五
+    red_suit = {"0m": Suit.MAN, "0p": Suit.PIN, "0s": Suit.SOU}.get(text)
+    if red_suit is not None:
+        for t in pool:
+            if t.suit == red_suit and t.value == 5 and getattr(t, "red", False):
+                return t
+        return None
+
+    # 一般短碼比對
+    for t in pool:
         if t.short.lower() == text:
             return t
+
+    # 輸入 5m/5p/5s 但手上只有紅五 → 仍可選到紅五
+    norm_suit = {"5m": Suit.MAN, "5p": Suit.PIN, "5s": Suit.SOU}.get(text)
+    if norm_suit is not None:
+        for t in pool:
+            if t.suit == norm_suit and t.value == 5:
+                return t
     return None
 
 
@@ -423,8 +441,7 @@ def make_thread_board(gs: GameState, status: str = "") -> str:
         f"本場 {gs.honba} ・ 立直棒 {gs.riichi_sticks} ・ 牌山 {gs.tiles_left} 張",
         f"寶牌：# {ind_str}",
     ]
-    for idx, p in enumerate(gs.players):
-        lines.append("---")   # 每位玩家之間加分隔線
+    for p in gs.players:
         wind     = WIND_LABELS[p.seat]
         cur      = "▶" if p.seat == gs.current_seat else "　"
         riichi   = "【立直】" if p.riichi else ""
@@ -1459,8 +1476,12 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
 
             pt = private.get(player.user_id)
             hm = hand_msg.get(player.user_id)
+            ping_msg = None
             if pt:
-                asyncio.create_task(_ping_turn(pt, player.user_id))   # @ 提醒（隨即刪）
+                try:
+                    ping_msg = await pt.send(f"<@{player.user_id}> 輪到你了！")
+                except Exception:
+                    pass
             result = None
             if pt and hm:
                 result = await wait_turn_action(
@@ -1470,6 +1491,11 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 )
             else:
                 await render_hand(player, prompt_base, tenpai_note)
+            if ping_msg:   # 出完牌（行動結束）才刪掉提醒
+                try:
+                    await ping_msg.delete()
+                except Exception:
+                    pass
 
             timed = result is None
             action, arg = ("discard", None) if timed else result
