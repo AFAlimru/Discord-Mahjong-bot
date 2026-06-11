@@ -157,7 +157,7 @@ class RoomSettingsModal(Modal):
         max_length=3,
     )
     start_points = TextInput(
-        label="起始點數 (1~1000000，留空=預設)",
+        label="起始點數 (0~1000000，留空=預設)",
         placeholder="四麻預設 25000、三麻預設 35000",
         required=False,
         max_length=7,

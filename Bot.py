@@ -502,8 +502,10 @@ def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = ""
 def make_river_text(gs: GameState) -> str:
     """各家牌河（給「看牌河」按鈕的私密訊息用）。"""
     lines = ["**🀫 各家牌河**"]
-    for p in gs.players:
-        disc = " ".join(str(t) for t in p.discards) if p.discards else "—"
+    for idx, p in enumerate(gs.players):
+        if idx > 0:
+            lines.append("─" * 24)   # 玩家之間分隔線
+        disc = " ".join(str(t) for t in p.discards) if p.discards else "（無）"
         lines.append(f"{WIND_LABELS[p.seat]} {p.username}（{len(p.discards)}）")
         lines.append(f"# {disc}")
     lines.append("")
