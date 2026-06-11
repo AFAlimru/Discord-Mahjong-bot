@@ -360,6 +360,11 @@ def tenpai_advice(player: PlayerState) -> list:
     return results
 
 
+def can_declare_riichi(player: PlayerState) -> bool:
+    """可立直：門清、未立直，且 14 張中至少有一打能保持聽牌。"""
+    return (not player.riichi) and len(player.melds) == 0 and bool(tenpai_advice(player))
+
+
 def is_furiten(player: PlayerState, perm: dict, temp: dict) -> bool:
     """振聽判定：永久(立直)振聽 / 同巡振聽 / 捨牌振聽（待牌曾在自己牌河）。"""
     if perm.get(player.seat) or temp.get(player.seat):
@@ -481,7 +486,7 @@ def _board_info(gs: GameState) -> str:
     shown  = [str(t) for t in gs.dora_indicators[:gs.revealed_dora]]
     hidden = ["🀫"] * (total_ind - gs.revealed_dora)
     ind    = " ".join(shown + hidden)
-    return (f"🀄 {gs.round_label}　本場 {gs.honba}　牌山 {gs.tiles_left}\n"
+    return (f"# {gs.round_label}　本場 {gs.honba}　牌山 {gs.tiles_left}\n"
             f"寶牌：\n# {ind}")
 
 
@@ -1568,13 +1573,13 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
         else:
             can_tsumo  = bool(player.drawn_tile) and evaluate_win(
                 gs, player, player.drawn_tile, is_tsumo=True, is_rinshan=is_rinshan_draw) is not None
-            can_riichi = (not player.riichi) and len(player.melds) == 0 and is_tenpai(player.hand)
+            adv = tenpai_advice(player)   # 14 張時：打哪張可進聽
+            can_riichi = (not player.riichi) and len(player.melds) == 0 and bool(adv)
             ankan_opts = get_ankan_options(player.hand + ([player.drawn_tile] if player.drawn_tile else []))
             kita_ok    = gs.is_sanma and has_kita(player)
 
             # 進聽提示：打哪張可聽、聽哪些（一向聽時很有用）
             tenpai_note = ""
-            adv = tenpai_advice(player)
             if adv:
                 parts = [f"打 {d} → 聽 {' '.join(str(w) for w in waits)}" for d, waits in adv]
                 tenpai_note = "💡 **可進聽**：\n" + "\n".join(parts)
@@ -1812,6 +1817,15 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
 
             db.update_game_state(gid, "playing", gs.to_dict())
 
+            # 一局結束：先把各家手牌面板刪掉，讓結果獨佔畫面（下一局再重建）
+            for uid, hm in list(th.get("hand_msg", {}).items()):
+                if hm:
+                    try:
+                        await hm.delete()
+                    except Exception:
+                        pass
+                th["hand_msg"][uid] = None
+
             # 公開串：和牌儀式（觀戰）或結果文字（聊天串）
             if result is not None:
                 result_msg = await win_ceremony(public, gs, header, hand_str, result, log)
@@ -1847,14 +1861,17 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 except Exception:
                     pass
             for p in new_gs.players:
-                if not p.is_bot:
-                    hm = th["hand_msg"].get(p.user_id)
-                    if hm:
-                        try:
-                            await hm.edit(content=make_hand_panel(p, board_info=_board_info(new_gs)),
-                                          view=make_hand_view(gid))
-                        except Exception:
-                            pass
+                if p.is_bot:
+                    continue
+                pt = th["private"].get(p.user_id)
+                if not pt:
+                    continue
+                try:
+                    th["hand_msg"][p.user_id] = await pt.send(
+                        make_hand_panel(p, board_info=_board_info(new_gs)),
+                        view=make_hand_view(gid))
+                except Exception:
+                    pass
             await asyncio.sleep(1)
 
         gs = _games[gid]
@@ -1984,7 +2001,7 @@ async def play_hand(gid: str, channel: discord.TextChannel,
             can_tsumo  = bool(player.drawn_tile) and evaluate_win(
                 gs, player, player.drawn_tile, is_tsumo=True, is_rinshan=is_rinshan_draw
             ) is not None
-            can_riichi = (not player.riichi) and len(player.melds) == 0 and is_tenpai(player.hand)
+            can_riichi = can_declare_riichi(player)
             full_for_kan = player.hand + ([player.drawn_tile] if player.drawn_tile else [])
             ankan_opts = get_ankan_options(full_for_kan)
             kakan_opts = get_shouminkan_options(player)
