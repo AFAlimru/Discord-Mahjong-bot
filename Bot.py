@@ -592,12 +592,12 @@ def MeldButton(gid: str):
 
 
 def make_hand_view(gid: str) -> discord.ui.View:
-    """手牌面板常駐按鈕：說明 + 看牌河 / 看點數 / 看副露。"""
+    """手牌面板常駐按鈕：看牌河 / 看點數 / 看副露，說明放最右。"""
     v = discord.ui.View(timeout=None)
-    v.add_item(HandHelpButton())
     v.add_item(RiverButton(gid))
     v.add_item(ScoreButton(gid))
     v.add_item(MeldButton(gid))
+    v.add_item(HandHelpButton())
     return v
 
 
@@ -1273,7 +1273,7 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
             view.add_item(b)
 
         if "ron" in actions:
-            add_btn("🀄 榮和", discord.ButtonStyle.success, "ron", None)
+            add_btn("榮和", discord.ButtonStyle.success, "ron", None)
         if "pon" in actions:
             add_btn("碰", discord.ButtonStyle.primary, "pon", None)
         if "kan" in actions:
@@ -1284,17 +1284,31 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
                 add_btn("吃 " + "".join(str(t) for t in srt), discord.ButtonStyle.secondary, "chi", (t1, t2))
         add_btn("跳過", discord.ButtonStyle.danger, "skip", None)
 
+        def prompt_text(rem):
+            return f"⬇️ **{from_name}** 打出 **{discard_tile}**！請選擇（剩 {rem} 秒）"
+
         try:
-            prompt_msg = await pt.send(
-                f"🀄 **{from_name}** 打出 **{discard_tile}**！請選擇（{thinking_time} 秒）",
-                view=view,
-            )
+            prompt_msg = await pt.send(prompt_text(int(thinking_time)), view=view)
         except Exception:
             return None
+
+        async def cd():
+            rem = int(thinking_time)
+            while rem > 0:
+                await asyncio.sleep(1)
+                rem -= 1
+                try:
+                    await prompt_msg.edit(content=prompt_text(rem))
+                except Exception:
+                    pass
+
+        cd_task = asyncio.create_task(cd())
         try:
             res = await asyncio.wait_for(fut, timeout=thinking_time)
         except asyncio.TimeoutError:
             res = ("skip", None)
+        finally:
+            cd_task.cancel()
         try:
             await prompt_msg.delete()
         except Exception:
@@ -1342,8 +1356,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     fut   = asyncio.get_event_loop().create_future()
     state = {"riichi": False}
     view  = discord.ui.View(timeout=float(thinking_time) + 10)
-    # 常駐按鈕：說明 + 看牌河 / 看點數 / 看副露（輪到自己時也能看）
-    view.add_item(HandHelpButton())
+    # 資訊按鈕：看牌河 / 看點數 / 看副露（輪到自己時也能看）；說明最後加（最右）
     view.add_item(RiverButton(gid))
     view.add_item(ScoreButton(gid))
     view.add_item(MeldButton(gid))
@@ -1381,6 +1394,8 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
         add_btn("暗槓", discord.ButtonStyle.secondary, ("ankan", ankan_opts[0]))
     if kita_ok:
         add_btn("拔北", discord.ButtonStyle.secondary, ("kita", None))
+
+    view.add_item(HandHelpButton())   # 說明放最右
 
     await refresh(int(thinking_time))
 
