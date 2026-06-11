@@ -1581,7 +1581,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             # 進聽提示：打哪張可聽、聽哪些（一向聽時很有用）
             tenpai_note = ""
             if adv:
-                parts = [f"打 {d} → 聽 {' '.join(str(w) for w in waits)}" for d, waits in adv]
+                parts = [f"# 打 {d} → 聽 {' '.join(str(w) for w in waits)}" for d, waits in adv]
                 tenpai_note = "💡 **可進聽**：\n" + "\n".join(parts)
                 if can_riichi:
                     tenpai_note += "\n（以上任一打法皆可立直）"
