@@ -406,11 +406,24 @@ def make_thread_board(gs: GameState, status: str = "") -> str:
     return "\n".join(lines)
 
 
-def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = "") -> str:
-    """私人討論串的個人面板：自己的手牌放大 + 提示。"""
+def _last_discard_info(gs: GameState) -> str:
+    """上一張被打出的牌（含打牌者）；牌單獨一行放大。"""
+    if gs is not None and gs.pending_discard is not None and gs.pending_from_seat >= 0:
+        who = gs.players[gs.pending_from_seat].username
+        return f"🀫 上一張：{WIND_LABELS[gs.pending_from_seat]} {who} 打出\n# {gs.pending_discard}"
+    return ""
+
+
+def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = "",
+                    last_info: str = "") -> str:
+    """私人討論串的個人面板：上一張、自己的手牌放大 + 提示。"""
     uni, names = player.hand_display_with_names()
     drawn = f"\n\n🎲 **剛摸到：**\n# {player.drawn_tile}" if player.drawn_tile else ""
-    lines = [
+    lines = []
+    if last_info:
+        lines.append(last_info)
+        lines.append("")
+    lines += [
         "# 你的手牌",
         f"# {uni}" if uni else "（無）",
         names,
@@ -1192,7 +1205,7 @@ async def _ping_turn(thread, uid: str) -> None:
 
 async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
                            can_tsumo, can_riichi, kita_ok, ankan_opts,
-                           prompt_base, tenpai_note):
+                           prompt_base, tenpai_note, last_info=""):
     """輪到玩家：自摸/立直/暗槓/拔北用按鈕，出牌用打字。回傳 (action, arg) 或 None（逾時）。"""
     uid   = player.user_id
     fut   = asyncio.get_event_loop().create_future()
@@ -1204,7 +1217,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
 
     def panel(rem):
         extra = "🀄 已宣告立直，請**打字**打出宣言牌" if state["riichi"] else f"{prompt_base}　（剩 {rem} 秒）"
-        return make_hand_panel(player, extra, tenpai_note)
+        return make_hand_panel(player, extra, tenpai_note, last_info)
 
     async def refresh(rem):
         try:
@@ -1319,7 +1332,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
         hm = hand_msg.get(p.user_id)
         if hm:
             try:
-                await hm.edit(content=make_hand_panel(p, prompt, tenpai_note),
+                await hm.edit(content=make_hand_panel(p, prompt, tenpai_note, _last_discard_info(gs)),
                               view=make_hand_view(gid))
             except Exception:
                 pass
@@ -1411,7 +1424,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 result = await wait_turn_action(
                     gid, player, pt, hm, thinking_time,
                     can_tsumo, can_riichi, kita_ok, ankan_opts,
-                    prompt_base, tenpai_note,
+                    prompt_base, tenpai_note, _last_discard_info(gs),
                 )
             else:
                 await render_hand(player, prompt_base, tenpai_note)
