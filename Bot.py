@@ -474,11 +474,23 @@ def _last_discard_info(gs: GameState) -> str:
     return ""
 
 
+def _board_info(gs: GameState) -> str:
+    """場況 + 寶牌（顯示在手牌上方）。"""
+    total_ind = len(gs.dora_indicators)
+    shown  = [str(t) for t in gs.dora_indicators[:gs.revealed_dora]]
+    hidden = ["🀫"] * (total_ind - gs.revealed_dora)
+    ind    = " ".join(shown + hidden)
+    return f"🀄 {gs.round_label}　本場 {gs.honba}　牌山 {gs.tiles_left}\n寶牌：{ind}"
+
+
 def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = "",
-                    last_info: str = "") -> str:
-    """私人討論串的個人面板：手牌｜剛摸到的牌、副露、提示。"""
+                    last_info: str = "", board_info: str = "") -> str:
+    """私人討論串的個人面板：場況/寶牌、手牌｜剛摸到的牌、副露、提示。"""
     uni, names = player.hand_display_with_names()
     lines = []
+    if board_info:
+        lines.append(board_info)
+        lines.append("")
     if last_info:
         lines.append(last_info)
         lines.append("")
@@ -534,14 +546,11 @@ def result_body(header: str, hand_str: str, result, log, gs: GameState,
 
 
 def make_score_text(gs: GameState) -> str:
-    """各家點數＋風位（給「看點數」按鈕用）。"""
-    lines = [f"**📊 點數**　{gs.round_label}　本場 {gs.honba} ・ 立直棒 {gs.riichi_sticks} ・ 牌山 {gs.tiles_left}"]
+    """各家點數（含風位）。"""
+    lines = ["**📊 點數**"]
     for p in gs.players:
-        cur    = "▶" if p.seat == gs.current_seat else "　"
-        bot    = "🤖" if p.is_bot else ""
-        riichi = "【立直】" if p.riichi else ""
-        kita   = f"　拔北×{p.kita}" if getattr(p, "kita", 0) else ""
-        lines.append(f"{cur} {WIND_LABELS[p.seat]}　{bot}{p.username}{riichi}：**{p.score}** 點{kita}")
+        bot = "🤖" if p.is_bot else ""
+        lines.append(f"{WIND_LABELS[p.seat]}　{bot}{p.username}：**{p.score}** 點")
     return "\n".join(lines)
 
 
@@ -638,7 +647,8 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
             except Exception:
                 pass
             private[p.user_id] = pt
-            hm = await pt.send(make_hand_panel(p, "（等待開始）"), view=make_hand_view(gid))
+            hm = await pt.send(make_hand_panel(p, "（等待開始）", board_info=_board_info(gs)),
+                               view=make_hand_view(gid))
             hand_msg[p.user_id] = hm
         except Exception as e:
             print(f"[threads] 建立 {p.username} 私人討論串失敗：{e}")
@@ -1353,7 +1363,7 @@ async def _ping_turn(thread, uid: str) -> None:
 
 async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
                            can_tsumo, can_riichi, kita_ok, ankan_opts,
-                           prompt_base, tenpai_note, last_info=""):
+                           prompt_base, tenpai_note, last_info="", board_info=""):
     """輪到玩家：自摸/立直/暗槓/拔北用按鈕，出牌用打字。回傳 (action, arg) 或 None（逾時）。"""
     uid   = player.user_id
     fut   = asyncio.get_event_loop().create_future()
@@ -1366,7 +1376,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
 
     def panel(rem):
         extra = "🀄 已宣告立直，請**打字**打出宣言牌" if state["riichi"] else f"{prompt_base}　（剩 {rem} 秒）"
-        return make_hand_panel(player, extra, tenpai_note, last_info)
+        return make_hand_panel(player, extra, tenpai_note, last_info, board_info)
 
     async def refresh(rem):
         try:
@@ -1485,7 +1495,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
         hm = hand_msg.get(p.user_id)
         if hm:
             try:
-                await hm.edit(content=make_hand_panel(p, prompt, tenpai_note, _last_discard_info(gs)),
+                await hm.edit(content=make_hand_panel(p, prompt, tenpai_note,
+                                                      _last_discard_info(gs), _board_info(gs)),
                               view=make_hand_view(gid))
             except Exception:
                 pass
@@ -1585,7 +1596,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 result = await wait_turn_action(
                     gid, player, pt, hm, thinking_time,
                     can_tsumo, can_riichi, kita_ok, ankan_opts,
-                    prompt_base, tenpai_note, _last_discard_info(gs),
+                    prompt_base, tenpai_note, _last_discard_info(gs), _board_info(gs),
                 )
             else:
                 await render_hand(player, prompt_base, tenpai_note)
@@ -1836,7 +1847,8 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     hm = th["hand_msg"].get(p.user_id)
                     if hm:
                         try:
-                            await hm.edit(content=make_hand_panel(p), view=make_hand_view(gid))
+                            await hm.edit(content=make_hand_panel(p, board_info=_board_info(new_gs)),
+                                          view=make_hand_view(gid))
                         except Exception:
                             pass
             await asyncio.sleep(1)
