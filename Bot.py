@@ -1340,9 +1340,11 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     fut   = asyncio.get_event_loop().create_future()
     state = {"riichi": False}
     view  = discord.ui.View(timeout=float(thinking_time) + 10)
-    # 常駐按鈕：說明 + 看牌河
+    # 常駐按鈕：說明 + 看牌河 / 看點數 / 看副露（輪到自己時也能看）
     view.add_item(HandHelpButton())
     view.add_item(RiverButton(gid))
+    view.add_item(ScoreButton(gid))
+    view.add_item(MeldButton(gid))
 
     def panel(rem):
         extra = "🀄 已宣告立直，請**打字**打出宣言牌" if state["riichi"] else f"{prompt_base}　（剩 {rem} 秒）"
