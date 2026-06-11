@@ -492,8 +492,19 @@ def _cleanup(gid: str, channel_id: str) -> None:
         del _channel_games[channel_id]
 
 
+async def _delete_announce(th: dict) -> None:
+    """刪除主頻道的開局公告訊息。"""
+    ann = th.get("announce")
+    if ann is not None:
+        try:
+            await ann.delete()
+        except Exception:
+            pass
+
+
 async def _archive_threads(th: dict) -> None:
-    """對局結束後封存討論串。"""
+    """對局結束後封存討論串，並刪除開局公告。"""
+    await _delete_announce(th)
     threads = [th.get("public")] + list(th.get("private", {}).values())
     for t in threads:
         if t is None:
@@ -505,7 +516,8 @@ async def _archive_threads(th: dict) -> None:
 
 
 async def _delete_threads(th: dict) -> None:
-    """刪除對局的所有討論串（用於 /end 強制結束）。"""
+    """刪除對局的所有討論串與開局公告（用於 /end 強制結束）。"""
+    await _delete_announce(th)
     threads = [th.get("public")] + list(th.get("private", {}).values())
     for t in threads:
         if t is None:
@@ -1127,6 +1139,16 @@ async def _warn(thread, text: str) -> None:
         pass
 
 
+async def _ping_turn(thread, uid: str) -> None:
+    """在玩家私人討論串 @ 一下提醒輪到他，隨即刪除（通知已送出）。"""
+    try:
+        m = await thread.send(f"<@{uid}> 輪到你了！")
+        await asyncio.sleep(0.6)
+        await m.delete()
+    except Exception:
+        pass
+
+
 async def wait_turn_action(player, pt, hand_msg, thinking_time,
                            can_tsumo, can_riichi, kita_ok, ankan_opts,
                            prompt_base, tenpai_note):
@@ -1337,6 +1359,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
 
             pt = private.get(player.user_id)
             hm = hand_msg.get(player.user_id)
+            if pt:
+                asyncio.create_task(_ping_turn(pt, player.user_id))   # @ 提醒（隨即刪）
             result = None
             if pt and hm:
                 result = await wait_turn_action(
@@ -2198,10 +2222,11 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
         _cleanup(gid, str(channel.id))
         return
 
-    await channel.send(
+    announce = await channel.send(
         f"🀄 遊戲開始！牌桌在討論串 {_threads[gid]['public'].mention}，"
         f"真人玩家請到自己的私人討論串出牌（直接打字）。"
     )
+    _threads[gid]["announce"] = announce
     _game_tasks[gid] = asyncio.create_task(match_loop_t(gid, channel))
 
 
