@@ -489,6 +489,18 @@ async def _archive_threads(th: dict) -> None:
             pass
 
 
+async def _delete_threads(th: dict) -> None:
+    """刪除對局的所有討論串（用於 /end 強制結束）。"""
+    threads = [th.get("public")] + list(th.get("private", {}).values())
+    for t in threads:
+        if t is None:
+            continue
+        try:
+            await t.delete()
+        except Exception:
+            pass
+
+
 # ═══════════════════════════════════════════════════════════════
 #  HandButton  (任何玩家點擊 → 私密顯示自己的手牌)
 # ═══════════════════════════════════════════════════════════════
@@ -584,18 +596,19 @@ class FairnessButton(discord.ui.Button):
 
 
 HELP_TEXT = (
-    "**🀄 出牌輸入說明**\n"
-    "輪到你時，按「出牌」會跳出輸入框，照下面的寫法打出你要丟的牌：\n\n"
-    "**數字牌（大小寫皆可）**\n"
-    "・`1m`～`9m`：萬子（一萬～九萬）\n"
-    "・`1p`～`9p`：筒子／餅子（一筒～九筒）\n"
-    "・`1s`～`9s`：條子／索子（一條～九條）\n\n"
-    "**紅寶牌（紅五）**\n"
-    "・`0m`＝紅五萬、`0p`＝紅五筒、`0s`＝紅五條\n\n"
-    "**字牌（大小寫皆可）**\n"
-    "・三元牌：`r`＝中、`wh`＝白、`g`＝發\n"
-    "・風　牌：`e`＝東、`s`＝南、`w`＝西、`n`＝北\n\n"
-    "也可以直接輸入中文牌名，例如 `東`、`中`、`白`。"
+    "**🀄 操作說明（直接在你的私人討論串打字）**\n"
+    "輪到你時，直接在自己的私人討論串輸入下列指令（打完 bot 會自動刪字）：\n\n"
+    "**出牌**\n"
+    "・數字牌：`1m`~`9m`（萬）、`1p`~`9p`（筒）、`1s`~`9s`（索），大小寫皆可\n"
+    "・紅寶牌：`0m` / `0p` / `0s`\n"
+    "・字牌：`東/南/西/北`（或 `e/s/w/n`）、`中`(=`r`)、`白`(=`wh`)、`發`(=`g`)\n\n"
+    "**特殊行動**\n"
+    "・自摸：`tsumo`\n"
+    "・立直：`立直 5m`（指定要打出的牌）\n"
+    "・暗槓：`暗槓 5m`\n"
+    "・拔北（三麻）：`!n`\n\n"
+    "**別人打牌時可回應**\n"
+    "・`ron` 榮和、`pon` 碰、`chi 1` 吃（選編號）、`kan` 槓、`skip` 跳過"
 )
 
 
@@ -2298,10 +2311,13 @@ async def cmd_end(interaction: discord.Interaction) -> None:
         return
     # 先取消正在跑的遊戲迴圈（即使有人正在思考也能立即中止）
     task = _game_tasks.get(gid)
+    th   = _threads.get(gid)
     _cleanup(gid, channel_id)
     if task and not task.done():
         task.cancel()
-    await interaction.response.send_message("✅ 牌局已強制結束。")
+    await interaction.response.send_message("✅ 牌局已強制結束，討論串將關閉。")
+    if th:
+        await _delete_threads(th)
 
 
 @mahjong.command(name="status", description="查看當前牌局狀態")
