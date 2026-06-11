@@ -441,7 +441,12 @@ def make_thread_board(gs: GameState, status: str = "") -> str:
         f"本場 {gs.honba} ・ 立直棒 {gs.riichi_sticks} ・ 牌山 {gs.tiles_left} 張",
         f"寶牌：# {ind_str}",
     ]
-    for p in gs.players:
+    for idx, p in enumerate(gs.players):
+        if idx > 0:
+            # 玩家之間：長分隔線 + 上下留白，明顯分開
+            lines.append("")
+            lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
+            lines.append("")
         wind     = WIND_LABELS[p.seat]
         cur      = "▶" if p.seat == gs.current_seat else "　"
         riichi   = "【立直】" if p.riichi else ""
