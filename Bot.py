@@ -1293,16 +1293,16 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
             view.add_item(b)
 
         if "ron" in actions:
-            add_btn("榮和", discord.ButtonStyle.success, "ron", None)
+            add_btn("榮和", discord.ButtonStyle.danger, "ron", None)        # 紅
         if "pon" in actions:
-            add_btn("碰", discord.ButtonStyle.primary, "pon", None)
+            add_btn("碰", discord.ButtonStyle.primary, "pon", None)         # 藍
         if "kan" in actions:
-            add_btn("槓", discord.ButtonStyle.primary, "kan", None)
+            add_btn("槓", discord.ButtonStyle.primary, "kan", None)         # 藍
         if "chi" in actions:
             for t1, t2 in chi_opts:
                 srt = sorted([t1, t2, discard_tile], key=lambda t: (t.suit, t.value))
-                add_btn("吃 " + "".join(str(t) for t in srt), discord.ButtonStyle.secondary, "chi", (t1, t2))
-        add_btn("跳過", discord.ButtonStyle.danger, "skip", None)
+                add_btn("吃 " + "".join(str(t) for t in srt), discord.ButtonStyle.success, "chi", (t1, t2))  # 綠
+        add_btn("跳過", discord.ButtonStyle.secondary, "skip", None)        # 灰（避免與紅色榮和混淆）
 
         def prompt_text(rem):
             return f"## ⬇️ {from_name} 打出\n# {discard_tile}\n請選擇（剩 {rem} 秒）"
@@ -1407,9 +1407,10 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
         view.add_item(b)
 
     if can_tsumo:
-        add_btn("自摸", discord.ButtonStyle.success, ("tsumo", None))
+        add_btn("自摸", discord.ButtonStyle.danger, ("tsumo", None))       # 紅
     if can_riichi:
-        add_btn("立直", discord.ButtonStyle.success, "riichi")
+        # Discord 沒有黃色按鈕，用 🟡 emoji 近似「黃色立直」
+        add_btn("🟡 立直", discord.ButtonStyle.secondary, "riichi")
     if ankan_opts:
         add_btn("暗槓", discord.ButtonStyle.secondary, ("ankan", ankan_opts[0]))
     if kita_ok:
