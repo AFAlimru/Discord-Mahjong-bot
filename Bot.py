@@ -476,20 +476,23 @@ def _last_discard_info(gs: GameState) -> str:
 
 def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = "",
                     last_info: str = "") -> str:
-    """私人討論串的個人面板：上一張、自己的手牌放大 + 提示。"""
+    """私人討論串的個人面板：手牌｜剛摸到的牌、副露、提示。"""
     uni, names = player.hand_display_with_names()
-    drawn = f"\n\n🎲 **剛摸到：**\n# {player.drawn_tile}" if player.drawn_tile else ""
     lines = []
     if last_info:
         lines.append(last_info)
         lines.append("")
-    lines += [
-        "# 你的手牌",
-        f"# {uni}" if uni else "（無）",
-        names,
-    ]
-    if drawn:
-        lines.append(drawn)
+    lines.append("# 你的手牌")
+    # 手牌 ｜ 剛摸到的牌（| 右邊為剛摸到）
+    if player.drawn_tile:
+        lines.append(f"# {uni} | {player.drawn_tile}" if uni else f"# | {player.drawn_tile}")
+    else:
+        lines.append(f"# {uni}" if uni else "（無）")
+    if names:
+        lines.append(names)
+    # 副露（碰/吃/槓後）換行顯示
+    if player.melds:
+        lines.append("副露：" + "　".join(str(m) for m in player.melds))
     if tenpai_note:
         lines.append("")
         lines.append(tenpai_note)
