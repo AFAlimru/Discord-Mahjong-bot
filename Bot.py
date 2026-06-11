@@ -79,13 +79,24 @@ AI_NAMES    = ["小春", "小夏", "小秋", "小冬"]
 
 @bot.event
 async def on_message(message: discord.Message) -> None:
-    """讀取玩家在自己私人討論串打的字，投入對應的輸入佇列。"""
+    """讀取玩家在自己私人討論串打的字；公開牌桌討論串則禁止打字。"""
     if message.author.bot:
         return
     uid = str(message.author.id)
     q = _input_queues.get(uid)
     if q is not None and message.channel.id == _input_thread.get(uid):
         await q.put((message.content.strip(), message))
+        return
+    # 公開牌桌討論串：限制打字，直接刪除（保持乾淨）
+    gid = _thread_game.get(message.channel.id)
+    if gid:
+        th = _threads.get(gid)
+        pub = th.get("public") if th else None
+        if pub is not None and message.channel.id == pub.id:
+            try:
+                await message.delete()
+            except Exception:
+                pass
 
 
 async def wait_typed(uid: str, thread: discord.abc.Messageable, thread_id: int,
@@ -304,6 +315,33 @@ def hand_waits(player: PlayerState) -> set:
     return waits
 
 
+def tenpai_advice(player: PlayerState) -> list:
+    """輪到時（14 張）分析：回傳 [(要打的牌, [待牌...]), ...]，即打哪張可進聽、聽哪些。"""
+    full = list(player.hand) + ([player.drawn_tile] if player.drawn_tile else [])
+    meld_tiles = [t for m in player.melds for t in m.tiles[:3]]
+    if (len(full) + len(meld_tiles)) % 3 != 2:
+        return []
+    results = []
+    seen = set()
+    for d in full:
+        key = (int(d.suit), d.value)
+        if key in seen:
+            continue
+        seen.add(key)
+        remaining = list(full)
+        remaining.remove(d)
+        base = remaining + meld_tiles
+        waits = []
+        for suit in (Suit.MAN, Suit.SOU, Suit.PIN, Suit.WIND, Suit.DRAGON):
+            rng = 9 if suit in (Suit.MAN, Suit.SOU, Suit.PIN) else (4 if suit == Suit.WIND else 3)
+            for v in range(1, rng + 1):
+                if is_complete(base + [Tile(suit, v)]):
+                    waits.append(Tile(suit, v))
+        if waits:
+            results.append((d, waits))
+    return results
+
+
 def is_furiten(player: PlayerState, perm: dict, temp: dict) -> bool:
     """振聽判定：永久(立直)振聽 / 同巡振聽 / 捨牌振聽（待牌曾在自己牌河）。"""
     if perm.get(player.seat) or temp.get(player.seat):
@@ -407,10 +445,10 @@ def make_thread_board(gs: GameState, status: str = "") -> str:
 
 
 def _last_discard_info(gs: GameState) -> str:
-    """上一張被打出的牌（含打牌者）；牌單獨一行放大。"""
+    """上家剛打出的牌（含打牌者）；牌單獨一行放大。"""
     if gs is not None and gs.pending_discard is not None and gs.pending_from_seat >= 0:
         who = gs.players[gs.pending_from_seat].username
-        return f"🀫 上一張：{WIND_LABELS[gs.pending_from_seat]} {who} 打出\n# {gs.pending_discard}"
+        return f"🀫 上家：{WIND_LABELS[gs.pending_from_seat]} {who} 打出\n# {gs.pending_discard}"
     return ""
 
 
@@ -1406,10 +1444,14 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             ankan_opts = get_ankan_options(player.hand + ([player.drawn_tile] if player.drawn_tile else []))
             kita_ok    = gs.is_sanma and has_kita(player)
 
+            # 進聽提示：打哪張可聽、聽哪些（一向聽時很有用）
             tenpai_note = ""
-            if is_tenpai(player.hand):
-                waits = get_tenpai_waits(player.hand)
-                tenpai_note = f"🀄 **聽牌！** 待牌：{' '.join(str(t) for t in waits)}"
+            adv = tenpai_advice(player)
+            if adv:
+                parts = [f"打 {d} → 聽 {' '.join(str(w) for w in waits)}" for d, waits in adv]
+                tenpai_note = "💡 **可進聽**：\n" + "\n".join(parts)
+                if can_riichi:
+                    tenpai_note += "\n（以上任一打法皆可立直）"
 
             prompt_base = "✍️ **打字**丟牌（如 `5m` `東`）；自摸／立直／暗槓／拔北用下方按鈕"
 
