@@ -1292,6 +1292,13 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
             b.callback = cb
             view.add_item(b)
 
+        CIRC = "①②③④⑤"
+        # 吃的候選組合：牌面寫在訊息裡（放大），不塞進按鈕
+        chi_combos = []
+        for t1, t2 in chi_opts:
+            srt = sorted([t1, t2, discard_tile], key=lambda t: (t.suit, t.value))
+            chi_combos.append(" ".join(str(t) for t in srt))
+
         if "ron" in actions:
             add_btn("榮和", discord.ButtonStyle.danger, "ron", None)        # 紅
         if "pon" in actions:
@@ -1299,13 +1306,20 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
         if "kan" in actions:
             add_btn("槓", discord.ButtonStyle.primary, "kan", None)         # 藍
         if "chi" in actions:
-            for t1, t2 in chi_opts:
-                srt = sorted([t1, t2, discard_tile], key=lambda t: (t.suit, t.value))
-                add_btn("吃 " + "".join(str(t) for t in srt), discord.ButtonStyle.success, "chi", (t1, t2))  # 綠
+            for idx, (t1, t2) in enumerate(chi_opts):
+                lbl = "吃" if len(chi_opts) == 1 else f"吃{CIRC[idx]}"
+                add_btn(lbl, discord.ButtonStyle.success, "chi", (t1, t2))  # 綠
         add_btn("跳過", discord.ButtonStyle.secondary, "skip", None)        # 灰（避免與紅色榮和混淆）
 
         def prompt_text(rem):
-            return f"## ⬇️ {from_name} 打出\n# {discard_tile}\n請選擇（剩 {rem} 秒）"
+            lines = [f"## ⬇️ {from_name} 打出", f"# {discard_tile}"]
+            if len(chi_combos) == 1:
+                lines.append(f"# 吃 {chi_combos[0]}")
+            else:
+                for idx, cmb in enumerate(chi_combos):
+                    lines.append(f"# 吃{CIRC[idx]} {cmb}")
+            lines.append(f"請選擇（剩 {rem} 秒）")
+            return "\n".join(lines)
 
         try:
             prompt_msg = await pt.send(prompt_text(int(thinking_time)), view=view)
