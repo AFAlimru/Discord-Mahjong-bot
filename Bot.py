@@ -1388,7 +1388,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     """輪到玩家：自摸/立直/暗槓/拔北用按鈕，出牌用打字。回傳 (action, arg) 或 None（逾時）。"""
     uid   = player.user_id
     fut   = asyncio.get_event_loop().create_future()
-    state = {"riichi": False}
+    state = {"riichi": False, "rem": int(thinking_time)}
     view  = discord.ui.View(timeout=float(thinking_time) + 10)
     # 資訊按鈕：看牌河 / 看點數 / 看副露（輪到自己時也能看）；說明最後加（最右）
     view.add_item(RiverButton(gid))
@@ -1396,7 +1396,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     view.add_item(MeldButton(gid))
 
     def panel(rem):
-        extra = "🀄 已宣告立直，請**打字**打出宣言牌" if state["riichi"] else f"{prompt_base}　（剩 {rem} 秒）"
+        extra = "🀄 已宣告立直，請**打字**打出宣言牌（再按一次「立直」可取消）" if state["riichi"] else f"{prompt_base}　（剩 {rem} 秒）"
         return make_hand_panel(player, extra, tenpai_note, last_info, board_info)
 
     async def refresh(rem):
@@ -1413,8 +1413,8 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
                 return
             await inter.response.defer()
             if kind == "riichi":
-                state["riichi"] = True
-                await refresh(0)
+                state["riichi"] = not state["riichi"]   # 再按一次取消立直
+                await refresh(state["rem"])
             elif not fut.done():
                 fut.set_result(kind)
         b.callback = cb
@@ -1442,6 +1442,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
         while rem > 0:
             await asyncio.sleep(1)
             rem -= 1
+            state["rem"] = rem
             if not state["riichi"]:
                 await refresh(rem)
 
