@@ -389,8 +389,8 @@ def make_thread_board(gs: GameState, status: str = "") -> str:
         riichi   = "【立直】" if p.riichi else ""
         bot_mark = "🤖" if p.is_bot else ""
         kita     = f"　拔北×{p.kita}" if getattr(p, "kita", 0) else ""
-        # 玩家整行放大
-        lines.append(f"## {cur} {wind} {bot_mark}{p.username}{riichi}（{p.score}點）{kita}")
+        # 玩家整行放大，名字用「」標註
+        lines.append(f"## {cur} {wind} {bot_mark}「{p.username}」{riichi}（{p.score}點）{kita}")
         # 副露只在有時顯示
         if p.melds:
             lines.append("副露：" + "　".join(str(m) for m in p.melds))
@@ -1201,18 +1201,29 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             if can_riichi: opts.append("`立直 5m`")
             if kita_ok:    opts.append("`!n`")
             if ankan_opts: opts.append(f"`暗槓 {ankan_opts[0].short}`")
-            prompt = f"✍️ 在此輸入：{' / '.join(opts)}　（{thinking_time} 秒）"
+            prompt_base = f"✍️ 在此輸入：{' / '.join(opts)}"
 
             await render_board(f"輪到 <@{player.user_id}>（{WIND_LABELS[player.seat]}）出牌")
-            await render_hand(player, prompt, tenpai_note)
+            await render_hand(player, f"{prompt_base}　（剩 {int(thinking_time)} 秒）", tenpai_note)
 
             pt = private.get(player.user_id)
             result = None
             if pt:
-                result = await wait_typed(
-                    player.user_id, pt, pt.id, thinking_time,
-                    lambda raw: _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts),
-                )
+                # 即時倒數：另開任務每秒更新手牌面板的剩餘秒數
+                async def _countdown():
+                    rem = int(thinking_time)
+                    while rem > 0:
+                        await asyncio.sleep(1)
+                        rem -= 1
+                        await render_hand(player, f"{prompt_base}　（剩 {rem} 秒）", tenpai_note)
+                cd_task = asyncio.create_task(_countdown())
+                try:
+                    result = await wait_typed(
+                        player.user_id, pt, pt.id, thinking_time,
+                        lambda raw: _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts),
+                    )
+                finally:
+                    cd_task.cancel()
 
             timed = result is None
             action, arg = ("discard", None) if timed else result
