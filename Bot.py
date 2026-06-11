@@ -58,8 +58,79 @@ _game_tasks:        dict[str, asyncio.Task]     = {}
 # game_id -> LobbyView (for /join to update the lobby message)
 _lobbies:           dict[str, "LobbyView"]      = {}
 
+# ─── 0.2 討論串 UI ─────────────────────────────────────────────
+# game_id -> {"public": Thread, "board_msg": Message,
+#             "private": {uid: Thread}, "hand_msg": {uid: Message}}
+_threads:           dict[str, dict]             = {}
+# user_id -> asyncio.Queue（等待該玩家打字輸入時存在；on_message 投入 (raw, message)）
+_input_queues:      dict[str, asyncio.Queue]    = {}
+# user_id -> 該玩家應輸入的討論串 channel id（驗證打字來源）
+_input_thread:      dict[str, int]              = {}
+
 WIND_LABELS = ["東", "南", "西", "北"]
 AI_NAMES    = ["小春", "小夏", "小秋", "小冬"]
+
+
+# ═══════════════════════════════════════════════════════════════
+#  打字輸入（討論串）
+# ═══════════════════════════════════════════════════════════════
+
+@bot.event
+async def on_message(message: discord.Message) -> None:
+    """讀取玩家在自己私人討論串打的字，投入對應的輸入佇列。"""
+    if message.author.bot:
+        return
+    uid = str(message.author.id)
+    q = _input_queues.get(uid)
+    if q is not None and message.channel.id == _input_thread.get(uid):
+        await q.put((message.content.strip(), message))
+
+
+async def wait_typed(uid: str, thread: discord.abc.Messageable, thread_id: int,
+                     timeout: float, validate) -> Optional[tuple]:
+    """
+    等待玩家在其私人討論串打字。validate(raw) 回傳 (ok, value, err)。
+    收到一則訊息就刪除它；有效 → 回傳 ('value', value)；無效 → 提示後繼續等。
+    逾時 → 回傳 None。
+    """
+    import time as _time
+    q: asyncio.Queue = asyncio.Queue()
+    _input_queues[uid] = q
+    _input_thread[uid] = thread_id
+    deadline = _time.monotonic() + timeout
+    try:
+        while True:
+            remaining = deadline - _time.monotonic()
+            if remaining <= 0:
+                return None
+            try:
+                raw, msg = await asyncio.wait_for(q.get(), timeout=remaining)
+            except asyncio.TimeoutError:
+                return None
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            ok, value, err = validate(raw)
+            if ok:
+                return value
+            # 無效輸入 → 暫時提示（稍後自動刪）
+            try:
+                warn = await thread.send(f"❌ {err}")
+                asyncio.create_task(_delete_later(warn, 4))
+            except Exception:
+                pass
+    finally:
+        _input_queues.pop(uid, None)
+        _input_thread.pop(uid, None)
+
+
+async def _delete_later(msg: discord.Message, delay: float) -> None:
+    await asyncio.sleep(delay)
+    try:
+        await msg.delete()
+    except Exception:
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -295,20 +366,127 @@ def make_board_text(gs: GameState, status: str = "", open_hand: bool = False) ->
     return "\n".join(lines)
 
 
+# ═══════════════════════════════════════════════════════════════
+#  0.2 討論串渲染
+# ═══════════════════════════════════════════════════════════════
+
+def make_thread_board(gs: GameState, status: str = "") -> str:
+    """公開討論串的牌桌：玩家整行放大、副露只在有時顯示、牌河放大。"""
+    mode      = "三麻" if gs.is_sanma else "四麻"
+    total_ind = len(gs.dora_indicators)
+    shown     = [str(t) for t in gs.dora_indicators[:gs.revealed_dora]]
+    hidden    = ["🀫"] * (total_ind - gs.revealed_dora)
+    ind_str   = " ".join(shown + hidden)
+
+    lines = [
+        f"## 🀄 {gs.round_label}　{mode}",
+        f"本場 {gs.honba} ・ 立直棒 {gs.riichi_sticks} ・ 牌山 {gs.tiles_left} 張",
+        f"寶牌：# {ind_str}",
+    ]
+    for p in gs.players:
+        wind     = WIND_LABELS[p.seat]
+        cur      = "▶" if p.seat == gs.current_seat else "　"
+        riichi   = "【立直】" if p.riichi else ""
+        bot_mark = "🤖" if p.is_bot else ""
+        kita     = f"　拔北×{p.kita}" if getattr(p, "kita", 0) else ""
+        # 玩家整行放大
+        lines.append(f"## {cur} {wind} {bot_mark}{p.username}{riichi}（{p.score}點）{kita}")
+        # 副露只在有時顯示
+        if p.melds:
+            lines.append("副露：" + "　".join(str(m) for m in p.melds))
+        disc = " ".join(str(t) for t in p.discards[-18:]) if p.discards else "—"
+        lines.append(f"牌河（{len(p.discards)}）：")
+        lines.append(f"## {disc}")
+    if status:
+        lines.append("")
+        lines.append("\n".join(f"> {s}" for s in status.split("\n")))
+    return "\n".join(lines)
+
+
+def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = "") -> str:
+    """私人討論串的個人面板：自己的手牌放大 + 提示。"""
+    uni, names = player.hand_display_with_names()
+    drawn = f"\n\n🎲 **剛摸到：**\n# {player.drawn_tile}" if player.drawn_tile else ""
+    lines = [
+        "# 你的手牌",
+        f"# {uni}" if uni else "（無）",
+        names,
+    ]
+    if drawn:
+        lines.append(drawn)
+    if tenpai_note:
+        lines.append("")
+        lines.append(tenpai_note)
+    if prompt:
+        lines.append("")
+        lines.append(prompt)
+    return "\n".join(lines)
+
+
+async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState) -> None:
+    """建立公開遊戲討論串 + 每位真人玩家的私人討論串。"""
+    public = await channel.create_thread(
+        name=f"🀄 麻將 {gs.round_label}",
+        type=discord.ChannelType.public_thread,
+    )
+    board_msg = await public.send(make_thread_board(gs, "🀄 遊戲開始，輪到莊家。"))
+
+    private: dict[str, discord.Thread] = {}
+    hand_msg: dict[str, discord.Message] = {}
+    for p in gs.players:
+        if p.is_bot:
+            continue
+        try:
+            pt = await channel.create_thread(
+                name=f"🀫 {p.username} 的手牌",
+                type=discord.ChannelType.private_thread,
+                invitable=False,
+            )
+            try:
+                await pt.add_user(discord.Object(id=int(p.user_id)))
+            except Exception:
+                pass
+            private[p.user_id] = pt
+            hm = await pt.send(make_hand_panel(p, "（等待開始）"))
+            hand_msg[p.user_id] = hm
+        except Exception as e:
+            print(f"[threads] 建立 {p.username} 私人討論串失敗：{e}")
+
+    _threads[gid] = {
+        "public": public, "board_msg": board_msg,
+        "private": private, "hand_msg": hand_msg,
+    }
+
+
 def _cleanup(gid: str, channel_id: str) -> None:
     gs = _games.pop(gid, None)
     if gs:
         for p in gs.players:
             _user_game.pop(p.user_id, None)
             _active_turn.pop(p.user_id, None)
+            _input_queues.pop(p.user_id, None)
+            _input_thread.pop(p.user_id, None)
     _waiting.pop(gid, None)
     _room_owners.pop(gid, None)
     _room_configs.pop(gid, None)
     _pending_reactions.pop(gid, None)
     _game_tasks.pop(gid, None)
     _lobbies.pop(gid, None)
+    _threads.pop(gid, None)
     if _channel_games.get(channel_id) == gid:
         del _channel_games[channel_id]
+
+
+async def _archive_threads(th: dict) -> None:
+    """對局結束後封存討論串。"""
+    threads = [th.get("public")] + list(th.get("private", {}).values())
+    for t in threads:
+        if t is None:
+            continue
+        try:
+            await t.edit(archived=True, locked=True)
+        except Exception:
+            pass
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -769,7 +947,501 @@ async def collect_chankan(
 
 
 # ═══════════════════════════════════════════════════════════════
-#  Game loop
+#  0.2 討論串：打字輸入解析 + 反應收集 + 對局迴圈
+# ═══════════════════════════════════════════════════════════════
+
+def _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts):
+    """解析玩家輪到時打的字 → (ok, (action, arg), err)。"""
+    s = raw.strip()
+    low = s.lower()
+    if low in ("tsumo", "自摸", "zimo"):
+        return (True, ("tsumo", None), "") if can_tsumo else (False, None, "現在無法自摸")
+    if low in ("!n", "n!", "拔北", "kita"):
+        return (True, ("kita", None), "") if kita_ok else (False, None, "現在無法拔北")
+    if low.startswith(("riichi", "reach")) or s.startswith("立直"):
+        rest = s
+        for kw in ("riichi", "reach", "立直", "RIICHI", "Reach"):
+            rest = rest.replace(kw, "")
+        rest = rest.strip()
+        if not can_riichi:
+            return (False, None, "現在無法立直")
+        t = parse_tile(rest, player.hand, player.drawn_tile)
+        if not t:
+            return (False, None, "立直需指定要打的牌，例如：立直 5m")
+        test = list(player.hand)
+        dt = player.drawn_tile
+        if t == dt:
+            dt = None
+        elif t in test:
+            test.remove(t)
+        if not is_tenpai(test + ([dt] if dt else [])):
+            return (False, None, "打出該牌後未聽牌，不能立直")
+        return (True, ("riichi", t), "")
+    if s.startswith(("暗槓", "暗杠")) or low.startswith("ankan"):
+        rest = s
+        for kw in ("暗槓", "暗杠", "ankan", "ANKAN"):
+            rest = rest.replace(kw, "")
+        rest = rest.strip()
+        t = parse_tile(rest, player.hand, player.drawn_tile) if rest else (ankan_opts[0] if ankan_opts else None)
+        if t and any(o.suit == t.suit and o.value == t.value for o in ankan_opts):
+            return (True, ("ankan", t), "")
+        return (False, None, "無法暗槓該牌")
+    t = parse_tile(s, player.hand, player.drawn_tile)
+    if t:
+        return (True, ("discard", t), "")
+    return (False, None, f"看不懂「{raw}」，請打出要丟的牌（如 5m、東、中）")
+
+
+async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
+                              furiten_perm, furiten_temp):
+    """討論串版反應收集：在各玩家私人討論串貼提示、等打字。回傳 (choice, uid, extra) 或 None。"""
+    th        = _threads.get(gid, {})
+    private   = th.get("private", {})
+    next_seat = (from_seat + 1) % len(gs.players)
+    from_name = gs.players[from_seat].username
+
+    results = []   # (priority, seat, choice, extra)
+    candidates = []
+    for p in gs.players:
+        if p.seat == from_seat:
+            continue
+        if p.is_bot:
+            if ai_should_ron(gs, p, discard_tile, furiten_perm, furiten_temp):
+                results.append((0, p.seat, "ron", None))
+            elif ai_should_pon(p.hand, discard_tile):
+                results.append((1, p.seat, "pon", None))
+            continue
+        ron_ok = (not is_furiten(p, furiten_perm, furiten_temp)) and \
+                 evaluate_win(gs, p, discard_tile, is_tsumo=False) is not None
+        actions, chi_opts = [], []
+        if ron_ok:
+            actions.append("ron")
+        if count_tiles(p.hand, discard_tile) >= 2:
+            actions.append("pon")
+        if count_tiles(p.hand, discard_tile) >= 3:
+            actions.append("kan")
+        if p.seat == next_seat and not gs.is_sanma:
+            chi_opts = get_chi_options(p.hand, discard_tile)
+            if chi_opts:
+                actions.append("chi")
+        if actions:
+            candidates.append((p, actions, chi_opts))
+
+    async def ask(p, actions, chi_opts):
+        pt = private.get(p.user_id)
+        if not pt:
+            return None
+        act_str = " / ".join(f"`{a}`" for a in actions if a != "chi")
+        chi_str = ""
+        if "chi" in actions:
+            for i, (t1, t2) in enumerate(chi_opts, 1):
+                srt = sorted([t1, t2, discard_tile], key=lambda t: (t.suit, t.value))
+                chi_str += f"\n吃選項{i}（打 `chi {i}`）：\n# " + " ".join(str(t) for t in srt)
+        try:
+            prompt_msg = await pt.send(
+                f"🀄 **{from_name}** 打出 **{discard_tile}**！\n"
+                f"可回應：{act_str} 或 `skip`{chi_str}\n（{thinking_time} 秒）"
+            )
+        except Exception:
+            return None
+
+        def validate(raw):
+            lw = raw.strip().lower()
+            if lw in ("skip", "跳過", "pass", "s"):
+                return (True, ("skip", None), "")
+            if lw in ("ron", "榮", "榮和", "胡") and "ron" in actions:
+                return (True, ("ron", None), "")
+            if lw in ("pon", "碰") and "pon" in actions:
+                return (True, ("pon", None), "")
+            if lw in ("kan", "槓", "杠") and "kan" in actions:
+                return (True, ("kan", None), "")
+            if (lw.startswith("chi") or lw.startswith("吃")) and "chi" in actions:
+                num = "".join(ch for ch in lw if ch.isdigit())
+                idx = (int(num) - 1) if num else 0
+                if 0 <= idx < len(chi_opts):
+                    return (True, ("chi", chi_opts[idx]), "")
+                return (False, None, "吃選項編號無效")
+            return (False, None, f"可回應：{act_str} 或 skip")
+
+        res = await wait_typed(p.user_id, pt, pt.id, thinking_time, validate)
+        try:
+            await prompt_msg.delete()
+        except Exception:
+            pass
+        if res is None or res[0] == "skip":
+            return None
+        choice, extra = res
+        pr = {"ron": 0, "pon": 1, "kan": 1, "chi": 2}.get(choice, 9)
+        return (pr, p.seat, choice, extra)
+
+    if candidates:
+        human = await asyncio.gather(*[ask(p, a, c) for p, a, c in candidates])
+        results.extend(r for r in human if r is not None)
+
+    if not results:
+        return None
+    results.sort(key=lambda x: x[0])
+    _, seat, choice, extra = results[0]
+    return (choice, gs.players[seat].user_id, extra)
+
+
+async def play_hand_t(gid: str, channel: discord.TextChannel):
+    """0.2：以討論串 + 打字輸入進行「一局」。回傳同 play_hand。"""
+    gs            = _games[gid]
+    config        = _room_configs.get(gid, {})
+    thinking_time = config.get("thinking_time", 25)
+    th            = _threads[gid]
+    board_msg     = th["board_msg"]
+    private       = th["private"]
+    hand_msg      = th["hand_msg"]
+
+    async def render_board(status=""):
+        try:
+            await board_msg.edit(content=make_thread_board(gs, status))
+        except Exception:
+            pass
+
+    async def render_hand(p, prompt="", tenpai_note=""):
+        hm = hand_msg.get(p.user_id)
+        if hm:
+            try:
+                await hm.edit(content=make_hand_panel(p, prompt, tenpai_note))
+            except Exception:
+                pass
+
+    furiten_perm = {p.seat: False for p in gs.players}
+    temp_furiten = {p.seat: False for p in gs.players}
+    ippatsu      = {p.seat: False for p in gs.players}
+    double_rii   = {p.seat: False for p in gs.players}
+    any_call     = False
+    rinshan_next = False
+    no_draw      = False
+
+    while True:
+        if _games.get(gid) is not gs:
+            return None
+        player = gs.players[gs.current_seat]
+        is_rinshan_draw = False
+        temp_furiten[player.seat] = False
+
+        if no_draw:
+            no_draw = False
+            player.drawn_tile = None
+        else:
+            tile = gs.draw_tile()
+            if tile is None:
+                return ("draw", [p.seat for p in gs.players if is_tenpai(p.hand)])
+            player.drawn_tile = tile
+            is_rinshan_draw = rinshan_next
+            rinshan_next = False
+        ipp_start = ippatsu[player.seat]
+
+        # ── AI ──────────────────────────────────────────────
+        if player.is_bot:
+            res = evaluate_win(
+                gs, player, player.drawn_tile, is_tsumo=True, is_rinshan=is_rinshan_draw,
+                is_tenhou=(player.is_dealer and not player.discards and not any_call),
+                is_chiihou=((not player.is_dealer) and not player.discards and not any_call),
+            ) if player.drawn_tile else None
+            if res:
+                hs = format_winning_hand(player, player.drawn_tile)
+                await render_board(f"🎉 🤖 {player.username} 自摸！")
+                return ("tsumo", player.seat, res, hs)
+            if gs.is_sanma and has_kita(player):
+                if player.drawn_tile is not None:
+                    player.hand.append(player.drawn_tile); player.drawn_tile = None
+                for i, t in enumerate(player.hand):
+                    if t.suit == Suit.WIND and t.value == 4:
+                        player.hand.pop(i); break
+                player.kita += 1
+                await render_board(f"🤖 {player.username} 拔北 ×{player.kita}")
+                await asyncio.sleep(0.6)
+                continue
+            drawn = player.drawn_tile
+            if player.drawn_tile is not None:
+                player.hand.append(player.drawn_tile); player.drawn_tile = None
+            discard_tile = ai_choose_discard(player.hand)
+            if discard_tile is None:
+                return ("draw", [p.seat for p in gs.players if is_tenpai(p.hand)])
+            player.hand.remove(discard_tile)
+            player.discards.append(discard_tile)
+            giri = "摸切" if (drawn is not None and discard_tile == drawn) else "手切"
+            nxt = gs.players[(player.seat + 1) % len(gs.players)].username
+            await render_board(f"🤖 {player.username} 出牌了（{giri}），輪到 {nxt}")
+            await asyncio.sleep(1.0)
+
+        # ── Human（打字）────────────────────────────────────
+        else:
+            can_tsumo  = bool(player.drawn_tile) and evaluate_win(
+                gs, player, player.drawn_tile, is_tsumo=True, is_rinshan=is_rinshan_draw) is not None
+            can_riichi = (not player.riichi) and len(player.melds) == 0 and is_tenpai(player.hand)
+            ankan_opts = get_ankan_options(player.hand + ([player.drawn_tile] if player.drawn_tile else []))
+            kita_ok    = gs.is_sanma and has_kita(player)
+
+            tenpai_note = ""
+            if is_tenpai(player.hand):
+                waits = get_tenpai_waits(player.hand)
+                tenpai_note = f"🀄 **聽牌！** 待牌：{' '.join(str(t) for t in waits)}"
+
+            opts = ["打出的牌（如 `5m` `東`）"]
+            if can_tsumo:  opts.append("`tsumo`")
+            if can_riichi: opts.append("`立直 5m`")
+            if kita_ok:    opts.append("`!n`")
+            if ankan_opts: opts.append(f"`暗槓 {ankan_opts[0].short}`")
+            prompt = f"✍️ 在此輸入：{' / '.join(opts)}　（{thinking_time} 秒）"
+
+            await render_board(f"輪到 <@{player.user_id}>（{WIND_LABELS[player.seat]}）出牌")
+            await render_hand(player, prompt, tenpai_note)
+
+            pt = private.get(player.user_id)
+            result = None
+            if pt:
+                result = await wait_typed(
+                    player.user_id, pt, pt.id, thinking_time,
+                    lambda raw: _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts),
+                )
+
+            timed = result is None
+            action, arg = ("discard", None) if timed else result
+
+            # ── Tsumo ──
+            if action == "tsumo":
+                res = evaluate_win(
+                    gs, player, player.drawn_tile, is_tsumo=True, is_rinshan=is_rinshan_draw,
+                    is_ippatsu=ippatsu[player.seat], is_double_riichi=double_rii[player.seat],
+                    is_tenhou=(player.is_dealer and not player.discards and not any_call),
+                    is_chiihou=((not player.is_dealer) and not player.discards and not any_call),
+                )
+                if res:
+                    hs = format_winning_hand(player, player.drawn_tile)
+                    await render_board(f"🎉 {player.username} 自摸！")
+                    return ("tsumo", player.seat, res, hs)
+                action = "discard"  # 萬一無效退回出牌
+
+            # ── 拔北 ──
+            if action == "kita":
+                if player.drawn_tile is not None:
+                    player.hand.append(player.drawn_tile); player.drawn_tile = None
+                for i, t in enumerate(player.hand):
+                    if t.suit == Suit.WIND and t.value == 4:
+                        player.hand.pop(i); break
+                player.kita += 1
+                await render_hand(player)
+                await render_board(f"{player.username} 拔北 ×{player.kita}")
+                continue
+
+            # ── 暗槓 ──
+            if action == "ankan" and ankan_opts:
+                kan_tile = arg
+                player.hand = [t for t in player.hand
+                               if not (t.suit == kan_tile.suit and t.value == kan_tile.value)]
+                if player.drawn_tile and player.drawn_tile.suit == kan_tile.suit and player.drawn_tile.value == kan_tile.value:
+                    player.drawn_tile = None
+                player.melds.append(Meld(MeldType.ANKAN, [Tile(kan_tile.suit, kan_tile.value)] * 4, -1))
+                gs.open_dora()
+                any_call = True
+                for s in ippatsu:
+                    ippatsu[s] = False
+                rinshan_next = True
+                await render_hand(player)
+                await render_board(f"{player.username} 暗槓 {kan_tile}")
+                continue
+
+            # ── 出牌 / 立直 ──
+            if timed or arg is None:
+                discard_tile = player.drawn_tile if player.drawn_tile else player.hand[-1]
+            else:
+                discard_tile = arg
+            drawn = player.drawn_tile
+            giri = "摸切" if (drawn is not None and discard_tile == drawn) else "手切"
+
+            if action == "riichi" and not player.riichi:
+                player.riichi = True
+                gs.riichi_sticks += 1
+                player.score -= 1000
+                double_rii[player.seat] = (not any_call) and (len(player.discards) == 0)
+                ippatsu[player.seat] = True
+                word = "宣告立直！"
+            elif timed:
+                word = "超時自動打出"
+            else:
+                word = "出牌了"
+
+            if player.drawn_tile is not None:
+                player.hand.append(player.drawn_tile); player.drawn_tile = None
+            if discard_tile in player.hand:
+                player.hand.remove(discard_tile)
+            player.discards.append(discard_tile)
+            if ipp_start:
+                ippatsu[player.seat] = False
+
+            post_note = ""
+            if is_tenpai(player.hand) and not player.riichi:
+                waits = get_tenpai_waits(player.hand)
+                post_note = f"🀄 **聽牌！** 待牌：{' '.join(str(t) for t in waits)}"
+            await render_hand(player, "", post_note)
+
+            nxt = gs.players[(player.seat + 1) % len(gs.players)].username
+            await render_board(f"{player.username} {word}（{giri}），輪到 {nxt}")
+
+        gs.pending_discard   = discard_tile
+        gs.pending_from_seat = player.seat
+
+        # ── 反應（打字）──
+        reaction = await collect_reactions_t(gs, gid, discard_tile, player.seat, thinking_time,
+                                             furiten_perm, temp_furiten)
+        wkey = (int(discard_tile.suit), discard_tile.value)
+        for p in gs.players:
+            if p.seat != player.seat and wkey in hand_waits(p):
+                temp_furiten[p.seat] = True
+                if p.riichi:
+                    furiten_perm[p.seat] = True
+
+        if reaction:
+            rtype, r_uid, extra = reaction
+            rp = next((p for p in gs.players if p.user_id == r_uid), None)
+            from_name = player.username
+            if rtype == "ron" and rp:
+                res = evaluate_win(gs, rp, discard_tile, is_tsumo=False,
+                                   is_ippatsu=ippatsu[rp.seat], is_double_riichi=double_rii[rp.seat])
+                if res:
+                    hs = format_winning_hand(rp, discard_tile)
+                    await render_board(f"🎉 {rp.username} 榮和 {from_name} 的 {discard_tile}！")
+                    return ("ron", rp.seat, player.seat, res, hs)
+                await render_board(f"❌ {rp.username} 榮和無效")
+            elif rtype == "pon" and rp:
+                removed, new_hand = 0, []
+                for t in rp.hand:
+                    if t.suit == discard_tile.suit and t.value == discard_tile.value and removed < 2:
+                        removed += 1
+                    else:
+                        new_hand.append(t)
+                rp.hand = new_hand
+                rp.melds.append(Meld(MeldType.PON, [Tile(discard_tile.suit, discard_tile.value)] * 3, player.seat))
+                gs.current_seat = rp.seat
+                no_draw = True
+                any_call = True
+                for s in ippatsu:
+                    ippatsu[s] = False
+                await render_hand(rp)
+                await render_board(f"{rp.username} 碰了 {from_name} 的 {discard_tile}！請出牌。")
+                continue
+            elif rtype == "chi" and rp and extra:
+                t1, t2 = extra
+                rp.hand.remove(t1); rp.hand.remove(t2)
+                meld_tiles = sorted([t1, t2, discard_tile], key=lambda t: (t.suit, t.value))
+                rp.melds.append(Meld(MeldType.CHI, meld_tiles, player.seat))
+                gs.current_seat = rp.seat
+                no_draw = True
+                any_call = True
+                for s in ippatsu:
+                    ippatsu[s] = False
+                await render_hand(rp)
+                await render_board(f"{rp.username} 吃了 {from_name} 的 {discard_tile}！請出牌。")
+                continue
+            elif rtype == "kan" and rp:
+                removed, new_hand = 0, []
+                for t in rp.hand:
+                    if t.suit == discard_tile.suit and t.value == discard_tile.value and removed < 3:
+                        removed += 1
+                    else:
+                        new_hand.append(t)
+                rp.hand = new_hand
+                rp.melds.append(Meld(MeldType.KAN, [Tile(discard_tile.suit, discard_tile.value)] * 4, player.seat))
+                gs.open_dora()
+                gs.current_seat = rp.seat
+                any_call = True
+                for s in ippatsu:
+                    ippatsu[s] = False
+                rinshan_next = True
+                await render_hand(rp)
+                await render_board(f"{rp.username} 槓了 {from_name} 的 {discard_tile}！摸嶺上牌。")
+                continue
+
+        gs.current_seat = (gs.current_seat + 1) % len(gs.players)
+
+
+async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
+    """0.2：討論串版多局對戰。"""
+    config       = _room_configs.get(gid, {})
+    length       = config.get("length", "tonpuu")
+    tobi         = config.get("tobi", True)
+    players_info = _waiting.get(gid, [])
+    channel_id   = str(channel.id)
+    th           = _threads[gid]
+    public       = th["public"]
+
+    try:
+        while True:
+            outcome = await play_hand_t(gid, channel)
+            if outcome is None:
+                return
+            gs = _games[gid]
+
+            if outcome[0] == "tsumo":
+                _, wseat, result, hand_str = outcome
+                log = st.apply_tsumo(gs, wseat, result)
+                header = f"{gs.players[wseat].username}　自摸！"
+                st.advance_after_win(gs, wseat)
+            elif outcome[0] == "ron":
+                _, wseat, lseat, result, hand_str = outcome
+                log = st.apply_ron(gs, wseat, lseat, result)
+                header = f"{gs.players[wseat].username}　榮和！（放銃：{gs.players[lseat].username}）"
+                st.advance_after_win(gs, wseat)
+            else:
+                _, tenpai = outcome
+                log = st.apply_ryuukyoku(gs, tenpai)
+                result = None
+                st.advance_after_draw(gs, tenpai)
+
+            db.update_game_state(gid, "playing", gs.to_dict())
+
+            if result is not None:
+                await win_ceremony(public, gs, header, hand_str, result, log)
+            else:
+                tnames = "、".join(gs.players[s].username for s in tenpai) or "無人"
+                await public.send(f"# 🀄 流局\n聽牌：{tnames}\n\n{log.describe(gs)}")
+            await asyncio.sleep(6)
+
+            if st.is_game_over(gs, length, tobi):
+                break
+
+            new_gs = deal_next_hand(gid, players_info, gs)
+            _games[gid] = new_gs
+            try:
+                await th["board_msg"].edit(
+                    content=make_thread_board(new_gs, f"🀄 {new_gs.round_label} 開始，輪到莊家。"))
+            except Exception:
+                pass
+            for p in new_gs.players:
+                if not p.is_bot:
+                    hm = th["hand_msg"].get(p.user_id)
+                    if hm:
+                        try:
+                            await hm.edit(content=make_hand_panel(p))
+                        except Exception:
+                            pass
+            await asyncio.sleep(1)
+
+        gs = _games[gid]
+        rows = st.final_standings(gs, start_points=config.get("start_points"))
+        medals = ["🥇", "🥈", "🥉", "4️⃣"]
+        lines = ["# 🏁 最終順位", ""]
+        for r in rows:
+            sign = "＋" if r.total_pt >= 0 else "－"
+            lines.append(f"{medals[r.rank - 1]} **第 {r.rank} 位**　{r.username}"
+                         f"　{r.score} 點　｜　精算 {sign}{abs(r.total_pt):.1f}")
+        db.finish_game(gid, gs.to_dict())
+        end_view = discord.ui.View(timeout=None)
+        end_view.add_item(FairnessButton(gid))
+        await public.send("\n".join(lines), view=end_view)
+        await _archive_threads(th)
+    finally:
+        _cleanup(gid, channel_id)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Game loop（0.1 舊版，保留）
 # ═══════════════════════════════════════════════════════════════
 
 async def play_hand(gid: str, channel: discord.TextChannel,
@@ -1364,13 +2036,19 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
     db.create_game(gid, str(channel.guild.id), str(channel.id), gs.wall_seed)
     db.update_game_state(gid, "playing", gs.to_dict())
 
-    # 全程只用這一條主訊息：牌桌 + 狀態 + 按鈕，之後一律編輯它
-    main_msg = await channel.send(
-        content=make_board_text(gs, "🀄 遊戲開始，輪到莊家。", config.get("open_hand", False)),
-        view=make_base_view(gid),
-    )
+    # 0.2：建立公開遊戲討論串 + 每位真人的私人討論串
+    try:
+        await setup_threads(gid, channel, gs)
+    except Exception as e:
+        await channel.send(f"❌ 建立討論串失敗：{e}\n（需確認 bot 有「建立公開／私人討論串、管理討論串」權限）")
+        _cleanup(gid, str(channel.id))
+        return
 
-    _game_tasks[gid] = asyncio.create_task(match_loop(gid, channel, main_msg))
+    await channel.send(
+        f"🀄 遊戲開始！牌桌在討論串 {_threads[gid]['public'].mention}，"
+        f"真人玩家請到自己的私人討論串出牌（直接打字）。"
+    )
+    _game_tasks[gid] = asyncio.create_task(match_loop_t(gid, channel))
 
 
 # ═══════════════════════════════════════════════════════════════
