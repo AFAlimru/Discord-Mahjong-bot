@@ -1409,8 +1409,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     if can_tsumo:
         add_btn("自摸", discord.ButtonStyle.danger, ("tsumo", None))       # 紅
     if can_riichi:
-        # Discord 沒有黃色按鈕，用 🟡 emoji 近似「黃色立直」
-        add_btn("🟡 立直", discord.ButtonStyle.secondary, "riichi")
+        add_btn("立直", discord.ButtonStyle.secondary, "riichi")
     if ankan_opts:
         add_btn("暗槓", discord.ButtonStyle.secondary, ("ankan", ankan_opts[0]))
     if kita_ok:
