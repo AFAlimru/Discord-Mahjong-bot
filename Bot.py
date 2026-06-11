@@ -426,6 +426,47 @@ def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = ""
     return "\n".join(lines)
 
 
+def make_river_text(gs: GameState) -> str:
+    """各家牌河（給「看牌河」按鈕的私密訊息用）。"""
+    lines = ["**🀫 各家牌河**"]
+    for p in gs.players:
+        disc = " ".join(str(t) for t in p.discards) if p.discards else "—"
+        lines.append(f"{WIND_LABELS[p.seat]} {p.username}（{len(p.discards)}）")
+        lines.append(f"# {disc}")
+    lines.append("")
+    lines.append("＊這是當下快照；關閉後再按一次「看牌河」可看最新。")
+    return "\n".join(lines)
+
+
+class HandHelpButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="❓ 說明", style=discord.ButtonStyle.secondary)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(HELP_TEXT, ephemeral=True)
+
+
+class RiverButton(discord.ui.Button):
+    def __init__(self, gid: str):
+        super().__init__(label="🀫 看牌河", style=discord.ButtonStyle.secondary)
+        self.gid = gid
+
+    async def callback(self, interaction: discord.Interaction):
+        gs = _games.get(self.gid)
+        if not gs:
+            await interaction.response.send_message("❌ 牌局已結束。", ephemeral=True)
+            return
+        await interaction.response.send_message(make_river_text(gs), ephemeral=True)
+
+
+def make_hand_view(gid: str) -> discord.ui.View:
+    """手牌面板常駐按鈕：說明 + 看牌河。"""
+    v = discord.ui.View(timeout=None)
+    v.add_item(HandHelpButton())
+    v.add_item(RiverButton(gid))
+    return v
+
+
 async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState) -> None:
     """建立公開遊戲討論串 + 每位真人玩家的私人討論串。"""
     public = await channel.create_thread(
@@ -450,7 +491,7 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState) -
             except Exception:
                 pass
             private[p.user_id] = pt
-            hm = await pt.send(make_hand_panel(p, "（等待開始）"))
+            hm = await pt.send(make_hand_panel(p, "（等待開始）"), view=make_hand_view(gid))
             hand_msg[p.user_id] = hm
         except Exception as e:
             print(f"[threads] 建立 {p.username} 私人討論串失敗：{e}")
@@ -1149,7 +1190,7 @@ async def _ping_turn(thread, uid: str) -> None:
         pass
 
 
-async def wait_turn_action(player, pt, hand_msg, thinking_time,
+async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
                            can_tsumo, can_riichi, kita_ok, ankan_opts,
                            prompt_base, tenpai_note):
     """輪到玩家：自摸/立直/暗槓/拔北用按鈕，出牌用打字。回傳 (action, arg) 或 None（逾時）。"""
@@ -1157,6 +1198,9 @@ async def wait_turn_action(player, pt, hand_msg, thinking_time,
     fut   = asyncio.get_event_loop().create_future()
     state = {"riichi": False}
     view  = discord.ui.View(timeout=float(thinking_time) + 10)
+    # 常駐按鈕：說明 + 看牌河
+    view.add_item(HandHelpButton())
+    view.add_item(RiverButton(gid))
 
     def panel(rem):
         extra = "🀄 已宣告立直，請**打字**打出宣言牌" if state["riichi"] else f"{prompt_base}　（剩 {rem} 秒）"
@@ -1249,7 +1293,7 @@ async def wait_turn_action(player, pt, hand_msg, thinking_time,
         _input_queues.pop(uid, None)
         _input_thread.pop(uid, None)
         try:
-            await hand_msg.edit(view=None)
+            await hand_msg.edit(view=make_hand_view(gid))   # 回合結束保留說明/看牌河
         except Exception:
             pass
     return result
@@ -1275,7 +1319,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
         hm = hand_msg.get(p.user_id)
         if hm:
             try:
-                await hm.edit(content=make_hand_panel(p, prompt, tenpai_note))
+                await hm.edit(content=make_hand_panel(p, prompt, tenpai_note),
+                              view=make_hand_view(gid))
             except Exception:
                 pass
 
@@ -1364,7 +1409,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             result = None
             if pt and hm:
                 result = await wait_turn_action(
-                    player, pt, hm, thinking_time,
+                    gid, player, pt, hm, thinking_time,
                     can_tsumo, can_riichi, kita_ok, ankan_opts,
                     prompt_base, tenpai_note,
                 )
@@ -1488,6 +1533,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                         new_hand.append(t)
                 rp.hand = new_hand
                 rp.melds.append(Meld(MeldType.PON, [Tile(discard_tile.suit, discard_tile.value)] * 3, player.seat))
+                if player.discards and player.discards[-1] == discard_tile:
+                    player.discards.pop()   # 被碰走 → 從牌河移除
                 gs.current_seat = rp.seat
                 no_draw = True
                 any_call = True
@@ -1501,6 +1548,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 rp.hand.remove(t1); rp.hand.remove(t2)
                 meld_tiles = sorted([t1, t2, discard_tile], key=lambda t: (t.suit, t.value))
                 rp.melds.append(Meld(MeldType.CHI, meld_tiles, player.seat))
+                if player.discards and player.discards[-1] == discard_tile:
+                    player.discards.pop()   # 被吃走 → 從牌河移除
                 gs.current_seat = rp.seat
                 no_draw = True
                 any_call = True
@@ -1518,6 +1567,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                         new_hand.append(t)
                 rp.hand = new_hand
                 rp.melds.append(Meld(MeldType.KAN, [Tile(discard_tile.suit, discard_tile.value)] * 4, player.seat))
+                if player.discards and player.discards[-1] == discard_tile:
+                    player.discards.pop()   # 被槓走 → 從牌河移除
                 gs.open_dora()
                 gs.current_seat = rp.seat
                 any_call = True
@@ -1595,7 +1646,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     hm = th["hand_msg"].get(p.user_id)
                     if hm:
                         try:
-                            await hm.edit(content=make_hand_panel(p))
+                            await hm.edit(content=make_hand_panel(p), view=make_hand_view(gid))
                         except Exception:
                             pass
             await asyncio.sleep(1)
