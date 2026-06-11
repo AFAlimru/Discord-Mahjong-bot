@@ -44,7 +44,7 @@ SUIT_CHARS = ["m", "s", "p"]
 
 @dataclass(frozen=True, order=True)
 class Tile:
-    """麻将牌"""
+    """麻將牌"""
     suit: Suit
     value: int      # 1-9 for numeral; 1-4 for wind; 1-3 for dragon
     red: bool = False
@@ -133,14 +133,14 @@ def _finalize_wall(tiles: list[Tile]) -> tuple[list[Tile], str, str]:
 
 
 def generate_wall_sanma() -> tuple[list[Tile], str, str]:
-    """生成三麻牌山 (108张，移除2-8萬)"""
+    """生成三麻牌山 (108張，移除2-8萬)"""
     tiles: list[Tile] = []
 
-    # 1萬、9萬 各4张
+    # 1萬、9萬 各4張
     tiles.extend([Tile(Suit.MAN, 1) for _ in range(4)])
     tiles.extend([Tile(Suit.MAN, 9) for _ in range(4)])
 
-    # 條子、餅子 各36张 (1-9 各4张)
+    # 條子、餅子 各36張 (1-9 各4張)
     for suit in (Suit.SOU, Suit.PIN):
         for val in range(1, 10):
             for copy in range(4):
@@ -158,10 +158,10 @@ def generate_wall_sanma() -> tuple[list[Tile], str, str]:
 
 
 def generate_wall_yonma() -> tuple[list[Tile], str, str]:
-    """生成四麻牌山 (136张，完整)"""
+    """生成四麻牌山 (136張，完整)"""
     tiles: list[Tile] = []
 
-    # 萬子、條子、餅子 各36张
+    # 萬子、條子、餅子 各36張
     for suit in (Suit.MAN, Suit.SOU, Suit.PIN):
         for val in range(1, 10):
             for copy in range(4):
@@ -200,22 +200,22 @@ def wall_to_layout(wall: list[Tile]) -> dict:
 # ─── Game State ────────────────────────────────────────────────────────
 
 class MeldType(IntEnum):
-    """副露类型"""
+    """副露類型"""
     CHI = 1      # 吃
     PON = 2      # 碰
-    KAN = 3      # 杠
-    ANKAN = 4    # 暗杠
+    KAN = 3      # 槓
+    ANKAN = 4    # 暗槓
 
 
 @dataclass
 class Meld:
-    """副露（吃、碰、杠、暗杠）"""
+    """副露（吃、碰、槓、暗槓）"""
     meld_type: int  # MeldType
     tiles: list[Tile] = field(default_factory=list)
-    from_seat: int = -1  # 谁打出的牌（-1表示暗杠）
+    from_seat: int = -1  # 誰打出的牌（-1表示暗槓）
     
     def __str__(self) -> str:
-        type_names = {1: "吃", 2: "碰", 3: "杠", 4: "暗杠"}
+        type_names = {1: "吃", 2: "碰", 3: "槓", 4: "暗槓"}
         name = type_names.get(self.meld_type, "?")
         tiles_str = "".join(str(t) for t in self.tiles)
         return f"{name}:{tiles_str}"
@@ -223,7 +223,7 @@ class Meld:
 
 @dataclass
 class PlayerState:
-    """玩家状态"""
+    """玩家狀態"""
     seat: int
     user_id: str
     username: str
@@ -242,7 +242,7 @@ class PlayerState:
         return self.hand + ([self.drawn_tile] if self.drawn_tile else [])
 
     def hand_display(self) -> str:
-        """显示手牌（13张，Unicode 紧贴）"""
+        """顯示手牌（13張，Unicode 緊貼）"""
         if not self.hand:
             return ""
         
@@ -250,7 +250,7 @@ class PlayerState:
         return "".join(str(t) for t in sorted_hand)
     
     def hand_display_with_names(self) -> tuple:
-        """返回两种格式的手牌显示
+        """返回兩種格式的手牌顯示
         返回值：(unicode_display, name_display)
         例如: (🀉 🀌 🀍, 123m456p東南西北中白發)
         """
@@ -259,10 +259,10 @@ class PlayerState:
         
         sorted_hand = sorted(self.hand, key=lambda t: (t.suit, t.value))
 
-        # Unicode 显示（每个牌之间空格）
+        # Unicode 顯示（每個牌之間空格）
         unicode_display = " ".join(str(t) for t in sorted_hand)
 
-        # 牌名显示：花色字母在前，例如 m123456 s123 p55 東東中
+        # 牌名顯示：花色字母在前，例如 m123456 s123 p55 東東中
         suit_letter = {0: 'm', 1: 's', 2: 'p'}
         wind_names = ["東", "南", "西", "北"]
         dragon_names = ["中", "發", "白"]   # value 1=中 2=發 3=白
@@ -281,10 +281,10 @@ class PlayerState:
 
         for t in sorted_hand:
             s = int(t.suit)
-            if s == 3:       # 风牌
+            if s == 3:       # 風牌
                 _flush()
                 honors.append(wind_names[t.value - 1])
-            elif s == 4:     # 龙牌
+            elif s == 4:     # 龍牌
                 _flush()
                 honors.append(dragon_names[t.value - 1])
             else:
@@ -330,7 +330,7 @@ class PlayerState:
 
 @dataclass
 class GameState:
-    """牌局状态"""
+    """牌局狀態"""
     game_id: str
     is_sanma: bool = False  # True=三麻, False=四麻
     round_wind: int = 1     # 1=東, 2=南
@@ -379,10 +379,10 @@ class GameState:
             self.revealed_dora += 1
 
     def get_doras(self) -> list[Tile]:
-        """返回当前寶牌"""
+        """返回當前寶牌"""
         doras = []
         for ind in self.dora_indicators[:self.revealed_dora]:
-            # 寶牌指示牌的下一张牌是寶牌
+            # 寶牌指示牌的下一張牌是寶牌
             if ind.suit == Suit.WIND:
                 next_val = (ind.value % 4) + 1
                 doras.append(Tile(Suit.WIND, next_val))
@@ -448,7 +448,7 @@ class GameState:
 
 def new_game(game_id: str, players_info: list[dict], is_sanma: bool = False,
              start_points: int | None = None) -> GameState:
-    """创建新牌局"""
+    """創建新牌局"""
     if is_sanma:
         wall, seed, sha = generate_wall_sanma()
         player_count = 3
@@ -471,7 +471,7 @@ def new_game(game_id: str, players_info: list[dict], is_sanma: bool = False,
     idx = 0
     hands = [[] for _ in range(player_count)]
     
-    # 配4轮各3张（或2张，具体看规则），最后庄家再摸1张
+    # 配4輪各3張（或2張，具體看規則），最後莊家再摸1張
     for _ in range(3):
         for seat in range(player_count):
             hands[seat].extend(gs.live_wall[idx:idx + 4])
@@ -508,7 +508,7 @@ def new_game(game_id: str, players_info: list[dict], is_sanma: bool = False,
 # ─── Hand Validation ──────────────────────────────────────────────────────
 
 def is_complete(tiles: list[Tile]) -> bool:
-    """检查手牌是否成胡（含七對子、國士無雙特殊型）"""
+    """檢查手牌是否成胡（含七對子、國士無雙特殊型）"""
     if len(tiles) != 14:
         return False
 
@@ -535,7 +535,7 @@ def is_complete(tiles: list[Tile]) -> bool:
         key = min(c)
         suit, val = key
         
-        # 顺子（仅限数字牌）
+        # 順子（僅限數字牌）
         if suit in (Suit.MAN, Suit.SOU, Suit.PIN) and val <= 7:
             seq_keys = [(suit, val), (suit, val + 1), (suit, val + 2)]
             if all(c[k] > 0 for k in seq_keys):
@@ -558,7 +558,7 @@ def is_complete(tiles: list[Tile]) -> bool:
         
         return False
     
-    # 尝试每个可能的对子
+    # 嘗試每個可能的對子
     for key in list(counts.keys()):
         if counts[key] >= 2:
             c2 = counts.copy()
@@ -572,13 +572,13 @@ def is_complete(tiles: list[Tile]) -> bool:
 
 
 def is_tenpai(hand: list[Tile]) -> bool:
-    """检查13张手是否聽牌"""
+    """檢查13張手是否聽牌"""
     all_types = set((t.suit, t.value) for t in hand)
     
     for suit in (Suit.MAN, Suit.SOU, Suit.PIN):
         for val in range(1, 10):
             if suit == Suit.MAN and val in range(2, 9):
-                continue  # 三麻时跳过2-8萬
+                continue  # 三麻時跳過2-8萬
             test_tile = Tile(suit, val)
             if (test_tile.suit, test_tile.value) not in all_types:
                 if is_complete(hand + [test_tile]):
@@ -619,7 +619,7 @@ def get_tenpai_waits(hand: list[Tile]) -> list[Tile]:
 
 
 def count_dora(hand: list[Tile], dora_list: list[Tile]) -> int:
-    """计算寶牌数"""
+    """計算寶牌數"""
     count = 0
     for tile in hand:
         for dora in dora_list:

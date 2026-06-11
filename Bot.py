@@ -904,13 +904,13 @@ class TurnView(discord.ui.View):
         # 立直／自摸 不放公開按鈕（會洩漏聽牌）→ 改用 /riichi、/tsumo 指令，私訊告知
 
         if ankan_opts:
-            ab = discord.ui.Button(label="暗杠", style=discord.ButtonStyle.secondary)
+            ab = discord.ui.Button(label="暗槓", style=discord.ButtonStyle.secondary)
             ab.callback = self._cb_ankan
             self.add_item(ab)
 
         if kakan_opts:
             self._kakan_opts = kakan_opts
-            kb = discord.ui.Button(label="加杠", style=discord.ButtonStyle.secondary)
+            kb = discord.ui.Button(label="加槓", style=discord.ButtonStyle.secondary)
             kb.callback = self._cb_kakan
             self.add_item(kb)
 
@@ -1222,9 +1222,9 @@ def _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts):
         if not is_tenpai(test + ([dt] if dt else [])):
             return (False, None, "打出該牌後未聽牌，不能立直")
         return (True, ("riichi", t), "")
-    if s.startswith(("暗槓", "暗杠")) or low.startswith("ankan"):
+    if s.startswith(("暗槓", "暗槓")) or low.startswith("ankan"):
         rest = s
-        for kw in ("暗槓", "暗杠", "ankan", "ANKAN"):
+        for kw in ("暗槓", "暗槓", "ankan", "ANKAN"):
             rest = rest.replace(kw, "")
         rest = rest.strip()
         t = parse_tile(rest, player.hand, player.drawn_tile) if rest else (ankan_opts[0] if ankan_opts else None)
@@ -2109,7 +2109,7 @@ async def play_hand(gid: str, channel: discord.TextChannel,
                 for s in ippatsu:           # 任何槓打斷一發
                     ippatsu[s] = False
                 rinshan_next = True          # 下一張為嶺上牌
-                await render(f"{player.username} 暗杠 {kan_tile}")
+                await render(f"{player.username} 暗槓 {kan_tile}")
                 continue  # same seat, redraw
 
             # ── 加槓（小明槓）+ 搶槓 ─────────────────────────────

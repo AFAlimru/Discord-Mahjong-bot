@@ -13,7 +13,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 views.py — Discord UI Components (Clean Version)
-支持出牌别名：E/S/W/N(风), R(中), Wh(白), G(发)
+支持出牌別名：E/S/W/N(風), R(中), Wh(白), G(發)
 """
 
 from __future__ import annotations
@@ -24,15 +24,15 @@ from discord.ui import View, Button, button, Modal, TextInput
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Discard Input Modal (支持别名)
+#  Discard Input Modal (支持別名)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class DiscardInputModal(Modal):
-    """出牌输入框 - 支持别名，大小写不敏感"""
-    title = "🀫 选择要丢的牌"
+    """出牌輸入框 - 支持別名，大小寫不敏感"""
+    title = "🀫 選擇要丟的牌"
     
     tile_name = TextInput(
-        label="输入牌名 (5m, 東, e, wh, r；拔北輸入 !n)",
+        label="輸入牌名 (5m, 東, e, wh, r；拔北輸入 !n)",
         placeholder="5m",
         min_length=1,
         max_length=3,
@@ -48,7 +48,7 @@ class DiscardInputModal(Modal):
         self.submit_event = asyncio.Event()
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        """提交时的回调"""
+        """提交時的回調"""
         raw = self.tile_name.value.strip()
 
         # 拔北（三麻北寶牌）：輸入「拔北」或「!n」
@@ -61,7 +61,7 @@ class DiscardInputModal(Modal):
                 await interaction.response.send_message("❌ 現在無法拔北。", ephemeral=True)
             return
 
-        tile_input = raw.lower()  # 转小写
+        tile_input = raw.lower()  # 轉小寫
 
         # 別名轉換
         aliases = {
@@ -74,11 +74,11 @@ class DiscardInputModal(Modal):
             'g': '發',      # Green/發
         }
         
-        # 检查是否是別名
+        # 檢查是否是別名
         if tile_input in aliases:
             tile_input = aliases[tile_input]
         
-        # 尝试在手牌中找到匹配的牌
+        # 嘗試在手牌中找到匹配的牌
         found = None
         
         # 直接匹配摸牌
@@ -87,7 +87,7 @@ class DiscardInputModal(Modal):
             if drawn_short == tile_input:
                 found = self.drawn_tile
         
-        # 在手牌中寻找
+        # 在手牌中尋找
         if not found:
             for tile in self.hand_tiles:
                 tile_short = tile.short.lower()
@@ -108,7 +108,7 @@ class DiscardInputModal(Modal):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class DiscardView(View):
-    """出牌选择 - 按按钮弹出输入框"""
+    """出牌選擇 - 按按鈕彈出輸入框"""
     
     def __init__(self, player_id: str, hand: list, drawn = None, timeout: float = 30):
         super().__init__(timeout=timeout)
@@ -118,11 +118,11 @@ class DiscardView(View):
         self.selected_tile = None
         self.timed_out = False
 
-    @button(label="选择出牌", style=discord.ButtonStyle.primary)
+    @button(label="選擇出牌", style=discord.ButtonStyle.primary)
     async def choose_discard(self, interaction: discord.Interaction, button: Button):
-        """点击后弹出输入框"""
+        """點擊後彈出輸入框"""
         if str(interaction.user.id) != self.player_id:
-            await interaction.response.send_message("❌ 这不是你的回合!", ephemeral=True)
+            await interaction.response.send_message("❌ 這不是你的回合!", ephemeral=True)
             return
         
         modal = DiscardInputModal(self.hand_tiles, self.drawn_tile)
@@ -147,11 +147,11 @@ class DiscardView(View):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class RoomSettingsModal(Modal):
-    """房间设定对话框：思考秒數 + 起始點數"""
+    """房間設定對話框：思考秒數 + 起始點數"""
     title = "⚙️ 數值設定"
 
     thinking_time = TextInput(
-        label="思考秒数 (5-300)",
+        label="思考秒數 (5-300)",
         placeholder="25",
         min_length=1,
         max_length=3,
@@ -169,14 +169,14 @@ class RoomSettingsModal(Modal):
         self.success = False
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        """提交时的回调"""
+        """提交時的回調"""
         try:
             tt = int(self.thinking_time.value)
         except ValueError:
-            await interaction.response.send_message("❌ 秒数应为数字", ephemeral=True)
+            await interaction.response.send_message("❌ 秒數應為數字", ephemeral=True)
             return
         if not (5 <= tt <= 300):
-            await interaction.response.send_message("❌ 秒数应在 5-300 之间", ephemeral=True)
+            await interaction.response.send_message("❌ 秒數應在 5-300 之間", ephemeral=True)
             return
 
         sp_raw = self.start_points.value.strip()
@@ -185,7 +185,7 @@ class RoomSettingsModal(Modal):
             try:
                 sp = int(sp_raw)
             except ValueError:
-                await interaction.response.send_message("❌ 起始點數应为数字", ephemeral=True)
+                await interaction.response.send_message("❌ 起始點數應為數字", ephemeral=True)
                 return
             if not (0 <= sp <= 1000000):
                 await interaction.response.send_message("❌ 起始點數需介於 0 ~ 1000000", ephemeral=True)
@@ -201,7 +201,7 @@ class RoomSettingsModal(Modal):
 
 
 class RoomSettingsView(View):
-    """房间设定按钮菜单"""
+    """房間設定按鈕菜單"""
     
     def __init__(self, gid: str, timeout: float = 300):
         super().__init__(timeout=timeout)
@@ -222,7 +222,7 @@ class RoomSettingsView(View):
     @button(label="👥 三麻模式", style=discord.ButtonStyle.secondary)
     async def toggle_sanma(self, interaction: discord.Interaction, button: Button):
         self.sanma = not self.sanma
-        state = "开启" if self.sanma else "关闭"
+        state = "開啟" if self.sanma else "關閉"
         button.label = f"👥 三麻模式({state})"
         await interaction.response.edit_message(view=self)
 
@@ -244,18 +244,18 @@ class RoomSettingsView(View):
         button.label = "📐 規則：完全天鳳式" if self.ruleset == "tenhou" else "📐 規則：預設"
         await interaction.response.edit_message(view=self)
 
-    @button(label="✅ 确认", style=discord.ButtonStyle.success)
+    @button(label="✅ 確認", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer()
         self.stop()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Reaction View (简化)
+#  Reaction View (簡化)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class ReactionView(View):
-    """副露反应窗口（已废弃，保留供兼容）"""
+    """副露反應窗口（已廢棄，保留供兼容）"""
     
     def __init__(self, timeout: float = 5):
         super().__init__(timeout=timeout)
@@ -279,13 +279,13 @@ class ReactionView(View):
         self.stop()
         await interaction.response.defer()
 
-    @button(label="杠", style=discord.ButtonStyle.primary)
+    @button(label="槓", style=discord.ButtonStyle.primary)
     async def btn_kan(self, interaction: discord.Interaction, button: Button):
         self.reaction = "kan"
         self.stop()
         await interaction.response.defer()
 
-    @button(label="跳过", style=discord.ButtonStyle.secondary)
+    @button(label="跳過", style=discord.ButtonStyle.secondary)
     async def btn_pass(self, interaction: discord.Interaction, button: Button):
         self.reaction = "pass"
         self.stop()
@@ -297,7 +297,7 @@ class ReactionView(View):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class DiscardActionView(View):
-    """出牌时的行动按钮"""
+    """出牌時的行動按鈕"""
     
     def __init__(self, timeout: float = 30):
         super().__init__(timeout=timeout)
@@ -309,7 +309,7 @@ class DiscardActionView(View):
         self.stop()
         await interaction.response.defer()
 
-    @button(label="暗杠", style=discord.ButtonStyle.primary)
+    @button(label="暗槓", style=discord.ButtonStyle.primary)
     async def btn_ankan(self, interaction: discord.Interaction, button: Button):
         self.action = "ankan"
         self.stop()
@@ -329,7 +329,7 @@ class DiscardActionView(View):
 
 
 class ChiSelectView(View):
-    """吃牌选择"""
+    """吃牌選擇"""
     
     def __init__(self, options: list[tuple], timeout: float = 20):
         super().__init__(timeout=timeout)
@@ -350,7 +350,7 @@ class ChiSelectView(View):
 
 
 class KanSelectView(View):
-    """杠牌选择"""
+    """槓牌選擇"""
     
     def __init__(self, kan_options: list, timeout: float = 20):
         super().__init__(timeout=timeout)
@@ -358,7 +358,7 @@ class KanSelectView(View):
         self.selected = None
         
         for i, tile in enumerate(kan_options):
-            btn = Button(label=f"杠{tile.short}", style=discord.ButtonStyle.primary)
+            btn = Button(label=f"槓{tile.short}", style=discord.ButtonStyle.primary)
             btn.callback = self._make_callback(tile)
             self.add_item(btn)
 
@@ -371,7 +371,7 @@ class KanSelectView(View):
 
 
 class BoardRefreshView(View):
-    """牌局面板按钮"""
+    """牌局面板按鈕"""
     
     def __init__(self, game_state_getter=None, player_id: str = "", timeout: float = 600):
         super().__init__(timeout=timeout)
@@ -381,16 +381,16 @@ class BoardRefreshView(View):
     @button(label="看我的牌", style=discord.ButtonStyle.primary)
     async def show_hand(self, interaction: discord.Interaction, button: Button):
         if str(interaction.user.id) != self.player_id:
-            await interaction.response.send_message("❌ 这不是你的牌局!", ephemeral=True)
+            await interaction.response.send_message("❌ 這不是你的牌局!", ephemeral=True)
             return
         
         if not self.game_state_getter:
-            await interaction.response.send_message("❌ 牌局已结束", ephemeral=True)
+            await interaction.response.send_message("❌ 牌局已結束", ephemeral=True)
             return
         
         gs = self.game_state_getter()
         if not gs:
-            await interaction.response.send_message("❌ 牌局已结束", ephemeral=True)
+            await interaction.response.send_message("❌ 牌局已結束", ephemeral=True)
             return
         
         player = next((p for p in gs.players if p.user_id == self.player_id), None)
@@ -398,10 +398,10 @@ class BoardRefreshView(View):
             await interaction.response.send_message("❌ 找不到你", ephemeral=True)
             return
         
-        # 显示两种格式
+        # 顯示兩種格式
         unicode_display, name_display = player.hand_display_with_names()
         
-        # 单独显示摸牌（直接接在冒号后）
+        # 單獨顯示摸牌（直接接在冒號後）
         drawn_info = ""
         if player.drawn_tile:
             drawn_info = f"\n\n🎲 **剛摸到：{player.drawn_tile}**"
@@ -416,15 +416,15 @@ class BoardRefreshView(View):
 
         await interaction.response.send_message(msg, ephemeral=True)
 
-    @button(label="公平性验证", style=discord.ButtonStyle.secondary)
+    @button(label="公平性驗證", style=discord.ButtonStyle.secondary)
     async def show_fairness(self, interaction: discord.Interaction, button: Button):
         if not self.game_state_getter:
-            await interaction.response.send_message("❌ 牌局已结束", ephemeral=True)
+            await interaction.response.send_message("❌ 牌局已結束", ephemeral=True)
             return
         
         gs = self.game_state_getter()
         if not gs:
-            await interaction.response.send_message("❌ 牌局已结束", ephemeral=True)
+            await interaction.response.send_message("❌ 牌局已結束", ephemeral=True)
             return
         
         embed = discord.Embed(
