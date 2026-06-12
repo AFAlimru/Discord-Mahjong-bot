@@ -68,6 +68,8 @@ _input_queues:      dict[str, asyncio.Queue]    = {}
 _input_thread:      dict[str, int]              = {}
 # thread channel id -> game_id（讓 /end 等指令能在討論串內使用）
 _thread_game:       dict[int, str]              = {}
+# game_id -> 本局最近的玩家動作記錄（顯示在私人手牌面板上方），每局開始時清空
+_action_logs:       dict[str, list]            = {}
 
 WIND_LABELS = ["東", "南", "西", "北"]
 AI_NAMES    = ["小春", "小夏", "小秋", "小冬"]
@@ -480,6 +482,27 @@ def _last_discard_info(gs: GameState) -> str:
     return ""
 
 
+def _log_action(gid: str, text: str) -> None:
+    """記錄一筆玩家動作（保留最近 6 筆，顯示在私人手牌面板上方）。"""
+    if not text:
+        return
+    log = _action_logs.setdefault(gid, [])
+    log.append(text)
+    del log[:-6]
+
+
+def _action_feed(gid: str, gs: GameState) -> str:
+    """私人面板上方的動態：最近動作記錄 + 上家剛打出的牌（放大）。"""
+    parts = []
+    log = _action_logs.get(gid, [])
+    if log:
+        parts.append("📜 **動態**\n" + "\n".join(f"> {t}" for t in log))
+    ld = _last_discard_info(gs)
+    if ld:
+        parts.append(ld)
+    return "\n\n".join(parts)
+
+
 def _board_info(gs: GameState) -> str:
     """場況 + 寶牌（顯示在手牌上方）。"""
     total_ind = len(gs.dora_indicators)
@@ -691,6 +714,7 @@ def _cleanup(gid: str, channel_id: str) -> None:
     _room_configs.pop(gid, None)
     _pending_reactions.pop(gid, None)
     _game_tasks.pop(gid, None)
+    _action_logs.pop(gid, None)
     _lobbies.pop(gid, None)
     _threads.pop(gid, None)
     if _channel_games.get(channel_id) == gid:
@@ -1504,8 +1528,11 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
     board_msg     = th["board_msg"]
     private       = th["private"]
     hand_msg      = th["hand_msg"]
+    _action_logs[gid] = []   # 每局開始清空動作記錄
 
-    async def render_board(status=""):
+    async def render_board(status="", log=True):
+        if log:
+            _log_action(gid, status)   # 真人對局沒有牌桌，動作改記在私人面板上方
         if board_msg is None:   # 真人對局沒有公開牌桌（資訊改用按鈕看）
             return
         try:
@@ -1518,7 +1545,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
         if hm:
             try:
                 await hm.edit(content=make_hand_panel(p, prompt, tenpai_note,
-                                                      _last_discard_info(gs), _board_info(gs)),
+                                                      _action_feed(gid, gs), _board_info(gs)),
                               view=make_hand_view(gid))
             except Exception:
                 pass
@@ -1603,7 +1630,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
 
             prompt_base = "✍️ **打字**丟牌（如 `5m` `東`）；自摸／立直／暗槓／拔北用下方按鈕"
 
-            await render_board(f"輪到 <@{player.user_id}>（{WIND_LABELS[player.seat]}）出牌")
+            await render_board(f"輪到 <@{player.user_id}>（{WIND_LABELS[player.seat]}）出牌", log=False)
 
             pt = private.get(player.user_id)
             hm = hand_msg.get(player.user_id)
@@ -1618,7 +1645,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 result = await wait_turn_action(
                     gid, player, pt, hm, thinking_time,
                     can_tsumo, can_riichi, kita_ok, ankan_opts,
-                    prompt_base, tenpai_note, _last_discard_info(gs), _board_info(gs),
+                    prompt_base, tenpai_note, _action_feed(gid, gs), _board_info(gs),
                 )
             else:
                 await render_hand(player, prompt_base, tenpai_note)
