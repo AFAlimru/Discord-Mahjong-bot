@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from collections import Counter
 from typing import Optional
 
-from mahjong_engine import Tile, Suit, Meld, MeldType
+from .engine import Tile, Suit, Meld, MeldType
 
 
 # ─── 牌性質判斷 ─────────────────────────────────────────────────────────────

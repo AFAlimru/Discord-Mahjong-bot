@@ -28,8 +28,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from mahjong_engine import GameState, PlayerState
-from scoring import ScoreResult
+from .engine import GameState, PlayerState
+from .scoring import ScoreResult
 
 
 # ─── 和牌結算 ───────────────────────────────────────────────────────────────

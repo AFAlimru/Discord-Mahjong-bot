@@ -30,13 +30,13 @@ if not TOKEN:
     print("❌ DISCORD_TOKEN 未設置！")
     exit(1)
 
-import database as db
-from mahjong_engine import (
+import mahjong.db as db
+from mahjong.engine import (
     GameState, PlayerState, Tile, Suit, Meld, MeldType,
     new_game, is_complete, is_tenpai, get_tenpai_waits,
 )
-from scoring import score_hand, WinContext, is_chiitoitsu, is_kokushi
-import settlement as st
+from mahjong.scoring import score_hand, WinContext, is_chiitoitsu, is_kokushi
+import mahjong.settlement as st
 from views import RoomSettingsView, DiscardInputModal, BoardRefreshView
 
 intents = discord.Intents.default()
