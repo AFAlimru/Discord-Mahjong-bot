@@ -494,15 +494,15 @@ def _log_action(gid: str, text: str) -> None:
 
 
 def _action_feed(gid: str, gs: GameState) -> str:
-    """私人面板上方的動態：只顯示最新一筆動作 + 上家剛打出的牌（放大）。
+    """私人面板上方的動態：上家剛打出的牌（放大）+ 最新一筆動作。
     完整動態請按「📜 看動態」按鈕。"""
     parts = []
-    log = _action_logs.get(gid, [])
-    if log:
-        parts.append(f"📜 {log[-1]}")
     ld = _last_discard_info(gs)
     if ld:
         parts.append(ld)
+    log = _action_logs.get(gid, [])
+    if log:
+        parts.append(f"📜 {log[-1]}")
     return "\n\n".join(parts)
 
 
@@ -528,7 +528,7 @@ def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = ""
                     last_info: str = "", board_info: str = "") -> str:
     """私人討論串的個人面板：場況/寶牌、手牌｜剛摸到的牌、副露、提示。"""
     uni, names = player.hand_display_with_names()
-    sep = "━" * 35
+    sep = "=" * 35
     lines = []
     if board_info:
         lines.append("\n".join("> " + ln for ln in board_info.split("\n")))
