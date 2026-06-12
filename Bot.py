@@ -535,7 +535,7 @@ def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = ""
     if last_info:
         lines.append(last_info)
         lines.append("")
-    lines.append("# 你的手牌")
+    lines.append("# 你的手牌" + ("　🀄【已立直】" if player.riichi else ""))
     # 手牌 ｜ 剛摸到的牌（| 右邊為剛摸到）
     if player.drawn_tile:
         lines.append(f"# {uni} | {player.drawn_tile}" if uni else f"# | {player.drawn_tile}")
@@ -1322,7 +1322,7 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
         if p.is_bot:
             if ai_should_ron(gs, p, discard_tile, furiten_perm, furiten_temp):
                 results.append((0, p.seat, "ron", None))
-            elif ai_should_pon(p.hand, discard_tile):
+            elif (not p.riichi) and ai_should_pon(p.hand, discard_tile):
                 results.append((1, p.seat, "pon", None))
             continue
         ron_ok = (not is_furiten(p, furiten_perm, furiten_temp)) and \
@@ -1330,14 +1330,15 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
         actions, chi_opts = [], []
         if ron_ok:
             actions.append("ron")
-        if count_tiles(p.hand, discard_tile) >= 2:
-            actions.append("pon")
-        if count_tiles(p.hand, discard_tile) >= 3:
-            actions.append("kan")
-        if p.seat == next_seat and not gs.is_sanma:
-            chi_opts = get_chi_options(p.hand, discard_tile)
-            if chi_opts:
-                actions.append("chi")
+        if not p.riichi:   # 立直後不能副露（碰／吃／槓），只能榮和
+            if count_tiles(p.hand, discard_tile) >= 2:
+                actions.append("pon")
+            if count_tiles(p.hand, discard_tile) >= 3:
+                actions.append("kan")
+            if p.seat == next_seat and not gs.is_sanma:
+                chi_opts = get_chi_options(p.hand, discard_tile)
+                if chi_opts:
+                    actions.append("chi")
         if actions:
             candidates.append((p, actions, chi_opts))
 
@@ -1453,8 +1454,10 @@ async def _ping_turn(thread, uid: str) -> None:
 
 async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
                            can_tsumo, can_riichi, kita_ok, ankan_opts,
-                           prompt_base, tenpai_note, last_info="", board_info=""):
-    """輪到玩家：自摸/立直/暗槓/拔北用按鈕，出牌用打字。回傳 (action, arg) 或 None（逾時）。"""
+                           prompt_base, tenpai_note, last_info="", board_info="",
+                           riichi_locked=False):
+    """輪到玩家：自摸/立直/暗槓/拔北用按鈕，出牌用打字。回傳 (action, arg) 或 None（逾時）。
+    riichi_locked=True（已立直）：鎖手，打字無效，只能按自摸或逾時自動摸切。"""
     uid   = player.user_id
     fut   = asyncio.get_event_loop().create_future()
     state = {"riichi": False, "rem": int(thinking_time)}
@@ -1466,7 +1469,12 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     view.add_item(ActionLogButton(gid))
 
     def panel(rem):
-        extra = "🀄 已宣告立直，請**打字**打出宣言牌（再按一次「立直」可取消）" if state["riichi"] else f"{prompt_base}　（剩 {rem} 秒）"
+        if riichi_locked:
+            extra = f"🀄 **已立直**：將自動摸切，可按「自摸」　（剩 {rem} 秒）"
+        elif state["riichi"]:
+            extra = "🀄 已宣告立直，請**打字**打出宣言牌（再按一次「立直」可取消）"
+        else:
+            extra = f"{prompt_base}　（剩 {rem} 秒）"
         return make_hand_panel(player, extra, tenpai_note, last_info, board_info)
 
     async def refresh(rem):
@@ -1523,6 +1531,9 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
                 await msg.delete()
             except Exception:
                 pass
+            if riichi_locked:
+                await _warn(pt, "立直中只能摸切（可按「自摸」），無法換牌或副露")
+                continue
             if state["riichi"]:
                 t = parse_tile(raw, player.hand, player.drawn_tile)
                 if not t:
@@ -1659,22 +1670,33 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
 
         # ── Human（打字）────────────────────────────────────
         else:
+            already_riichi = player.riichi
             can_tsumo  = bool(player.drawn_tile) and evaluate_win(
                 gs, player, player.drawn_tile, is_tsumo=True, is_rinshan=is_rinshan_draw) is not None
-            adv = tenpai_advice(player)   # 14 張時：打哪張可進聽
-            can_riichi = (not player.riichi) and len(player.melds) == 0 and bool(adv)
-            ankan_opts = get_ankan_options(player.hand + ([player.drawn_tile] if player.drawn_tile else []))
-            kita_ok    = gs.is_sanma and has_kita(player)
 
-            # 進聽提示：打哪張可聽、聽哪些（一向聽時很有用）
-            tenpai_note = ""
-            if adv:
-                parts = [f"# 打 {d} → 聽 {' '.join(str(w) for w in waits)}" for d, waits in adv]
-                tenpai_note = "💡 **可進聽**：\n" + "\n".join(parts)
-                if can_riichi:
-                    tenpai_note += "\n（以上任一打法皆可立直）"
-
-            prompt_base = "✍️ **打字**丟牌（如 `5m` `東`）；自摸／立直／暗槓／拔北用下方按鈕"
+            if already_riichi:
+                # 立直後：鎖手，只能摸切或自摸，不可立直／暗槓／拔北
+                adv = []
+                can_riichi  = False
+                ankan_opts  = []
+                kita_ok     = False
+                tenpai_note = ""
+                prompt_base = "🀄 **已立直**：自動摸切（可自摸）"
+                turn_time   = thinking_time if can_tsumo else 3
+            else:
+                adv = tenpai_advice(player)   # 14 張時：打哪張可進聽
+                can_riichi = (len(player.melds) == 0) and bool(adv)
+                ankan_opts = get_ankan_options(player.hand + ([player.drawn_tile] if player.drawn_tile else []))
+                kita_ok    = gs.is_sanma and has_kita(player)
+                # 進聽提示：打哪張可聽、聽哪些（一向聽時很有用）
+                tenpai_note = ""
+                if adv:
+                    parts = [f"# 打 {d} → 聽 {' '.join(str(w) for w in waits)}" for d, waits in adv]
+                    tenpai_note = "💡 **可進聽**：\n" + "\n".join(parts)
+                    if can_riichi:
+                        tenpai_note += "\n（以上任一打法皆可立直）"
+                prompt_base = "✍️ **打字**丟牌（如 `5m` `東`）；自摸／立直／暗槓／拔北用下方按鈕"
+                turn_time   = thinking_time
 
             await render_board(f"輪到 <@{player.user_id}>（{WIND_LABELS[player.seat]}）出牌", log=False)
 
@@ -1689,9 +1711,10 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             result = None
             if pt and hm:
                 result = await wait_turn_action(
-                    gid, player, pt, hm, thinking_time,
+                    gid, player, pt, hm, turn_time,
                     can_tsumo, can_riichi, kita_ok, ankan_opts,
                     prompt_base, tenpai_note, _action_feed(gid, gs), _board_info(gs),
+                    riichi_locked=already_riichi,
                 )
             else:
                 await render_hand(player, prompt_base, tenpai_note)
@@ -1782,7 +1805,10 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             await render_hand(player, "", post_note)
 
             nxt = gs.players[(player.seat + 1) % len(gs.players)].username
-            await render_board(f"{player.username} {word}（{giri}），輪到 {nxt}")
+            if already_riichi:
+                await render_board(f"{player.username} 立直摸切，輪到 {nxt}")
+            else:
+                await render_board(f"{player.username} {word}（{giri}），輪到 {nxt}")
 
         gs.pending_discard   = discard_tile
         gs.pending_from_seat = player.seat
