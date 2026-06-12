@@ -18,24 +18,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-
-def _as_bool(value: str | None, default: bool) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in ("1", "true", "yes", "y", "on")
-
-
 # ── Discord ───────────────────────────────────────────────────
 TOKEN = os.getenv("DISCORD_TOKEN", "")
 
 # ── 資料庫 ────────────────────────────────────────────────────
 DATABASE_PATH = os.getenv("DATABASE_PATH", "mahjong.db")
-
-# ── 後台（aiohttp，作者自用）───────────────────────────────────
-WEB_ENABLED     = _as_bool(os.getenv("WEB_ENABLED"), True)
-WEB_HOST        = os.getenv("WEB_HOST", "127.0.0.1")
-WEB_PORT        = int(os.getenv("WEB_PORT", "8787"))
-WEB_ADMIN_TOKEN = os.getenv("WEB_ADMIN_TOKEN", "")
 
 # ── 遊戲常數 ──────────────────────────────────────────────────
 WIND_LABELS          = ["東", "南", "西", "北"]

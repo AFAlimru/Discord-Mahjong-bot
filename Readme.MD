@@ -50,20 +50,18 @@ Suzume Tsuk/
 └── mahjong.db          # SQLite 資料庫（執行後產生）
 ```
 
-> 維運者自用的網頁後台位於 `mahjong/web/`，**不公開到 GitHub**；公開版缺少該套件時會自動略過，不影響機器人。
-
 ### 模組職責
 
 | 模組 | 內容 |
 |------|------|
-| `client.py` | `bot`/`tree`、`on_message`/`on_ready`、入口 `run()`（含後台選用掛載） |
+| `client.py` | `bot`/`tree`、`on_message`/`on_ready`、入口 `run()` |
 | `commands.py` | `/mahjong start/join/end/status/watch/stats/help`、大廳 LobbyView |
 | `flow.py` | 討論串建立/清理、反應收集、輪到行動、單/多局迴圈、和牌儀式、`launch_game` |
 | `rules.py` | 牌工具、AI、`evaluate_win`、`tenpai_advice`/`is_furiten`（純邏輯，不依賴 discord） |
 | `engine.py` | `Tile`/`GameState`/`PlayerState`、牌山生成與編碼、`is_complete`/`is_tenpai`/待牌 |
 | `scoring.py` | `score_hand()` → 役、飜、符、點；`WinContext` 帶入立直/寶牌/規則旗標 |
 | `settlement.py` | `apply_ron/tsumo/ryuukyoku`、`advance_after_*`、`final_standings`（馬點） |
-| `rooms.py` | 房間編號配發、進行中房間追蹤（供後台讀取） |
+| `rooms.py` | 房間編號配發、進行中房間追蹤 |
 | `db.py` | 牌局、玩家、戰績、牌譜的 CRUD |
 
 ---
@@ -92,8 +90,6 @@ python run.py
 > ⚠️ 首次啟動前，請到 [Discord Developer Portal](https://discord.com/developers/applications/) →
 > 你的應用 → **Bot → Privileged Gateway Intents** 開啟 **Message Content Intent**，
 > 否則登入會出現 `PrivilegedIntentsRequired` 錯誤。
-
-啟用後台時（預設），啟動後可在 `http://WEB_HOST:WEB_PORT`（預設 `http://127.0.0.1:8787`）查看伺服器數／在玩人數／房間清單；對外請以反向代理轉發並設定 `WEB_ADMIN_TOKEN`。
 
 ---
 
@@ -138,7 +134,7 @@ python run.py
 ## 🛣️ 後續規劃（Roadmap）
 
 - **多語系**：介面支援 **英文** 與 **日文**（目前為繁體中文，文字尚未抽離成語言檔）。
-- **網頁面板擴充**：目前已有維運後台（伺服器數／在玩人數／房間）；後續可加上牌譜／戰績查詢（遊玩仍在 Discord）。
+- **網頁面板**：在網頁上**顯示**牌局／戰績／牌譜資訊（不在網頁上遊玩，遊玩仍在 Discord）。
 - **資料庫**：目前為 SQLite；視規模再評估其他方案（例如 PostgreSQL）或加上遷移工具。
 
 ---

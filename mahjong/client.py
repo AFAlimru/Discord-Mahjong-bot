@@ -16,7 +16,7 @@ from __future__ import annotations
 import discord
 from discord.ext import commands as _dpy
 
-from .config import TOKEN, WEB_ENABLED
+from .config import TOKEN
 from . import db
 from .state import _input_queues, _input_thread, _thread_game, _threads
 
@@ -63,17 +63,18 @@ async def on_ready() -> None:
 
 
 def run() -> None:
-    """載入指令與後台並啟動機器人。"""
+    """載入指令並啟動機器人。"""
     if not TOKEN:
         print("❌ DISCORD_TOKEN 未設置！請在 .env 設定後再啟動。")
         raise SystemExit(1)
     from . import commands as _commands  # noqa: F401  匯入即註冊 /mahjong 與 /help
-    if WEB_ENABLED:                      # 後台儀表板（選用，公開版可無此檔）
-        try:
-            from .web import server as _web
-            _web.attach(bot)
-        except Exception as e:
-            print(f"ℹ️ 後台未啟動（{e}）")
+    try:                                  # 選用擴充：存在時自動掛上
+        from .web import server as _web
+        _web.attach(bot)
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"ℹ️ 擴充未啟動（{e}）")
     try:
         bot.run(TOKEN)
     except KeyboardInterrupt:
