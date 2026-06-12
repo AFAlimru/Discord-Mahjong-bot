@@ -2079,24 +2079,31 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             # 和牌：公開串與各私人串都做「逐一揭曉」的和牌儀式；流局則送結果文字
             if result is not None:
                 channels = [public] + list(th.get("private", {}).values())
-                msgs = await asyncio.gather(
+                cer = await asyncio.gather(
                     *[win_ceremony(ch, gs, header, hand_str, result, log) for ch in channels],
                     return_exceptions=True,
                 )
-                result_msg = msgs[0] if msgs and not isinstance(msgs[0], Exception) else None
-                priv_msgs  = [m for m in msgs[1:] if not isinstance(m, Exception)]
+                all_msgs, result_body_text = [], ""
+                for c in cer:
+                    if isinstance(c, Exception):
+                        continue
+                    m, b = c
+                    all_msgs.append(m)
+                    result_body_text = b
+                result_msg = all_msgs[0] if all_msgs else None
+                priv_msgs  = all_msgs[1:]
             else:
-                body = result_body("", "", None, log, gs, tenpai)
-                result_msg = await public.send(body)
+                result_body_text = result_body("", "", None, log, gs, tenpai)
+                result_msg = await public.send(result_body_text)
                 priv_msgs = []
                 for pt in th.get("private", {}).values():
                     try:
-                        priv_msgs.append(await pt.send(body))
+                        priv_msgs.append(await pt.send(result_body_text))
                     except Exception:
                         pass
 
-            # 全部顯示完 → 倒數 5 秒自動進入下一局
-            await _result_countdown([result_msg, *priv_msgs], 5)
+            # 全部顯示完 → 保留完整結果，倒數 5 秒自動進入下一局
+            await _result_countdown([result_msg, *priv_msgs], result_body_text, 5)
 
             if st.is_game_over(gs, length, tobi):
                 break
@@ -2650,14 +2657,15 @@ async def win_ceremony(channel: discord.TextChannel, gs: GameState,
         await msg.edit(content=body)
     except Exception:
         pass
-    return msg
+    return msg, body
 
 
-async def _result_countdown(msgs: list, secs: int = 5) -> None:
-    """一局結果全部顯示完後，於各結果訊息尾端倒數，時間到自動進入下一局。"""
-    bases = [(m, m.content) for m in msgs if m]
+async def _result_countdown(msgs: list, base: str, secs: int = 5) -> None:
+    """一局結果全部顯示完後，保留完整結果並於尾端倒數，時間到自動進入下一局。"""
     for n in range(secs, 0, -1):
-        for m, base in bases:
+        for m in msgs:
+            if not m:
+                continue
             try:
                 await m.edit(content=f"{base}\n\n⏳ {n} 秒後進入下一局…")
             except Exception:
