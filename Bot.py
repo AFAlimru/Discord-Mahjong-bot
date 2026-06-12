@@ -70,6 +70,8 @@ _input_thread:      dict[str, int]              = {}
 _thread_game:       dict[int, str]              = {}
 # game_id -> 本局最近的玩家動作記錄（顯示在私人手牌面板上方），每局開始時清空
 _action_logs:       dict[str, list]            = {}
+# 背景任務（如延遲刪除討論串）暫存，避免被 GC
+_bg_tasks:          set                        = set()
 
 WIND_LABELS = ["東", "南", "西", "北"]
 AI_NAMES    = ["小春", "小夏", "小秋", "小冬"]
@@ -755,6 +757,25 @@ async def _delete_threads(th: dict) -> None:
             await t.delete()
         except Exception:
             pass
+
+
+async def _delete_threads_later(th: dict, delay: float = 60.0) -> None:
+    """對局自然結束後，保留一段時間讓大家看結果，再刪除討論串。"""
+    await asyncio.sleep(delay)
+    for t in [th.get("public")] + list(th.get("private", {}).values()):
+        if t is None:
+            continue
+        try:
+            await t.delete()
+        except Exception:
+            pass
+
+
+def _schedule_delete_threads(th: dict, delay: float = 60.0) -> None:
+    """排程延遲刪除討論串，並保留任務參考避免被 GC。"""
+    task = asyncio.create_task(_delete_threads_later(th, delay))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1928,7 +1949,13 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
         end_view = discord.ui.View(timeout=None)
         end_view.add_item(FairnessButton(gid))
         await public.send("\n".join(lines), view=end_view)
-        await _archive_threads(th)
+        if th.get("board_msg") is not None:
+            # 觀戰：保留約一分鐘讓大家看結果，再刪除討論串
+            await _delete_announce(th)
+            _schedule_delete_threads(th, 60)
+        else:
+            # 真人對局：封存（保留供回顧）
+            await _archive_threads(th)
     finally:
         _cleanup(gid, channel_id)
 
