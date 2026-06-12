@@ -78,7 +78,6 @@ def make_thread_board(gs: GameState, status: str = "") -> str:
     lines = [
         f"## 🀄 {gs.round_label}　{mode}",
         f"本場 {gs.honba} ・ 立直棒 {gs.riichi_sticks} ・ 牌山 {gs.tiles_left} 張",
-        f"寶牌：",
         f"# {ind_str}",
     ]
     for idx, p in enumerate(gs.players):
@@ -145,13 +144,23 @@ def make_action_log_text(gid: str) -> str:
 
 
 def _board_info(gs: GameState) -> str:
-    """場況 + 寶牌（顯示在手牌上方）。"""
+    """場況 + 寶牌指示（顯示在手牌上方；不另標「寶牌」字樣）。"""
     total_ind = len(gs.dora_indicators)
     shown  = [str(t) for t in gs.dora_indicators[:gs.revealed_dora]]
     hidden = ["🀫"] * (total_ind - gs.revealed_dora)
     ind    = " ".join(shown + hidden)
     return (f"# {gs.round_label}　本場 {gs.honba}　牌山 {gs.tiles_left}\n"
-            f"寶牌：\n# {ind}")
+            f"# {ind}")
+
+
+def dora_reveal_text(gs: GameState, is_riichi: bool = False) -> str:
+    """和牌時揭曉的寶牌指示牌（立直時加裡寶牌指示牌）。"""
+    dora = " ".join(str(t) for t in gs.dora_indicators[:gs.revealed_dora]) or "（無）"
+    lines = [f"寶牌：{dora}"]
+    if is_riichi:
+        ura = " ".join(str(t) for t in gs.ura_indicators[:gs.revealed_dora]) or "（無）"
+        lines.append(f"裡寶牌：{ura}")
+    return "\n".join(lines)
 
 
 def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = "",

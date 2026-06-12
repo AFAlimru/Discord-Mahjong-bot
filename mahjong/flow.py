@@ -29,7 +29,7 @@ from .rules import (
 )
 from .render import (
     make_thread_board, make_hand_panel, _board_info, _action_feed,
-    _log_action, result_body,
+    _log_action, result_body, dora_reveal_text,
 )
 from .ui import (
     HandHelpButton, RiverButton, ScoreButton, MeldButton, ActionLogButton,
@@ -533,7 +533,9 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     if kita_ok:
         add_btn("拔北", discord.ButtonStyle.secondary, ("kita", None))
 
-    view.add_item(HandHelpButton())   # 說明放最右
+    view.add_item(HandHelpButton())   # 說明
+    if player.drawn_tile is not None:   # 摸切：把剛摸到的牌丟掉（放在說明右邊）
+        add_btn("摸切", discord.ButtonStyle.secondary, ("discard", player.drawn_tile))
 
     await refresh(int(thinking_time))
 
@@ -1128,9 +1130,12 @@ async def win_ceremony(channel: discord.TextChannel, gs: GameState,
     head = f"# 🎉 {header}"
     msg = await channel.send(head)          # ① 先只放榮和／自摸標題
     await asyncio.sleep(1.0)
-    top = f"{head}\n## {hand_str}"
+    # 立直則一併揭曉裡寶牌
+    names = [n for n, *_ in (result.yaku or [])] + [n for n, *_ in (result.yakuman or [])]
+    is_riichi = any("立直" in (n or "") for n in names)
+    top = f"{head}\n{dora_reveal_text(gs, is_riichi)}\n## {hand_str}"
     try:
-        await msg.edit(content=top)         # ② 再放手牌
+        await msg.edit(content=top)         # ② 揭曉寶牌/裡寶牌 + 手牌
     except Exception:
         pass
     await asyncio.sleep(1.0)
