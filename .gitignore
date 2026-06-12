@@ -1,6 +1,9 @@
 # 環境變數（含 Discord Token，切勿提交！）
 .env
 
+# 作者自用後台儀表板（不公開到 GitHub，僅本機／自有主機運行）
+mahjong/web/
+
 # Python
 __pycache__/
 *.py[cod]
