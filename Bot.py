@@ -369,6 +369,49 @@ def can_declare_riichi(player: PlayerState) -> bool:
     return (not player.riichi) and len(player.melds) == 0 and bool(tenpai_advice(player))
 
 
+def _wait_flags(gs: GameState, player: PlayerState, discard: Tile, waits: list) -> tuple:
+    """某個進聽打法的提醒標記，回傳 (無役, 振聽)。
+    振聽：待牌曾在自己牌河（含正要打出的這張）。
+    無役：對所有待牌，榮和與自摸皆無役 → 不可和（多半是副露手）。"""
+    river = {(int(t.suit), t.value) for t in player.discards}
+    river.add((int(discard.suit), discard.value))
+    furiten = any((int(w.suit), w.value) in river for w in waits)
+
+    full = list(player.hand) + ([player.drawn_tile] if player.drawn_tile else [])
+    post = list(full)
+    if discard in post:
+        post.remove(discard)
+    saved = player.hand
+    player.hand = post
+    try:
+        no_yaku = all(
+            evaluate_win(gs, player, w, is_tsumo=False) is None
+            and evaluate_win(gs, player, w, is_tsumo=True) is None
+            for w in waits
+        )
+    finally:
+        player.hand = saved
+    return no_yaku, furiten
+
+
+def tenpai_note_text(gs: GameState, player: PlayerState, adv: list, can_riichi: bool) -> str:
+    """組出「💡 可進聽」提示，並對每個打法標註（無役）／（振聽）。"""
+    lines = []
+    for d, waits in adv:
+        no_yaku, furiten = _wait_flags(gs, player, d, waits)
+        tags = []
+        if no_yaku:
+            tags.append("無役")
+        if furiten:
+            tags.append("振聽")
+        suffix = f"　（{'・'.join(tags)}）" if tags else ""
+        lines.append(f"# 打 {d} → 聽 {' '.join(str(w) for w in waits)}{suffix}")
+    note = "💡 **可進聽**：\n" + "\n".join(lines)
+    if can_riichi:
+        note += "\n（標「振聽」者立直後只能自摸）"
+    return note
+
+
 def is_furiten(player: PlayerState, perm: dict, temp: dict) -> bool:
     """振聽判定：永久(立直)振聽 / 同巡振聽 / 捨牌振聽（待牌曾在自己牌河）。"""
     if perm.get(player.seat) or temp.get(player.seat):
@@ -1778,13 +1821,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 ankan_opts = get_ankan_options(player.hand + ([player.drawn_tile] if player.drawn_tile else []))
                 kakan_opts = get_shouminkan_options(player)   # 加槓：已碰且持有第 4 張
                 kita_ok    = gs.is_sanma and has_kita(player)
-                # 進聽提示：打哪張可聽、聽哪些（一向聽時很有用）
-                tenpai_note = ""
-                if adv:
-                    parts = [f"# 打 {d} → 聽 {' '.join(str(w) for w in waits)}" for d, waits in adv]
-                    tenpai_note = "💡 **可進聽**：\n" + "\n".join(parts)
-                    if can_riichi:
-                        tenpai_note += "\n（以上任一打法皆可立直）"
+                # 進聽提示：打哪張可聽、聽哪些；並標註（無役）／（振聽）
+                tenpai_note = tenpai_note_text(gs, player, adv, can_riichi) if adv else ""
                 prompt_base = "✍️ **打字**丟牌；其他行動請看「說明」"
                 turn_time   = thinking_time
 
