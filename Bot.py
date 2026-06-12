@@ -394,11 +394,14 @@ def _wait_flags(gs: GameState, player: PlayerState, discard: Tile, waits: list) 
     return no_yaku, furiten
 
 
-def tenpai_note_text(gs: GameState, player: PlayerState, adv: list, can_riichi: bool) -> str:
+def tenpai_note_text(gs: GameState, player: PlayerState, adv: list) -> str:
     """組出「💡 可進聽」提示，並對每個打法標註（無役）／（振聽）。"""
     lines = []
+    any_no_yaku = any_furiten = False
     for d, waits in adv:
         no_yaku, furiten = _wait_flags(gs, player, d, waits)
+        any_no_yaku |= no_yaku
+        any_furiten |= furiten
         tags = []
         if no_yaku:
             tags.append("無役")
@@ -407,8 +410,13 @@ def tenpai_note_text(gs: GameState, player: PlayerState, adv: list, can_riichi: 
         suffix = f"　（{'・'.join(tags)}）" if tags else ""
         lines.append(f"# 打 {d} → 聽 {' '.join(str(w) for w in waits)}{suffix}")
     note = "💡 **可進聽**：\n" + "\n".join(lines)
-    if can_riichi:
-        note += "\n（標「振聽」者立直後只能自摸）"
+    extra = []
+    if any_no_yaku:
+        extra.append("「無役」湊不出役、不可和")
+    if any_furiten:
+        extra.append("「振聽」只能自摸、不能榮和")
+    if extra:
+        note += "\n（" + "；".join(extra) + "）"
     return note
 
 
@@ -1822,7 +1830,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 kakan_opts = get_shouminkan_options(player)   # 加槓：已碰且持有第 4 張
                 kita_ok    = gs.is_sanma and has_kita(player)
                 # 進聽提示：打哪張可聽、聽哪些；並標註（無役）／（振聽）
-                tenpai_note = tenpai_note_text(gs, player, adv, can_riichi) if adv else ""
+                tenpai_note = tenpai_note_text(gs, player, adv) if adv else ""
                 prompt_base = "✍️ **打字**丟牌；其他行動請看「說明」"
                 turn_time   = thinking_time
 
