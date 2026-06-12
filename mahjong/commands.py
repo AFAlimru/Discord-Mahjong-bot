@@ -19,6 +19,7 @@ from discord import app_commands
 
 from .config import AI_NAMES
 from . import db
+from . import rooms
 from .render import make_board_text
 from .ui import HelpButton, HELP_TEXT
 from .views import RoomSettingsView
@@ -183,6 +184,7 @@ async def cmd_start(interaction: discord.Interaction) -> None:
         "is_sanma": is_sanma, "thinking_time": thinking_time, "max_players": max_players,
         "length": length, "tobi": tobi, "ruleset": ruleset, "start_points": start_points,
     }
+    rooms.register(gid, interaction.guild_id, channel_id)
 
     mode      = "三麻" if is_sanma else "四麻"
     len_label = "半莊戰" if length == "hanchan" else "東風戰"
@@ -190,7 +192,7 @@ async def cmd_start(interaction: discord.Interaction) -> None:
     rule_label = "天鳳式" if ruleset == "tenhou" else "預設"
     lobby = LobbyView(gid, interaction.channel)
     msg   = await interaction.followup.send(
-        f"**麻將房間開啟！**\n"
+        f"**🀄 {rooms.label(gid)} 開啟！**\n"
         f"模式：{mode}　戰長：{len_label}　擊飛：{tobi_label}　規則：{rule_label}\n"
         f"起始：{start_points} 點　思考：{thinking_time} 秒\n"
         f"玩家（1/{max_players}）：\n• {interaction.user.display_name}\n\n"
@@ -309,11 +311,12 @@ async def cmd_watch(interaction: discord.Interaction, half: bool = False, sanma:
         "ruleset": "mixed",
         "start_points": 35000 if sanma else 25000,
     }
+    rooms.register(gid, interaction.guild_id, channel_id)
 
     mode_label = "三麻" if sanma else "四麻"
     len_label  = "半莊戰" if half else "東風戰"
     await interaction.response.send_message(
-        f"🀄 **觀戰模式**啟動！全部 AI 自動對局（{mode_label}・{len_label}・公開手牌）"
+        f"🀄 **{rooms.label(gid)}・觀戰模式**啟動！全部 AI 自動對局（{mode_label}・{len_label}・公開手牌）"
     )
     await launch_game(gid, interaction.channel)
 

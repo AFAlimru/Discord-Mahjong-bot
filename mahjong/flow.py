@@ -42,6 +42,7 @@ from .state import (
 )
 from . import settlement as st
 from . import db
+from . import rooms
 
 
 async def _delete_later(msg: discord.Message, delay: float) -> None:
@@ -73,13 +74,13 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
     watch=True（觀戰）：公開串當牌桌；否則當聊天/和牌資訊串（牌桌資訊改用按鈕看）。"""
     if watch:
         public = await channel.create_thread(
-            name=f"🀄 麻將牌桌 {gs.round_label}",
+            name=f"🀄 {rooms.label(gid)}　{gs.round_label}",
             type=discord.ChannelType.public_thread,
         )
         board_msg = await public.send(make_thread_board(gs, "🀄 遊戲開始，輪到莊家。"))
     else:
         public = await channel.create_thread(
-            name=f"💬 麻將聊天／結果 {gs.round_label}",
+            name=f"💬 {rooms.label(gid)}　{gs.round_label}",
             type=discord.ChannelType.public_thread,
         )
         await public.send("💬 這裡會顯示每局和牌／流局結果，也可以自由聊天。")
@@ -139,6 +140,7 @@ def _cleanup(gid: str, channel_id: str) -> None:
     _action_logs.pop(gid, None)
     _lobbies.pop(gid, None)
     _threads.pop(gid, None)
+    rooms.unregister(gid)
     if _channel_games.get(channel_id) == gid:
         del _channel_games[channel_id]
 
@@ -1188,8 +1190,10 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
     for p in gs.players:
         _user_game[p.user_id] = gid
 
-    db.create_game(gid, str(channel.guild.id), str(channel.id), gs.wall_seed)
+    db.create_game(gid, str(channel.guild.id), str(channel.id), gs.wall_seed,
+                   room_no=rooms.room_no(gid))
     db.update_game_state(gid, "playing", gs.to_dict())
+    rooms.set_status(gid, "playing")
 
     # 0.2：建立公開討論串 + 每位真人的私人討論串（觀戰模式才用牌桌）
     try:
@@ -1200,7 +1204,7 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
         return
 
     announce = await channel.send(
-        f"🀄 遊戲開始！牌桌在討論串 {_threads[gid]['public'].mention}，"
+        f"🀄 {rooms.label(gid)} 遊戲開始！牌桌在討論串 {_threads[gid]['public'].mention}，"
         f"真人玩家請到自己的私人討論串出牌（直接打字）。"
     )
     _threads[gid]["announce"] = announce

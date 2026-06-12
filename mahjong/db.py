@@ -48,6 +48,8 @@ def init_db() -> None:
                 -- JSON blob for full game state
                 wall_seed   TEXT,
                 -- SHA-256 seed string (fairness transparency)
+                room_no     INTEGER,
+                -- 人類可讀房間流水號（房間#0001）
                 created_at  TEXT NOT NULL,
                 updated_at  TEXT NOT NULL
             );
@@ -84,19 +86,31 @@ def init_db() -> None:
                 timestamp   TEXT NOT NULL
             );
         """)
+        # 舊資料庫補欄位（已存在則略過）
+        try:
+            conn.execute("ALTER TABLE games ADD COLUMN room_no INTEGER")
+        except Exception:
+            pass
     print(f"[DB] Database initialised at: {DATABASE_PATH}")
+
+
+def max_room_no() -> int:
+    """目前資料庫中最大的房間編號（無則 0），供啟動後續號。"""
+    with get_connection() as conn:
+        row = conn.execute("SELECT MAX(room_no) AS m FROM games").fetchone()
+    return (row["m"] or 0) if row else 0
 
 
 # ─── Game CRUD ────────────────────────────────────────────────────────────────
 
 def create_game(game_id: str, guild_id: str, channel_id: str,
-                wall_seed: str | None = None) -> None:
+                wall_seed: str | None = None, room_no: int | None = None) -> None:
     now = datetime.utcnow().isoformat()
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO games (game_id,guild_id,channel_id,state,game_data,wall_seed,created_at,updated_at) "
-            "VALUES (?,?,?,'waiting','{}',?,?,?)",
-            (game_id, guild_id, channel_id, wall_seed, now, now)
+            "INSERT INTO games (game_id,guild_id,channel_id,state,game_data,wall_seed,room_no,created_at,updated_at) "
+            "VALUES (?,?,?,'waiting','{}',?,?,?,?)",
+            (game_id, guild_id, channel_id, wall_seed, room_no, now, now)
         )
 
 
