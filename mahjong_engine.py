@@ -572,49 +572,31 @@ def is_complete(tiles: list[Tile]) -> bool:
 
 
 def is_tenpai(hand: list[Tile]) -> bool:
-    """檢查13張手是否聽牌"""
-    all_types = set((t.suit, t.value) for t in hand)
-    
+    """檢查 13 張手是否聽牌。
+    待牌可以是手中已持有的牌（雙碰／多面聽都算），因此不過濾「已在手」的牌；
+    三麻不存在 2-8 萬，is_complete 自然會判否，毋須特別跳過。"""
     for suit in (Suit.MAN, Suit.SOU, Suit.PIN):
         for val in range(1, 10):
-            if suit == Suit.MAN and val in range(2, 9):
-                continue  # 三麻時跳過2-8萬
-            test_tile = Tile(suit, val)
-            if (test_tile.suit, test_tile.value) not in all_types:
-                if is_complete(hand + [test_tile]):
-                    return True
-    
+            if is_complete(hand + [Tile(suit, val)]):
+                return True
     for suit in (Suit.WIND, Suit.DRAGON):
         for val in range(1, (5 if suit == Suit.WIND else 4)):
-            test_tile = Tile(suit, val)
-            if (test_tile.suit, test_tile.value) not in all_types:
-                if is_complete(hand + [test_tile]):
-                    return True
-    
+            if is_complete(hand + [Tile(suit, val)]):
+                return True
     return False
 
 
 def get_tenpai_waits(hand: list[Tile]) -> list[Tile]:
-    """返回聽牌的待牌列表"""
+    """返回聽牌的待牌列表（含手中已持有的牌，如雙碰／多面聽）。"""
     waits = []
-    all_types = set((t.suit, t.value) for t in hand)
-    
     for suit in (Suit.MAN, Suit.SOU, Suit.PIN):
         for val in range(1, 10):
-            if suit == Suit.MAN and val in range(2, 9):
-                continue
-            test_tile = Tile(suit, val)
-            if (test_tile.suit, test_tile.value) not in all_types:
-                if is_complete(hand + [test_tile]):
-                    waits.append(test_tile)
-    
+            if is_complete(hand + [Tile(suit, val)]):
+                waits.append(Tile(suit, val))
     for suit in (Suit.WIND, Suit.DRAGON):
         for val in range(1, (5 if suit == Suit.WIND else 4)):
-            test_tile = Tile(suit, val)
-            if (test_tile.suit, test_tile.value) not in all_types:
-                if is_complete(hand + [test_tile]):
-                    waits.append(test_tile)
-    
+            if is_complete(hand + [Tile(suit, val)]):
+                waits.append(Tile(suit, val))
     return waits
 
 
