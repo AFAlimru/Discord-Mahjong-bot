@@ -230,11 +230,13 @@ def result_body(header: str, hand_str: str, result, log, gs: GameState,
 
 
 def make_score_text(gs: GameState) -> str:
-    """各家點數（含風位）。"""
-    lines = ["**📊 點數**"]
-    for p in gs.players:
+    """各家點數與目前順位（依點數排序）。"""
+    medals = ["🥇", "🥈", "🥉", "4️⃣"]
+    ranked = sorted(gs.players, key=lambda p: -p.score)
+    lines = ["**📊 點數 / 順位**"]
+    for i, p in enumerate(ranked):
         bot = "🤖" if p.is_bot else ""
-        lines.append(f"{WIND_LABELS[p.seat]}　{bot}{p.username}：**{p.score}** 點")
+        lines.append(f"{medals[i]} {WIND_LABELS[p.seat]}　{bot}{p.username}：**{p.score}** 點")
     return "\n".join(lines)
 
 

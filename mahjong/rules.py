@@ -236,9 +236,14 @@ def tenpai_advice(player: PlayerState) -> list:
     return results
 
 
+def is_menzen(player: PlayerState) -> bool:
+    """門清：沒有鳴牌副露。暗槓不算鳴牌，仍視為門清（可立直）。"""
+    return all(m.meld_type == MeldType.ANKAN for m in player.melds)
+
+
 def can_declare_riichi(player: PlayerState) -> bool:
-    """可立直：門清、未立直，且 14 張中至少有一打能保持聽牌。"""
-    return (not player.riichi) and len(player.melds) == 0 and bool(tenpai_advice(player))
+    """可立直：門清（暗槓不算副露）、未立直，且 14 張中至少有一打能保持聽牌。"""
+    return (not player.riichi) and is_menzen(player) and bool(tenpai_advice(player))
 
 
 def _wait_flags(gs: GameState, player: PlayerState, discard: Tile, waits: list) -> tuple:

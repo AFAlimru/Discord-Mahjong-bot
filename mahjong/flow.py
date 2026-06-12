@@ -25,7 +25,7 @@ from .rules import (
     count_tiles, get_chi_options, get_ankan_options, has_kita,
     get_shouminkan_options, parse_tile, ai_choose_discard, ai_should_pon,
     evaluate_win, hand_waits, tenpai_advice, tenpai_note_text,
-    is_furiten, ai_should_ron,
+    is_furiten, ai_should_ron, is_menzen,
 )
 from .render import (
     make_thread_board, make_hand_panel, _board_info, _action_feed,
@@ -699,7 +699,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 turn_time   = thinking_time if can_tsumo else 3
             else:
                 adv = tenpai_advice(player)   # 14 張時：打哪張可進聽
-                can_riichi = (len(player.melds) == 0) and bool(adv)
+                can_riichi = is_menzen(player) and bool(adv)
                 ankan_opts = get_ankan_options(player.hand + ([player.drawn_tile] if player.drawn_tile else []))
                 kakan_opts = get_shouminkan_options(player)   # 加槓：已碰且持有第 4 張
                 kita_ok    = gs.is_sanma and has_kita(player)
@@ -958,6 +958,9 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
     channel_id   = str(channel.id)
     th           = _threads[gid]
     public       = th["public"]
+    tsumo_uids: set = set()   # 本場曾自摸的玩家
+    ron_uids:   set = set()   # 本場曾榮和的玩家
+    riichi_uids: set = set()  # 本場曾立直的玩家
 
     try:
         while True:
@@ -973,17 +976,23 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 _, wseat, result, hand_str = outcome
                 log = st.apply_tsumo(gs, wseat, result)
                 header = f"{gs.players[wseat].username}　自摸！"
+                tsumo_uids.add(gs.players[wseat].user_id)
                 st.advance_after_win(gs, wseat)
             elif outcome[0] == "ron":
                 _, wseat, lseat, result, hand_str = outcome
                 log = st.apply_ron(gs, wseat, lseat, result)
                 header = f"{gs.players[wseat].username}　榮和！（放銃：{gs.players[lseat].username}）"
+                ron_uids.add(gs.players[wseat].user_id)
                 st.advance_after_win(gs, wseat)
             else:
                 _, tenpai = outcome
                 log = st.apply_ryuukyoku(gs, tenpai)
                 result = None
                 st.advance_after_draw(gs, tenpai)
+            # 本局立直者（換局前 riichi 旗標仍在）
+            for p in gs.players:
+                if p.riichi:
+                    riichi_uids.add(p.user_id)
 
             db.update_game_state(gid, "playing", gs.to_dict())
 
@@ -1022,10 +1031,11 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     except Exception:
                         pass
 
-            # 全部顯示完 → 保留完整結果，倒數 5 秒自動進入下一局
-            await _result_countdown([result_msg, *priv_msgs], result_body_text, 5)
-
-            if st.is_game_over(gs, length, tobi):
+            # 全部顯示完 → 保留完整結果，倒數 5 秒；最後一局改顯示「結束對局」
+            over = st.is_game_over(gs, length, tobi)
+            await _result_countdown([result_msg, *priv_msgs], result_body_text, 5,
+                                    "結束對局" if over else "進入下一局")
+            if over:
                 break
 
             # 換下一局：刪掉上一局的結果訊息（公開＋各私人）
@@ -1067,6 +1077,25 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             lines.append(f"{medals[r.rank - 1]} **第 {r.rank} 位**　{r.username}"
                          f"　{r.score} 點　｜　精算 {sign}{abs(r.total_pt):.1f}")
         db.finish_game(gid, gs.to_dict())
+        # 記錄每位真人玩家的個人統計（每場一次）
+        start_pts = config.get("start_points")
+        if start_pts is None:
+            start_pts = 35000 if gs.is_sanma else 25000
+        rank_of = {p.user_id: i + 1 for i, p in enumerate(sorted(gs.players, key=lambda p: -p.score))}
+        for p in gs.players:
+            if p.is_bot:
+                continue
+            try:
+                db.upsert_stats(
+                    p.user_id, p.username,
+                    win=(rank_of[p.user_id] == 1),
+                    tsumo=(p.user_id in tsumo_uids),
+                    ron=(p.user_id in ron_uids),
+                    riichi=(p.user_id in riichi_uids),
+                    score_delta=p.score - start_pts,
+                )
+            except Exception as e:
+                print(f"[stats] upsert 失敗：{e}")
         end_view = discord.ui.View(timeout=None)
         end_view.add_item(FairnessButton(gid))
         await public.send("\n".join(lines), view=end_view)
@@ -1153,14 +1182,15 @@ async def win_ceremony(channel: discord.TextChannel, gs: GameState,
     return msg, body
 
 
-async def _result_countdown(msgs: list, base: str, secs: int = 5) -> None:
-    """一局結果全部顯示完後，保留完整結果並於尾端倒數，時間到自動進入下一局。"""
+async def _result_countdown(msgs: list, base: str, secs: int = 5,
+                            tail: str = "進入下一局") -> None:
+    """一局結果全部顯示完後，保留完整結果並於尾端倒數；tail 為倒數後的動作描述。"""
     for n in range(secs, 0, -1):
         for m in msgs:
             if not m:
                 continue
             try:
-                await m.edit(content=f"{base}\n\n⏳ {n} 秒後進入下一局…")
+                await m.edit(content=f"{base}\n\n⏳ {n} 秒後{tail}…")
             except Exception:
                 pass
         await asyncio.sleep(1)
