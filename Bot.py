@@ -1785,7 +1785,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     tenpai_note = "💡 **可進聽**：\n" + "\n".join(parts)
                     if can_riichi:
                         tenpai_note += "\n（以上任一打法皆可立直）"
-                prompt_base = "✍️ **打字**丟牌（如 `5m` `東`）；自摸／立直／暗槓／加槓／拔北用下方按鈕"
+                prompt_base = "✍️ **打字**丟牌；其他行動請看「說明」"
                 turn_time   = thinking_time
 
             await render_board(f"輪到 <@{player.user_id}>（{WIND_LABELS[player.seat]}）出牌", log=False)
