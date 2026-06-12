@@ -27,12 +27,22 @@
 
 ```
 Suzume Tsuk/
-├── Bot.py              # 主程式：Discord 指令、對局流程、UI、AI
-├── mahjong_engine.py   # 牌 / 牌山(SHA-256) / 牌局狀態 / 和牌型判定 / 聽牌
-├── scoring.py          # 役種判定 + 符數 + 點數（取代舊 yaku.py）
-├── settlement.py       # 對局結算（移轉/本場/立直棒/流局）+ 金流馬點精算
-├── views.py            # Discord UI 元件（設定面板、出牌輸入框）
-├── database.py         # SQLite 持久化（games / players / stats / game_log）
+├── run.py              # 啟動入口：python run.py
+├── mahjong/            # 主套件
+│   ├── client.py       # 建立 bot/tree、事件處理、啟動 run()
+│   ├── commands.py     # /mahjong 指令群組與大廳 LobbyView
+│   ├── flow.py         # 對局流程：討論串/反應/單局/多局/和牌儀式/開局
+│   ├── ui.py           # Discord 按鈕與視圖、操作說明文字
+│   ├── render.py       # 文字版面渲染（牌桌/手牌面板/牌河/點數…）
+│   ├── rules.py        # 純遊戲邏輯：牌工具/AI/和牌評估/聽牌振聽
+│   ├── engine.py       # 牌 / 牌山(SHA-256) / 牌局狀態 / 和牌型 / 聽牌
+│   ├── scoring.py      # 役種判定 + 符數 + 點數
+│   ├── settlement.py   # 對局結算 + 金流馬點精算
+│   ├── views.py        # 設定面板（戰長/擊飛/三麻/規則/數值）
+│   ├── db.py           # SQLite 持久化（games / players / stats / game_log）
+│   ├── config.py       # 環境變數與常數
+│   ├── state.py        # 跨模組共享的記憶體狀態
+│   └── rooms.py        # 房間編號（房間#0001）
 ├── Rules guide.MD      # 規則速查（役種、符點、精算、流程）
 ├── Readme.MD           # 本檔
 ├── requirements.txt    # 依賴
@@ -40,38 +50,50 @@ Suzume Tsuk/
 └── mahjong.db          # SQLite 資料庫（執行後產生）
 ```
 
+> 維運者自用的網頁後台位於 `mahjong/web/`，**不公開到 GitHub**；公開版缺少該套件時會自動略過，不影響機器人。
+
 ### 模組職責
 
 | 模組 | 內容 |
 |------|------|
-| `Bot.py` | 指令、`play_hand`（單局流程）、`match_loop`（多局）、AI、TurnView/大廳/和牌儀式 |
-| `mahjong_engine.py` | `Tile`/`GameState`/`PlayerState`、牌山生成與編碼、`is_complete`/`is_tenpai`/待牌 |
+| `client.py` | `bot`/`tree`、`on_message`/`on_ready`、入口 `run()`（含後台選用掛載） |
+| `commands.py` | `/mahjong start/join/end/status/watch/stats/help`、大廳 LobbyView |
+| `flow.py` | 討論串建立/清理、反應收集、輪到行動、單/多局迴圈、和牌儀式、`launch_game` |
+| `rules.py` | 牌工具、AI、`evaluate_win`、`tenpai_advice`/`is_furiten`（純邏輯，不依賴 discord） |
+| `engine.py` | `Tile`/`GameState`/`PlayerState`、牌山生成與編碼、`is_complete`/`is_tenpai`/待牌 |
 | `scoring.py` | `score_hand()` → 役、飜、符、點；`WinContext` 帶入立直/寶牌/規則旗標 |
 | `settlement.py` | `apply_ron/tsumo/ryuukyoku`、`advance_after_*`、`final_standings`（馬點） |
-| `views.py` | `RoomSettingsView`（戰長/擊飛/三麻/規則/數值）、`DiscardInputModal` |
-| `database.py` | 牌局、玩家、戰績、牌譜的 CRUD |
+| `rooms.py` | 房間編號配發、進行中房間追蹤（供後台讀取） |
+| `db.py` | 牌局、玩家、戰績、牌譜的 CRUD |
 
 ---
 
 ## 🚀 安裝與啟動
 
+建議在**虛擬環境**中執行（避免污染系統 Python）。需要 **Python 3.10+**。
+
 ```bash
-# 1. 安裝依賴
+# 1. 建立並啟用虛擬環境
+python -m venv .venv
+#    Windows (PowerShell):  .venv\Scripts\Activate.ps1
+#    Windows (CMD):         .venv\Scripts\activate.bat
+#    macOS / Linux:         source .venv/bin/activate
+
+# 2. 安裝依賴
 pip install -r requirements.txt
 
-# 2. 設定 .env
-#    DISCORD_TOKEN=你的_bot_token
-#    DATABASE_PATH=mahjong.db   （選填，預設 mahjong.db）
+# 3. 設定 .env（複製範本後填入你的 token；各欄位說明見 .env.example）
+cp .env.example .env        # Windows: copy .env.example .env
 
-# 3. 啟動（資料庫會在啟動時自動初始化）
-python Bot.py
+# 4. 啟動（資料庫會在啟動時自動初始化）
+python run.py
 ```
-
-需要 Python 3.10+ 與 `discord.py>=2.3`。
 
 > ⚠️ 首次啟動前，請到 [Discord Developer Portal](https://discord.com/developers/applications/) →
 > 你的應用 → **Bot → Privileged Gateway Intents** 開啟 **Message Content Intent**，
 > 否則登入會出現 `PrivilegedIntentsRequired` 錯誤。
+
+啟用後台時（預設），啟動後可在 `http://WEB_HOST:WEB_PORT`（預設 `http://127.0.0.1:8787`）查看伺服器數／在玩人數／房間清單；對外請以反向代理轉發並設定 `WEB_ADMIN_TOKEN`。
 
 ---
 
@@ -86,8 +108,8 @@ python Bot.py
 | `/mahjong end` | 房主強制結束 |
 | `/mahjong stats` | 個人統計 |
 | `/help`、`/mahjong help` | 出牌輸入說明 |
-| `/ron` `/pon` `/chi` `/kan` | 反應：榮和／碰／吃／槓 |
-| `/tsumo` `/riichi 牌名` `/kita` `/skip` | 自摸／立直／拔北（三麻）／跳過 |
+
+對局中所有操作都在**討論串裡**完成：輪到你時直接在自己的私人討論串**打字出牌**，吃／碰／槓／榮和／自摸／立直／拔北用面板**按鈕**。
 
 出牌輸入：`1m`~`9m`/`1p`~`9p`/`1s`~`9s`（大小寫皆可）、紅寶 `0m`/`0p`/`0s`、字牌 `e/s/w/n`＝東南西北、`r`=中、`wh`=白、`g`=發（也可直接打中文）。
 
@@ -115,8 +137,8 @@ python Bot.py
 
 ## 🛣️ 後續規劃（Roadmap）
 
-- **網頁資訊面板**：在網頁上**顯示**牌局／戰績／牌譜資訊（不在網頁上遊玩，遊玩仍在 Discord）。
 - **多語系**：介面支援 **英文** 與 **日文**（目前為繁體中文，文字尚未抽離成語言檔）。
+- **網頁面板擴充**：目前已有維運後台（伺服器數／在玩人數／房間）；後續可加上牌譜／戰績查詢（遊玩仍在 Discord）。
 - **資料庫**：目前為 SQLite；視規模再評估其他方案（例如 PostgreSQL）或加上遷移工具。
 
 ---
