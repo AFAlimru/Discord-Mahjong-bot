@@ -485,24 +485,33 @@ def _last_discard_info(gs: GameState) -> str:
 
 
 def _log_action(gid: str, text: str) -> None:
-    """記錄一筆玩家動作（保留最近 6 筆，顯示在私人手牌面板上方）。"""
+    """記錄一筆玩家動作（保留本局最近 40 筆，供「看動態」按鈕顯示完整記錄）。"""
     if not text:
         return
     log = _action_logs.setdefault(gid, [])
     log.append(text)
-    del log[:-6]
+    del log[:-40]
 
 
 def _action_feed(gid: str, gs: GameState) -> str:
-    """私人面板上方的動態：最近動作記錄 + 上家剛打出的牌（放大）。"""
+    """私人面板上方的動態：只顯示最新一筆動作 + 上家剛打出的牌（放大）。
+    完整動態請按「📜 看動態」按鈕。"""
     parts = []
     log = _action_logs.get(gid, [])
     if log:
-        parts.append("📜 **動態**\n" + "\n".join(f"> {t}" for t in log))
+        parts.append(f"📜 {log[-1]}")
     ld = _last_discard_info(gs)
     if ld:
         parts.append(ld)
     return "\n\n".join(parts)
+
+
+def make_action_log_text(gid: str) -> str:
+    """完整動態（給「看動態」按鈕的私密訊息用）。"""
+    log = _action_logs.get(gid, [])
+    if not log:
+        return "📜 **本局動態**\n（尚無動作）"
+    return "📜 **本局動態**\n" + "\n".join(f"> {t}" for t in log)
 
 
 def _board_info(gs: GameState) -> str:
@@ -635,12 +644,27 @@ def MeldButton(gid: str):
     return _GameInfoButton(gid, "🀜 看副露", make_meld_text)
 
 
+class _ActionLogButton(discord.ui.Button):
+    """點擊顯示本局完整動態（私密）。"""
+    def __init__(self, gid: str):
+        super().__init__(label="📜 看動態", style=discord.ButtonStyle.secondary)
+        self.gid = gid
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(make_action_log_text(self.gid), ephemeral=True)
+
+
+def ActionLogButton(gid: str):
+    return _ActionLogButton(gid)
+
+
 def make_hand_view(gid: str) -> discord.ui.View:
-    """手牌面板常駐按鈕：看牌河 / 看點數 / 看副露，說明放最右。"""
+    """手牌面板常駐按鈕：看牌河 / 看點數 / 看副露 / 看動態，說明放最右。"""
     v = discord.ui.View(timeout=None)
     v.add_item(RiverButton(gid))
     v.add_item(ScoreButton(gid))
     v.add_item(MeldButton(gid))
+    v.add_item(ActionLogButton(gid))
     v.add_item(HandHelpButton())
     return v
 
@@ -1439,6 +1463,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     view.add_item(RiverButton(gid))
     view.add_item(ScoreButton(gid))
     view.add_item(MeldButton(gid))
+    view.add_item(ActionLogButton(gid))
 
     def panel(rem):
         extra = "🀄 已宣告立直，請**打字**打出宣言牌（再按一次「立直」可取消）" if state["riichi"] else f"{prompt_base}　（剩 {rem} 秒）"
