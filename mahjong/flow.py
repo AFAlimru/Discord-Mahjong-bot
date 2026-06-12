@@ -53,21 +53,6 @@ async def _delete_later(msg: discord.Message, delay: float) -> None:
         pass
 
 
-from mahjong.rules import (
-    count_tiles, get_chi_options, get_ankan_options, has_kita,
-    get_shouminkan_options, parse_tile, ai_choose_discard, ai_should_pon,
-    evaluate_win, hand_waits, tenpai_advice, tenpai_note_text,
-    is_furiten, ai_should_ron,
-)
-from mahjong.render import (
-    make_board_text, make_thread_board, _log_action, _action_feed,
-    make_action_log_text, _board_info, make_hand_panel, result_body,
-    make_river_text, make_score_text, make_meld_text,
-)
-from mahjong.ui import (
-    HandHelpButton, RiverButton, ScoreButton, MeldButton, ActionLogButton,
-    make_hand_view, FairnessButton, HelpButton, HELP_TEXT,
-)
 async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
                         watch: bool = False) -> None:
     """建立公開討論串 + 每位真人玩家的私人討論串。
@@ -1130,12 +1115,12 @@ async def win_ceremony(channel: discord.TextChannel, gs: GameState,
     head = f"# 🎉 {header}"
     msg = await channel.send(head)          # ① 先只放榮和／自摸標題
     await asyncio.sleep(1.0)
-    # 立直則一併揭曉裡寶牌
+    # 立直則一併揭曉裏寶牌
     names = [n for n, *_ in (result.yaku or [])] + [n for n, *_ in (result.yakuman or [])]
     is_riichi = any("立直" in (n or "") for n in names)
     top = f"{head}\n{dora_reveal_text(gs, is_riichi)}\n## {hand_str}"
     try:
-        await msg.edit(content=top)         # ② 揭曉寶牌/裡寶牌 + 手牌
+        await msg.edit(content=top)         # ② 揭曉寶牌/裏寶牌 + 手牌
     except Exception:
         pass
     await asyncio.sleep(1.0)

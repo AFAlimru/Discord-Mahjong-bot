@@ -154,7 +154,7 @@ def _board_info(gs: GameState) -> str:
 
 
 def dora_reveal_text(gs: GameState, is_riichi: bool = False) -> str:
-    """和牌時揭曉寶牌指示牌（已翻開顯示牌面、未翻開顯示 🀫）；立直才加裡寶牌指示。"""
+    """和牌時揭曉寶牌指示牌（已翻開顯示牌面、未翻開顯示 🀫）；立直才加裏寶牌指示。"""
     total = len(gs.dora_indicators)
     rev   = gs.revealed_dora
     dora  = [str(t) for t in gs.dora_indicators[:rev]] + ["🀫"] * (total - rev)
@@ -162,7 +162,7 @@ def dora_reveal_text(gs: GameState, is_riichi: bool = False) -> str:
     if is_riichi:
         ura_face = [str(t) for t in gs.ura_indicators[:rev]]
         ura      = ura_face + ["🀫"] * (total - len(ura_face))
-        lines.append(f"[裡寶牌：{' '.join(ura)}]")
+        lines.append(f"[裏寶牌：{' '.join(ura)}]")
     return "\n".join(lines)
 
 

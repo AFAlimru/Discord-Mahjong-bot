@@ -829,8 +829,8 @@ def _dora_han(all_tiles, ctx: WinContext, yaku: list, melds_full=None) -> int:
             for m in melds_full:
                 if m.meld_type in (MeldType.KAN, MeldType.ANKAN):
                     n += sum(1 for d in ctx.ura_tiles if tk(m.tiles[0]) == tk(d))
-        # 立直一律列出裡寶牌（即使 0 飜也標示，方便確認結果）
-        yaku.append(("裡寶牌", n)); extra += n
+        # 立直一律列出裏寶牌（即使 0 飜也標示，方便確認結果）
+        yaku.append(("裏寶牌", n)); extra += n
     # 赤寶牌（all_tiles 已含副露前三張的紅五；不重複計）
     aka = sum(1 for t in all_tiles if getattr(t, "red", False))
     if aka:
