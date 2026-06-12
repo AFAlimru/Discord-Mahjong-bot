@@ -2085,7 +2085,6 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 )
                 result_msg = msgs[0] if msgs and not isinstance(msgs[0], Exception) else None
                 priv_msgs  = [m for m in msgs[1:] if not isinstance(m, Exception)]
-                await asyncio.sleep(4)
             else:
                 body = result_body("", "", None, log, gs, tenpai)
                 result_msg = await public.send(body)
@@ -2095,7 +2094,9 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                         priv_msgs.append(await pt.send(body))
                     except Exception:
                         pass
-                await asyncio.sleep(6)
+
+            # 全部顯示完 → 倒數 5 秒自動進入下一局
+            await _result_countdown([result_msg, *priv_msgs], 5)
 
             if st.is_game_over(gs, length, tobi):
                 break
@@ -2613,10 +2614,16 @@ def fairness_footer(gs: GameState) -> str:
 
 async def win_ceremony(channel: discord.TextChannel, gs: GameState,
                        header: str, hand_str: str, result, log: "st.SettleLog") -> None:
-    """和牌儀式：先秀牌，再逐一揭曉役種，最後公布等級與點數。"""
-    top = f"# 🎉 {header}\n## {hand_str}"
-    msg = await channel.send(top)
-    await asyncio.sleep(1.2)
+    """和牌儀式：先放標題，再放手牌，接著逐一揭曉役種，最後公布等級與點數。"""
+    head = f"# 🎉 {header}"
+    msg = await channel.send(head)          # ① 先只放榮和／自摸標題
+    await asyncio.sleep(1.0)
+    top = f"{head}\n## {hand_str}"
+    try:
+        await msg.edit(content=top)         # ② 再放手牌
+    except Exception:
+        pass
+    await asyncio.sleep(1.0)
 
     shown: list[str] = []
     if result.yakuman:
@@ -2644,6 +2651,18 @@ async def win_ceremony(channel: discord.TextChannel, gs: GameState,
     except Exception:
         pass
     return msg
+
+
+async def _result_countdown(msgs: list, secs: int = 5) -> None:
+    """一局結果全部顯示完後，於各結果訊息尾端倒數，時間到自動進入下一局。"""
+    bases = [(m, m.content) for m in msgs if m]
+    for n in range(secs, 0, -1):
+        for m, base in bases:
+            try:
+                await m.edit(content=f"{base}\n\n⏳ {n} 秒後進入下一局…")
+            except Exception:
+                pass
+        await asyncio.sleep(1)
 
 
 async def match_loop(gid: str, channel: discord.TextChannel,
