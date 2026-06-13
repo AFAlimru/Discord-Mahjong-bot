@@ -53,6 +53,13 @@ async def _delete_later(msg: discord.Message, delay: float) -> None:
         pass
 
 
+def _is_nagashi(p: PlayerState) -> bool:
+    """流局滿貫資格：牌河非空、沒有捨牌被鳴走，且全為么九牌（1/9/字牌）。"""
+    if not p.discards or getattr(p, "discard_taken", False):
+        return False
+    return all(t.suit in (Suit.WIND, Suit.DRAGON) or t.value in (1, 9) for t in p.discards)
+
+
 async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
                         watch: bool = False) -> None:
     """建立公開討論串 + 每位真人玩家的私人討論串。
@@ -643,7 +650,11 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
         else:
             tile = gs.draw_tile()
             if tile is None:
-                return ("draw", [p.seat for p in gs.players if is_tenpai(p.hand)])
+                tenpai_seats = [p.seat for p in gs.players if is_tenpai(p.hand)]
+                nagashi = [p.seat for p in gs.players if _is_nagashi(p)]
+                if nagashi:
+                    return ("nagashi", nagashi, tenpai_seats)
+                return ("draw", tenpai_seats)
             player.drawn_tile = tile
             is_rinshan_draw = rinshan_next
             rinshan_next = False
@@ -905,6 +916,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 rp.melds.append(Meld(MeldType.PON, [Tile(discard_tile.suit, discard_tile.value)] * 3, player.seat))
                 if player.discards and player.discards[-1] == discard_tile:
                     player.discards.pop()   # 被碰走 → 從牌河移除
+                player.discard_taken = True
                 gs.current_seat = rp.seat
                 no_draw = True
                 any_call = True
@@ -920,6 +932,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 rp.melds.append(Meld(MeldType.CHI, meld_tiles, player.seat))
                 if player.discards and player.discards[-1] == discard_tile:
                     player.discards.pop()   # 被吃走 → 從牌河移除
+                player.discard_taken = True
                 gs.current_seat = rp.seat
                 no_draw = True
                 any_call = True
@@ -939,6 +952,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 rp.melds.append(Meld(MeldType.KAN, [Tile(discard_tile.suit, discard_tile.value)] * 4, player.seat))
                 if player.discards and player.discards[-1] == discard_tile:
                     player.discards.pop()   # 被槓走 → 從牌河移除
+                player.discard_taken = True
                 gs.open_dora()
                 gs.current_seat = rp.seat
                 any_call = True
@@ -1001,6 +1015,20 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 header = f"{gs.players[wseat].username}　榮和！（放銃：{gs.players[lseat].username}）"
                 ron_uids.add(gs.players[wseat].user_id)
                 st.advance_after_win(gs, wseat)
+            elif outcome[0] == "nagashi":
+                _, nagashi_seats, tenpai = outcome
+                log = st.apply_nagashi(gs, nagashi_seats)
+                from .scoring import ScoreResult
+                winner = gs.players[nagashi_seats[0]]
+                pts = 12000 if winner.is_dealer else 8000
+                result = ScoreResult(yaku=[("流局滿貫", 5)], han=5, fu=0,
+                                     points=pts, name="流局滿貫", valid=True)
+                names = "、".join(gs.players[s].username for s in nagashi_seats)
+                header = f"🌊 流局滿貫！{names}"
+                hand_str = "　".join(str(t) for t in winner.discards)
+                for s in nagashi_seats:
+                    tsumo_uids.add(gs.players[s].user_id)
+                st.advance_after_draw(gs, tenpai)
             else:
                 _, tenpai = outcome
                 log = st.apply_ryuukyoku(gs, tenpai)

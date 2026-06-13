@@ -120,6 +120,22 @@ def apply_ryuukyoku(gs: GameState, tenpai_seats: list[int]) -> SettleLog:
     return SettleLog(deltas, note="流局")
 
 
+def apply_nagashi(gs: GameState, nagashi_seats: list[int]) -> SettleLog:
+    """流局滿貫（流し満貫）：每位達成者以滿貫自摸計算收受（不另計聽牌罰符）。
+    莊家滿貫＝每家 4000；閒家滿貫＝莊家付 4000、其餘閒家各付 2000。"""
+    deltas = {p.seat: 0 for p in gs.players}
+    for ws in nagashi_seats:
+        winner = gs.players[ws]
+        for p in gs.players:
+            if p.seat == ws:
+                continue
+            pay = 4000 if (winner.is_dealer or p.is_dealer) else 2000
+            deltas[p.seat] -= pay
+            deltas[ws] += pay
+    _apply_deltas(gs, deltas)
+    return SettleLog(deltas, note="流局滿貫")
+
+
 # ─── 場次推進（連莊/輪莊/本場）────────────────────────────────────────────────
 
 def advance_after_win(gs: GameState, winner_seat: int) -> None:

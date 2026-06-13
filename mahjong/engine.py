@@ -236,6 +236,7 @@ class PlayerState:
     is_dealer: bool = False
     is_bot: bool = False
     kita: int = 0   # 三麻拔北（北寶牌）累計張數
+    discard_taken: bool = False   # 本局是否曾有捨牌被鳴走（破壞流局滿貫資格）
 
     @property
     def full_hand(self) -> list[Tile]:
