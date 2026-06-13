@@ -964,9 +964,23 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
     tsumo_uids: set = set()   # 本場曾自摸的玩家
     ron_uids:   set = set()   # 本場曾榮和的玩家
     riichi_uids: set = set()  # 本場曾立直的玩家
+    shown_all_last = False
+    end_wind = 1 if length == "tonpuu" else 2   # 1=東風戰 2=半莊
 
     try:
         while True:
+            # 最後一局（オーラス）開打前秀「ALL LAST」再刪掉
+            cur = _games[gid]
+            if (not shown_all_last and cur.round_wind == end_wind
+                    and cur.round_num == len(cur.players)):
+                shown_all_last = True
+                try:
+                    al = await public.send("# 🏁 ALL LAST　最終局")
+                    await asyncio.sleep(2.5)
+                    await al.delete()
+                except Exception:
+                    pass
+
             outcome = await play_hand_t(gid, channel)
             if outcome is None:
                 return
@@ -1079,8 +1093,18 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             sign = "＋" if r.total_pt >= 0 else "－"
             lines.append(f"{medals[r.rank - 1]} **第 {r.rank} 位**　{r.username}"
                          f"　{r.score} 點　｜　精算 {sign}{abs(r.total_pt):.1f}")
-        db.finish_game(gid, gs.to_dict())
-        # 記錄每位真人玩家的個人統計（每場一次）
+        # 先把最終順位貼出來（即使後續寫 DB 出錯也不影響顯示）
+        end_view = discord.ui.View(timeout=None)
+        end_view.add_item(FairnessButton(gid))
+        try:
+            await public.send("\n".join(lines), view=end_view)
+        except Exception as e:
+            print(f"[standings] 發送最終順位失敗：{e}")
+        # 之後才寫資料庫與個人統計
+        try:
+            db.finish_game(gid, gs.to_dict())
+        except Exception as e:
+            print(f"[db] finish_game 失敗：{e}")
         start_pts = config.get("start_points")
         if start_pts is None:
             start_pts = 35000 if gs.is_sanma else 25000
@@ -1099,9 +1123,6 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 )
             except Exception as e:
                 print(f"[stats] upsert 失敗：{e}")
-        end_view = discord.ui.View(timeout=None)
-        end_view.add_item(FairnessButton(gid))
-        await public.send("\n".join(lines), view=end_view)
         if th.get("board_msg") is not None:
             # 觀戰：保留約一分鐘讓大家看結果，再刪除討論串
             await _delete_announce(th)
@@ -1133,14 +1154,12 @@ def deal_next_hand(gid: str, players_info: list[dict], prev: GameState) -> GameS
 
 
 def format_winning_hand(player: PlayerState, win_tile: Tile) -> str:
-    """和牌手牌顯示：門前手牌（含空隔）＋副露、標出和牌張，再附一行牌名。"""
+    """和牌手牌顯示：門前手牌（含空隔）＋副露，並標出和牌張。"""
     hand_sorted = sorted(player.hand, key=lambda t: (t.suit, t.value))
     parts = [" ".join(str(t) for t in hand_sorted)]
     if player.melds:
         parts.append("　".join(str(m) for m in player.melds))
-    line = "　".join(parts) + f"　🟦[{win_tile}]"
-    _, names = player.hand_display_with_names()   # 牌名（如 m123 s456 p99 中）
-    return line + (f"\n{names}" if names else "")
+    return "　".join(parts) + f"　🟦[{win_tile}]"
 
 
 async def win_ceremony(channel: discord.TextChannel, gs: GameState,
