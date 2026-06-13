@@ -53,6 +53,11 @@ async def _delete_later(msg: discord.Message, delay: float) -> None:
         pass
 
 
+def _name_ref(p: PlayerState) -> str:
+    """玩家稱呼：真人用 @ 提及（在「編輯訊息」裡顯示不會再觸發通知），AI 用名字。"""
+    return f"<@{p.user_id}>" if not p.is_bot else p.username
+
+
 def _is_nagashi(p: PlayerState) -> bool:
     """流局滿貫資格：牌河非空、沒有捨牌被鳴走，且全為么九牌（1/9/字牌）。"""
     if not p.discards or getattr(p, "discard_taken", False):
@@ -609,9 +614,25 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
     hand_msg      = th["hand_msg"]
     _action_logs[gid] = []   # 每局開始清空動作記錄
 
+    async def refresh_feeds():
+        """把最新動態同步到每位玩家的手牌面板，讓大家一直看得到（非自己回合也更新）。"""
+        feed = _action_feed(gid, gs)
+        bi = _board_info(gs)
+        for p in gs.players:
+            if p.is_bot:
+                continue
+            hm = hand_msg.get(p.user_id)
+            if hm:
+                try:
+                    await hm.edit(content=make_hand_panel(p, "", "", feed, bi),
+                                  view=make_hand_view(gid))
+                except Exception:
+                    pass
+
     async def render_board(status="", log=True):
         if log:
             _log_action(gid, status)   # 真人對局沒有牌桌，動作改記在私人面板上方
+            await refresh_feeds()      # 每筆動作即時更新所有玩家面板的動態
         if board_msg is None:   # 真人對局沒有公開牌桌（資訊改用按鈕看）
             return
         try:
@@ -690,7 +711,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             player.hand.remove(discard_tile)
             player.discards.append(discard_tile)
             giri = "摸切" if (drawn is not None and discard_tile == drawn) else "手切"
-            nxt = gs.players[(player.seat + 1) % len(gs.players)].username
+            nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)])
             await render_board(f"🤖 {player.username} 出牌了（{giri}），輪到 {nxt}")
             await asyncio.sleep(1.0)
 
@@ -874,7 +895,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 post_note = f"🀄 **聽牌！** 待牌：{' '.join(str(t) for t in waits)}"
             await render_hand(player, "", post_note)
 
-            nxt = gs.players[(player.seat + 1) % len(gs.players)].username
+            nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)])
             if already_riichi:
                 await render_board(f"{player.username} 立直摸切，輪到 {nxt}")
             else:
