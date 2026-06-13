@@ -158,12 +158,12 @@ def dora_reveal_text(gs: GameState, is_riichi: bool = False) -> str:
     total = len(gs.dora_indicators)
     rev   = gs.revealed_dora
     dora  = [str(t) for t in gs.dora_indicators[:rev]] + ["🀫"] * (total - rev)
-    lines = [f"[寶牌：{' '.join(dora)}]"]
+    parts = [f"[寶牌：{' '.join(dora)}]"]
     if is_riichi:
         ura_face = [str(t) for t in gs.ura_indicators[:rev]]
         ura      = ura_face + ["🀫"] * (total - len(ura_face))
-        lines.append(f"[裏寶牌：{' '.join(ura)}]")
-    return "\n".join(lines)
+        parts.append(f"[裏寶牌：{' '.join(ura)}]")
+    return "　".join(parts)   # 寶牌與裏寶牌並排
 
 
 def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = "",

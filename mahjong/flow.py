@@ -713,7 +713,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             pt = private.get(player.user_id)
             hm = hand_msg.get(player.user_id)
             ping_msg = None
-            if pt:
+            # 立直後是自動摸切，不必每巡 @；只有能自摸時才提醒
+            if pt and (not already_riichi or can_tsumo):
                 try:
                     ping_msg = await pt.send(f"<@{player.user_id}> 輪到你了！")
                 except Exception:
