@@ -77,8 +77,10 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
         if p.is_bot:
             continue
         try:
+            _rn = rooms.room_no(gid)
+            _suffix = f" #{_rn:04d}" if _rn else ""
             pt = await channel.create_thread(
-                name=f"🀫 {p.username} 的手牌",
+                name=f"🀫 {p.username} 的手牌{_suffix}",
                 type=discord.ChannelType.private_thread,
                 invitable=False,
             )
@@ -1039,8 +1041,8 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             if over:
                 break
 
-            # 換下一局：刪掉上一局的結果訊息（公開＋各私人）
-            for m in [result_msg, *priv_msgs]:
+            # 換下一局：公開串保留每局結果（不刪），只清掉各私人串的結果副本
+            for m in priv_msgs:
                 if m:
                     try:
                         await m.delete()
@@ -1131,12 +1133,14 @@ def deal_next_hand(gid: str, players_info: list[dict], prev: GameState) -> GameS
 
 
 def format_winning_hand(player: PlayerState, win_tile: Tile) -> str:
-    """和牌手牌顯示：門前手牌（含空隔）＋副露，並標出和牌張。"""
+    """和牌手牌顯示：門前手牌（含空隔）＋副露、標出和牌張，再附一行牌名。"""
     hand_sorted = sorted(player.hand, key=lambda t: (t.suit, t.value))
     parts = [" ".join(str(t) for t in hand_sorted)]
     if player.melds:
         parts.append("　".join(str(m) for m in player.melds))
-    return "　".join(parts) + f"　🟦[{win_tile}]"
+    line = "　".join(parts) + f"　🟦[{win_tile}]"
+    _, names = player.hand_display_with_names()   # 牌名（如 m123 s456 p99 中）
+    return line + (f"\n{names}" if names else "")
 
 
 async def win_ceremony(channel: discord.TextChannel, gs: GameState,
@@ -1195,6 +1199,13 @@ async def _result_countdown(msgs: list, base: str, secs: int = 5,
             except Exception:
                 pass
         await asyncio.sleep(1)
+    # 倒數結束後還原為乾淨結果（保留下來的公開紀錄不會殘留倒數字樣）
+    for m in msgs:
+        if m:
+            try:
+                await m.edit(content=base)
+            except Exception:
+                pass
 
 
 # ═══════════════════════════════════════════════════════════════

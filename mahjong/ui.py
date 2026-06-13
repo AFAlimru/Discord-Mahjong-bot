@@ -19,6 +19,7 @@ from .render import (
     make_river_text, make_score_text, make_meld_text, make_action_log_text,
 )
 from .state import _games
+from . import db
 
 class HandHelpButton(discord.ui.Button):
     def __init__(self):
