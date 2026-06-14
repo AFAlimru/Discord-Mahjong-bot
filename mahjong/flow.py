@@ -14,6 +14,7 @@
 """對局流程：討論串建立/清理、反應收集、輪到行動、單局/多局迴圈、和牌儀式、開局。"""
 from __future__ import annotations
 import asyncio
+from collections import Counter
 import discord
 
 from .config import WIND_LABELS
@@ -997,9 +998,11 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
     channel_id   = str(channel.id)
     th           = _threads[gid]
     public       = th["public"]
-    tsumo_uids: set = set()   # 本場曾自摸的玩家
-    ron_uids:   set = set()   # 本場曾榮和的玩家
-    riichi_uids: set = set()  # 本場曾立直的玩家
+    tsumo_ct  = Counter()   # 自摸次數
+    ron_ct    = Counter()   # 榮和次數
+    riichi_ct = Counter()   # 立直次數
+    houju_ct  = Counter()   # 放銃次數
+    houju_pts = Counter()   # 放銃失點
     shown_all_last = False
     end_wind = 1 if length == "tonpuu" else 2   # 1=東風戰 2=半莊
 
@@ -1029,13 +1032,15 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 _, wseat, result, hand_str = outcome
                 log = st.apply_tsumo(gs, wseat, result)
                 header = f"{gs.players[wseat].username}　自摸！"
-                tsumo_uids.add(gs.players[wseat].user_id)
+                tsumo_ct[gs.players[wseat].user_id] += 1
                 st.advance_after_win(gs, wseat)
             elif outcome[0] == "ron":
                 _, wseat, lseat, result, hand_str = outcome
                 log = st.apply_ron(gs, wseat, lseat, result)
                 header = f"{gs.players[wseat].username}　榮和！（放銃：{gs.players[lseat].username}）"
-                ron_uids.add(gs.players[wseat].user_id)
+                ron_ct[gs.players[wseat].user_id] += 1
+                houju_ct[gs.players[lseat].user_id] += 1
+                houju_pts[gs.players[lseat].user_id] += max(0, -log.deltas.get(lseat, 0))
                 st.advance_after_win(gs, wseat)
             elif outcome[0] == "nagashi":
                 _, nagashi_seats, tenpai = outcome
@@ -1049,7 +1054,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 header = f"🌊 流局滿貫！{names}"
                 hand_str = "　".join(str(t) for t in winner.discards)
                 for s in nagashi_seats:
-                    tsumo_uids.add(gs.players[s].user_id)
+                    tsumo_ct[gs.players[s].user_id] += 1
                 st.advance_after_draw(gs, tenpai)
             else:
                 _, tenpai = outcome
@@ -1059,7 +1064,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             # 本局立直者（換局前 riichi 旗標仍在）
             for p in gs.players:
                 if p.riichi:
-                    riichi_uids.add(p.user_id)
+                    riichi_ct[p.user_id] += 1
 
             db.update_game_state(gid, "playing", gs.to_dict())
 
@@ -1158,21 +1163,21 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
         start_pts = config.get("start_points")
         if start_pts is None:
             start_pts = 35000 if gs.is_sanma else 25000
+        mode = "sanma" if len(gs.players) == 3 else "yonma"
         rank_of = {p.user_id: i + 1 for i, p in enumerate(sorted(gs.players, key=lambda p: -p.score))}
         for p in gs.players:
             if p.is_bot:
                 continue
             try:
-                db.upsert_stats(
-                    p.user_id, p.username,
-                    win=(rank_of[p.user_id] == 1),
-                    tsumo=(p.user_id in tsumo_uids),
-                    ron=(p.user_id in ron_uids),
-                    riichi=(p.user_id in riichi_uids),
-                    score_delta=p.score - start_pts,
+                db.add_game_record(
+                    game_id=gid, user_id=p.user_id, username=p.username, mode=mode,
+                    rank=rank_of[p.user_id], score=p.score, score_delta=p.score - start_pts,
+                    tsumo=tsumo_ct[p.user_id], ron=ron_ct[p.user_id],
+                    houju=houju_ct[p.user_id], houju_points=houju_pts[p.user_id],
+                    riichi=riichi_ct[p.user_id],
                 )
             except Exception as e:
-                print(f"[stats] upsert 失敗：{e}")
+                print(f"[stats] add_game_record 失敗：{e}")
         if th.get("board_msg") is not None:
             # 觀戰：保留約一分鐘讓大家看結果，再刪除討論串
             await _delete_announce(th)

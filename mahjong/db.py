@@ -85,6 +85,26 @@ def init_db() -> None:
                 -- JSON: {type, player_seat, tile, ...}
                 timestamp   TEXT NOT NULL
             );
+
+            -- 每位玩家每場一筆（牌譜/戰績來源，分三麻 sanma / 四麻 yonma）
+            CREATE TABLE IF NOT EXISTS game_records (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id      TEXT,
+                user_id      TEXT NOT NULL,
+                username     TEXT NOT NULL,
+                mode         TEXT NOT NULL,        -- 'sanma' | 'yonma'
+                rank         INTEGER NOT NULL,     -- 終局順位
+                score        INTEGER NOT NULL,     -- 終局點數
+                score_delta  INTEGER NOT NULL,     -- 得失點（可負）
+                tsumo        INTEGER NOT NULL DEFAULT 0,
+                ron          INTEGER NOT NULL DEFAULT 0,
+                houju        INTEGER NOT NULL DEFAULT 0,        -- 放銃次數
+                houju_points INTEGER NOT NULL DEFAULT 0,        -- 放銃失點（累計可加總）
+                riichi       INTEGER NOT NULL DEFAULT 0,
+                created_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_records_user
+                ON game_records (user_id, mode, id);
         """)
         # 舊資料庫補欄位（已存在則略過）
         try:
@@ -230,6 +250,49 @@ def log_action(game_id: str, turn: int, action: dict) -> None:
             "INSERT INTO game_log (game_id,turn,action,timestamp) VALUES (?,?,?,?)",
             (game_id, turn, json.dumps(action, ensure_ascii=False), now)
         )
+
+
+# ─── 牌譜／戰績（game_records）──────────────────────────────────────────────
+
+def add_game_record(*, game_id: str, user_id: str, username: str, mode: str,
+                    rank: int, score: int, score_delta: int,
+                    tsumo: int = 0, ron: int = 0, houju: int = 0,
+                    houju_points: int = 0, riichi: int = 0) -> None:
+    now = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO game_records (game_id,user_id,username,mode,rank,score,score_delta,"
+            "tsumo,ron,houju,houju_points,riichi,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (game_id, user_id, username, mode, rank, score, score_delta,
+             tsumo, ron, houju, houju_points, riichi, now)
+        )
+
+
+def get_mode_summary(user_id: str, mode: str) -> dict | None:
+    """某玩家在指定模式（sanma/yonma）的累計戰績；無紀錄回 None。"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS games, "
+            "SUM(rank=1) AS r1, SUM(rank=2) AS r2, SUM(rank=3) AS r3, SUM(rank=4) AS r4, "
+            "AVG(rank) AS avg_rank, SUM(tsumo) AS tsumo, SUM(ron) AS ron, "
+            "SUM(houju) AS houju, SUM(houju_points) AS houju_points, "
+            "SUM(riichi) AS riichi, SUM(score_delta) AS score_delta, "
+            "MAX(username) AS username "
+            "FROM game_records WHERE user_id=? AND mode=?",
+            (user_id, mode)
+        ).fetchone()
+    if not row or not row["games"]:
+        return None
+    return dict(row)
+
+
+def get_recent_records(user_id: str, mode: str, limit: int = 20) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM game_records WHERE user_id=? AND mode=? ORDER BY id DESC LIMIT ?",
+            (user_id, mode, limit)
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 if __name__ == "__main__":
