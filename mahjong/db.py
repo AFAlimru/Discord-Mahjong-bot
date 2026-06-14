@@ -286,6 +286,15 @@ def get_mode_summary(user_id: str, mode: str) -> dict | None:
     return dict(row)
 
 
+def get_total_games(user_id: str) -> int:
+    """某玩家所有模式的總對局場數。"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS c FROM game_records WHERE user_id=?", (user_id,)
+        ).fetchone()
+    return (row["c"] or 0) if row else 0
+
+
 def get_recent_records(user_id: str, mode: str, limit: int = 20) -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(
