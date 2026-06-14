@@ -50,6 +50,8 @@ def init_db() -> None:
                 -- SHA-256 seed string (fairness transparency)
                 room_no     INTEGER,
                 -- 人類可讀房間流水號（房間#0001）
+                room_config TEXT,
+                -- 房間設定 JSON（重連回復對局時用：length/tobi/start_points…）
                 created_at  TEXT NOT NULL,
                 updated_at  TEXT NOT NULL
             );
@@ -113,6 +115,10 @@ def init_db() -> None:
         except Exception:
             pass
         try:
+            conn.execute("ALTER TABLE games ADD COLUMN room_config TEXT")
+        except Exception:
+            pass
+        try:
             conn.execute("ALTER TABLE game_records ADD COLUMN gain_points INTEGER NOT NULL DEFAULT 0")
         except Exception:
             pass
@@ -137,6 +143,42 @@ def create_game(game_id: str, guild_id: str, channel_id: str,
             "VALUES (?,?,?,'waiting','{}',?,?,?,?)",
             (game_id, guild_id, channel_id, wall_seed, room_no, now, now)
         )
+
+
+def set_room_config(game_id: str, config: dict) -> None:
+    """保存房間設定 JSON，供重連回復對局時還原（length/tobi/start_points…）。"""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE games SET room_config=? WHERE game_id=?",
+            (json.dumps(config, ensure_ascii=False, default=str), game_id)
+        )
+
+
+def mark_interrupted(game_id: str) -> None:
+    """標記對局為中斷（機器人重啟後待玩家決定繼續或結束）。"""
+    now = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE games SET state='interrupted', updated_at=? WHERE game_id=?",
+            (now, game_id)
+        )
+
+
+def get_unfinished_games() -> list[dict]:
+    """進行中或中斷、尚未結算的對局（供重啟後回復）。已解析 game_data。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM games WHERE state IN ('playing','interrupted')"
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["game_data"] = json.loads(d["game_data"])
+        except Exception:
+            d["game_data"] = {}
+        out.append(d)
+    return out
 
 
 def get_game(game_id: str) -> dict | None:

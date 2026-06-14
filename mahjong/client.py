@@ -60,6 +60,11 @@ async def on_ready() -> None:
         print(f"⚠️ 命令同步錯誤: {e}")
     print(f"✅ Bot 登錄為 {bot.user}")
     print("=" * 50)
+    try:                                      # 重啟後回復中斷的對局（讓玩家選繼續／結束）
+        from .flow import recover_interrupted_games
+        await recover_interrupted_games(bot)
+    except Exception as e:
+        print(f"⚠️ 對局回復檢查失敗: {e}")
 
 
 def run() -> None:

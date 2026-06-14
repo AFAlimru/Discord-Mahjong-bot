@@ -55,6 +55,17 @@ def register(gid: str, guild_id, channel_id) -> RoomMeta:
     return rm
 
 
+def register_existing(gid: str, guild_id, channel_id, room_no,
+                      status: str = "interrupted") -> RoomMeta:
+    """重啟後以「已知房號」重新註冊（回復中斷對局用），不另配新號。"""
+    rm = RoomMeta(int(room_no or 0), gid, str(guild_id), str(channel_id), status=status)
+    rooms[gid] = rm
+    _ensure_counter()                       # 確保續號計數器不會與既有房號相撞
+    if room_no and _next["value"] is not None and room_no >= _next["value"]:
+        _next["value"] = int(room_no) + 1
+    return rm
+
+
 def label(gid: str) -> str:
     """房間顯示名，如「房間#0001」。未註冊則回傳「房間」。"""
     rm = rooms.get(gid)

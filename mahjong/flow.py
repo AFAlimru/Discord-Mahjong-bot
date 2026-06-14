@@ -14,6 +14,7 @@
 """對局流程：討論串建立/清理、反應收集、輪到行動、單局/多局迴圈、和牌儀式、開局。"""
 from __future__ import annotations
 import asyncio
+import json
 from collections import Counter
 import discord
 
@@ -1304,6 +1305,10 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
     db.create_game(gid, str(channel.guild.id), str(channel.id), gs.wall_seed,
                    room_no=rooms.room_no(gid))
     db.update_game_state(gid, "playing", gs.to_dict())
+    try:
+        db.set_room_config(gid, config)   # 保存設定，供重連回復對局
+    except Exception as e:
+        print(f"[launch] 保存房間設定失敗：{e}")
     rooms.set_status(gid, "playing")
 
     # 0.2：建立公開討論串 + 每位真人的私人討論串（觀戰模式才用牌桌）
@@ -1320,6 +1325,196 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
     )
     _threads[gid]["announce"] = announce
     _game_tasks[gid] = asyncio.create_task(match_loop_t(gid, channel))
+
+
+# ═══════════════════════════════════════════════════════════════
+#  重連回復：機器人重啟後，把中斷的對局交給玩家決定繼續／結束
+# ═══════════════════════════════════════════════════════════════
+
+_recovery_done = False
+
+
+async def recover_interrupted_games(bot) -> None:
+    """啟動後掃描 DB 中仍進行中的對局（記憶體已無對應任務 → 已中斷），
+    在原頻道貼出「繼續／結束」提示。每個行程只跑一次。"""
+    global _recovery_done
+    if _recovery_done:
+        return
+    _recovery_done = True
+    try:
+        games = db.get_unfinished_games()
+    except Exception as e:
+        print(f"[recover] 讀取未完成對局失敗：{e}")
+        return
+    for g in games:
+        gid = g["game_id"]
+        if gid in _games:                      # 仍在記憶體中（短暫重連）→ 不算中斷
+            continue
+        try:
+            cid = int(g["channel_id"])
+            ch = bot.get_channel(cid) or await bot.fetch_channel(cid)
+        except Exception:
+            ch = None
+        if ch is None:
+            continue
+        try:
+            snap = GameState.from_dict(g["game_data"])
+        except Exception as e:
+            print(f"[recover] {gid} 還原狀態失敗：{e}")
+            continue
+        human_ids = [p.user_id for p in snap.players if not p.is_bot]
+        if not human_ids:                      # 全 AI 局，無人可決定 → 直接結束
+            try:
+                db.finish_game(gid, g["game_data"])
+            except Exception:
+                pass
+            continue
+        try:
+            rooms.register_existing(gid, g.get("guild_id"), g["channel_id"], g.get("room_no"))
+        except Exception:
+            pass
+        try:
+            db.mark_interrupted(gid)
+        except Exception:
+            pass
+        mentions = " ".join(f"<@{u}>" for u in human_ids)
+        try:
+            await ch.send(
+                f"⚠️ {rooms.label(gid)} 因機器人重新啟動而中斷。{mentions}\n"
+                f"要從**目前比分繼續**（中斷的那一手作廢、重新發牌續打），"
+                f"還是直接**結束並結算目前順位**？",
+                view=RecoveryView(gid, human_ids),
+            )
+        except Exception as e:
+            print(f"[recover] {gid} 發送提示失敗：{e}")
+
+
+class RecoveryView(discord.ui.View):
+    """中斷對局的「繼續／結束」選擇。"""
+
+    def __init__(self, gid: str, human_ids: list[str]):
+        super().__init__(timeout=None)
+        self.gid = gid
+        self.human_ids = {str(u) for u in human_ids}
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if str(interaction.user.id) not in self.human_ids:
+            await interaction.response.send_message("只有這局的玩家可以操作。", ephemeral=True)
+            return False
+        return True
+
+    def _lock(self):
+        for c in self.children:
+            c.disabled = True
+
+    @discord.ui.button(label="繼續對局", style=discord.ButtonStyle.success, emoji="▶️")
+    async def cont(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.gid in _games:
+            await interaction.response.send_message("這局已經在進行中了。", ephemeral=True)
+            return
+        self._lock()
+        await interaction.response.edit_message(view=self)
+        try:
+            await resume_game(self.gid, interaction.channel)
+        except Exception as e:
+            print(f"[recover] resume_game 失敗：{e}")
+            try:
+                await interaction.followup.send(f"❌ 無法繼續對局：{e}", ephemeral=True)
+            except Exception:
+                pass
+
+    @discord.ui.button(label="結束對局", style=discord.ButtonStyle.danger, emoji="🏁")
+    async def end(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self._lock()
+        await interaction.response.edit_message(view=self)
+        try:
+            await finalize_interrupted(self.gid, interaction.channel)
+        except Exception as e:
+            print(f"[recover] finalize 失敗：{e}")
+
+
+def _players_info_from(gs: GameState) -> list[dict]:
+    return [{"user_id": p.user_id, "username": p.username, "is_bot": p.is_bot}
+            for p in gs.players]
+
+
+async def resume_game(gid: str, channel: discord.TextChannel) -> None:
+    """從 DB 快照接續對局：保留比分、莊家、場局、本場，重新發下一手並重建討論串。"""
+    g = db.get_game(gid)
+    if not g or g["state"] == "finished":
+        return
+    snap = GameState.from_dict(g["game_data"])
+    config = {}
+    try:
+        config = json.loads(g.get("room_config") or "{}")
+    except Exception:
+        pass
+    length = config.get("length", "tonpuu")
+    tobi = config.get("tobi", True)
+
+    # 若快照已達結束條件，改為直接結算
+    if st.is_game_over(snap, length, tobi):
+        await finalize_interrupted(gid, channel)
+        return
+
+    players_info = _players_info_from(snap)
+    _room_configs[gid] = config
+    _waiting[gid] = players_info
+    try:
+        rooms.register_existing(gid, g.get("guild_id"), g["channel_id"], g.get("room_no"),
+                                status="playing")
+    except Exception:
+        pass
+
+    gs = deal_next_hand(gid, players_info, snap)   # 中斷那手作廢，發下一手（比分照舊）
+    _games[gid] = gs
+    for p in gs.players:
+        _user_game[p.user_id] = gid
+    _channel_games[str(channel.id)] = gid
+    db.update_game_state(gid, "playing", gs.to_dict())
+
+    try:
+        await setup_threads(gid, channel, gs, watch=config.get("open_hand", False))
+    except Exception as e:
+        await channel.send(f"❌ 重建討論串失敗：{e}")
+        _cleanup(gid, str(channel.id))
+        return
+
+    announce = await channel.send(
+        f"🀄 {rooms.label(gid)} 已從中斷處接續！牌桌在 {_threads[gid]['public'].mention}，"
+        f"真人玩家請到自己的私人討論串出牌。"
+    )
+    _threads[gid]["announce"] = announce
+    _game_tasks[gid] = asyncio.create_task(match_loop_t(gid, channel))
+
+
+async def finalize_interrupted(gid: str, channel: discord.TextChannel) -> None:
+    """直接結束中斷對局：以目前比分結算並公布最終順位。"""
+    g = db.get_game(gid)
+    if not g or g["state"] == "finished":
+        return
+    gs = GameState.from_dict(g["game_data"])
+    config = {}
+    try:
+        config = json.loads(g.get("room_config") or "{}")
+    except Exception:
+        pass
+    rows = st.final_standings(gs, start_points=config.get("start_points"))
+    medals = ["🥇", "🥈", "🥉", "4️⃣"]
+    lines = ["# 🏁 最終順位（對局中斷結算）", ""]
+    for r in rows:
+        sign = "＋" if r.total_pt >= 0 else "－"
+        lines.append(f"{medals[r.rank - 1]} **第 {r.rank} 位**　{r.username}"
+                     f"　{r.score} 點　｜　精算 {sign}{abs(r.total_pt):.1f}")
+    try:
+        await channel.send("\n".join(lines))
+    except Exception as e:
+        print(f"[recover] 發送最終順位失敗：{e}")
+    try:
+        db.finish_game(gid, gs.to_dict())
+    except Exception as e:
+        print(f"[recover] finish_game 失敗：{e}")
+    rooms.unregister(gid)
 
 
 # ═══════════════════════════════════════════════════════════════
