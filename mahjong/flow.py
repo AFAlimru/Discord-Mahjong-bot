@@ -1114,15 +1114,24 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
 
             # 本局結束、最終局開打前秀「ALL LAST」（gs 已輪莊到下一局的局數）
             # 四人東風＝東4 前（東3 結束）、三人東風＝東3 前（東2 結束）、半莊則為南場對應局
+            # 公開串 + 各私人手牌串都秀，玩家在自己的討論串也看得到
             if (not shown_all_last and gs.round_wind == end_wind
                     and gs.round_num == len(gs.players)):
                 shown_all_last = True
-                try:
-                    al = await public.send("# 🏁 ALL LAST　最終局")
-                    await asyncio.sleep(2.5)
-                    await al.delete()
-                except Exception:
-                    pass
+                banners = []
+                for tch in [public] + list(th.get("private", {}).values()):
+                    if tch is None:
+                        continue
+                    try:
+                        banners.append(await tch.send("# 🏁 ALL LAST　最終局"))
+                    except Exception:
+                        pass
+                await asyncio.sleep(2.5)
+                for b in banners:
+                    try:
+                        await b.delete()
+                    except Exception:
+                        pass
 
             new_gs = deal_next_hand(gid, players_info, gs)
             _games[gid] = new_gs
