@@ -1154,13 +1154,18 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             sign = "＋" if r.total_pt >= 0 else "－"
             lines.append(f"{medals[r.rank - 1]} **第 {r.rank} 位**　{r.username}"
                          f"　{r.score} 點　｜　精算 {sign}{abs(r.total_pt):.1f}")
-        # 先把最終順位貼出來（即使後續寫 DB 出錯也不影響顯示）
-        end_view = discord.ui.View(timeout=None)
-        end_view.add_item(FairnessButton(gid))
-        try:
-            await public.send("\n".join(lines), view=end_view)
-        except Exception as e:
-            print(f"[standings] 發送最終順位失敗：{e}")
+        # 先把最終順位貼出來（公開串 + 各私人手牌串都貼，確保玩家在自己的討論串也看得到；
+        # 即使後續寫 DB 出錯也不影響顯示）
+        standings_text = "\n".join(lines)
+        for tch in [public] + list(th.get("private", {}).values()):
+            if tch is None:
+                continue
+            try:
+                v = discord.ui.View(timeout=None)
+                v.add_item(FairnessButton(gid))
+                await tch.send(standings_text, view=v)
+            except Exception as e:
+                print(f"[standings] 發送最終順位失敗：{e}")
         # 之後才寫資料庫與個人統計
         try:
             db.finish_game(gid, gs.to_dict())
