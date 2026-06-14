@@ -929,7 +929,7 @@ def _finalize_yakuman(r: ScoreResult, ctx: WinContext):
 def _finalize_points(r: ScoreResult, ctx: WinContext):
     han, fu = r.han, r.fu
     if han >= 13:
-        base = 8000; r.name = "役滿(累計)"
+        base = 8000; r.name = "累計役滿"
     elif han >= 11:
         base = 6000; r.name = "三倍滿"
     elif han >= 8:
