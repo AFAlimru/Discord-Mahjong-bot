@@ -307,17 +307,18 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
             srt = sorted([t1, t2, discard_tile], key=lambda t: (t.suit, t.value))
             chi_combos.append(" ".join(str(t) for t in srt))
 
-        if "ron" in actions:
-            add_btn("榮和", discord.ButtonStyle.danger, "ron", None)        # 紅
-        if "pon" in actions:
-            add_btn("碰", discord.ButtonStyle.primary, "pon", None)         # 藍
-        if "kan" in actions:
-            add_btn("槓", discord.ButtonStyle.primary, "kan", None)         # 藍
+        # 順序：吃、碰、槓、榮和、跳過
         if "chi" in actions:
             for idx, (t1, t2) in enumerate(chi_opts):
                 lbl = "吃" if len(chi_opts) == 1 else f"吃{CIRC[idx]}"
                 add_btn(lbl, discord.ButtonStyle.success, "chi", (t1, t2))  # 綠
-        add_btn("跳過", discord.ButtonStyle.secondary, "skip", None)        # 灰（避免與紅色榮和混淆）
+        if "pon" in actions:
+            add_btn("碰", discord.ButtonStyle.primary, "pon", None)         # 藍
+        if "kan" in actions:
+            add_btn("槓", discord.ButtonStyle.primary, "kan", None)         # 藍
+        if "ron" in actions:
+            add_btn("榮和", discord.ButtonStyle.danger, "ron", None)        # 紅
+        add_btn("跳過", discord.ButtonStyle.secondary, "skip", None)        # 灰
 
         def prompt_text(rem):
             lines = [f"## ⬇️ {from_name} 打出", f"# {discard_tile}"]
@@ -521,20 +522,20 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
         b.callback = cb
         view.add_item(b)
 
-    if can_tsumo:
-        add_btn("自摸", discord.ButtonStyle.danger, ("tsumo", None))       # 紅
-    if can_riichi:
-        add_btn("立直", discord.ButtonStyle.secondary, "riichi")
+    # 順序：說明、摸切、拔北、暗槓、加槓、立直、自摸
+    view.add_item(HandHelpButton())   # 說明
+    if player.drawn_tile is not None:
+        add_btn("摸切", discord.ButtonStyle.secondary, ("discard", player.drawn_tile))
+    if kita_ok:
+        add_btn("拔北", discord.ButtonStyle.secondary, ("kita", None))
     if ankan_opts:
         add_btn("暗槓", discord.ButtonStyle.secondary, ("ankan", ankan_opts[0]))
     if kakan_opts:
         add_btn("加槓", discord.ButtonStyle.secondary, ("kakan", kakan_opts[0]))
-    if kita_ok:
-        add_btn("拔北", discord.ButtonStyle.secondary, ("kita", None))
-
-    view.add_item(HandHelpButton())   # 說明
-    if player.drawn_tile is not None:   # 摸切：把剛摸到的牌丟掉（放在說明右邊）
-        add_btn("摸切", discord.ButtonStyle.secondary, ("discard", player.drawn_tile))
+    if can_riichi:
+        add_btn("立直", discord.ButtonStyle.secondary, "riichi")
+    if can_tsumo:
+        add_btn("自摸", discord.ButtonStyle.danger, ("tsumo", None))       # 紅
 
     await refresh(int(thinking_time))
 
@@ -712,7 +713,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             player.discards.append(discard_tile)
             giri = "摸切" if (drawn is not None and discard_tile == drawn) else "手切"
             nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)])
-            await render_board(f"🤖 {player.username} 出牌了（{giri}），輪到 {nxt}")
+            await render_board(f"🤖 {player.username} 出牌「{discard_tile}」（{giri}），輪到 {nxt}")
             await asyncio.sleep(1.0)
 
         # ── Human（打字）────────────────────────────────────
@@ -897,9 +898,9 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
 
             nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)])
             if already_riichi:
-                await render_board(f"{player.username} 立直摸切，輪到 {nxt}")
+                await render_board(f"{player.username} 立直摸切「{discard_tile}」，輪到 {nxt}")
             else:
-                await render_board(f"{player.username} {word}（{giri}），輪到 {nxt}")
+                await render_board(f"{player.username} {word}「{discard_tile}」（{giri}），輪到 {nxt}")
 
         gs.pending_discard   = discard_tile
         gs.pending_from_seat = player.seat
