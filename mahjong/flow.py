@@ -674,7 +674,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
         else:
             tile = gs.draw_tile()
             if tile is None:
-                tenpai_seats = [p.seat for p in gs.players if is_tenpai(p.hand)]
+                tenpai_seats = [p.seat for p in gs.players if hand_waits(p)]
                 nagashi = [p.seat for p in gs.players if _is_nagashi(p)]
                 if nagashi:
                     return ("nagashi", nagashi, tenpai_seats)
@@ -710,7 +710,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 player.hand.append(player.drawn_tile); player.drawn_tile = None
             discard_tile = ai_choose_discard(player.hand)
             if discard_tile is None:
-                return ("draw", [p.seat for p in gs.players if is_tenpai(p.hand)])
+                return ("draw", [p.seat for p in gs.players if hand_waits(p)])
             player.hand.remove(discard_tile)
             player.discards.append(discard_tile)
             giri = "摸切" if (drawn is not None and discard_tile == drawn) else "手切"
@@ -893,9 +893,11 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 ippatsu[player.seat] = False
 
             post_note = ""
-            if is_tenpai(player.hand) and not player.riichi:
-                waits = get_tenpai_waits(player.hand)
-                post_note = f"🀄 **聽牌！** 待牌：{' '.join(str(t) for t in waits)}"
+            if not player.riichi:
+                ws = hand_waits(player)   # 含副露的聽牌判定
+                if ws:
+                    wtiles = [Tile(Suit(s), v) for s, v in sorted(ws)]
+                    post_note = f"🀄 **聽牌！** 待牌：{' '.join(str(t) for t in wtiles)}"
             await render_hand(player, "", post_note)
 
             nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)])
