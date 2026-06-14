@@ -100,6 +100,7 @@ def init_db() -> None:
                 ron          INTEGER NOT NULL DEFAULT 0,
                 houju        INTEGER NOT NULL DEFAULT 0,        -- 放銃次數
                 houju_points INTEGER NOT NULL DEFAULT 0,        -- 放銃失點（累計可加總）
+                gain_points  INTEGER NOT NULL DEFAULT 0,        -- 獲得點數（每局正向變動之和）
                 riichi       INTEGER NOT NULL DEFAULT 0,
                 created_at   TEXT NOT NULL
             );
@@ -109,6 +110,10 @@ def init_db() -> None:
         # 舊資料庫補欄位（已存在則略過）
         try:
             conn.execute("ALTER TABLE games ADD COLUMN room_no INTEGER")
+        except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE game_records ADD COLUMN gain_points INTEGER NOT NULL DEFAULT 0")
         except Exception:
             pass
     print(f"[DB] Database initialised at: {DATABASE_PATH}")
@@ -257,14 +262,15 @@ def log_action(game_id: str, turn: int, action: dict) -> None:
 def add_game_record(*, game_id: str, user_id: str, username: str, mode: str,
                     rank: int, score: int, score_delta: int,
                     tsumo: int = 0, ron: int = 0, houju: int = 0,
-                    houju_points: int = 0, riichi: int = 0) -> None:
+                    houju_points: int = 0, riichi: int = 0, gain_points: int = 0) -> None:
     now = datetime.utcnow().isoformat()
     with get_connection() as conn:
         conn.execute(
             "INSERT INTO game_records (game_id,user_id,username,mode,rank,score,score_delta,"
-            "tsumo,ron,houju,houju_points,riichi,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "tsumo,ron,houju,houju_points,gain_points,riichi,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (game_id, user_id, username, mode, rank, score, score_delta,
-             tsumo, ron, houju, houju_points, riichi, now)
+             tsumo, ron, houju, houju_points, gain_points, riichi, now)
         )
 
 
@@ -276,6 +282,7 @@ def get_mode_summary(user_id: str, mode: str) -> dict | None:
             "SUM(rank=1) AS r1, SUM(rank=2) AS r2, SUM(rank=3) AS r3, SUM(rank=4) AS r4, "
             "AVG(rank) AS avg_rank, SUM(tsumo) AS tsumo, SUM(ron) AS ron, "
             "SUM(houju) AS houju, SUM(houju_points) AS houju_points, "
+            "SUM(gain_points) AS gain_points, "
             "SUM(riichi) AS riichi, SUM(score_delta) AS score_delta, "
             "MAX(username) AS username "
             "FROM game_records WHERE user_id=? AND mode=?",

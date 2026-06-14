@@ -1003,6 +1003,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
     riichi_ct = Counter()   # 立直次數
     houju_ct  = Counter()   # 放銃次數
     houju_pts = Counter()   # 放銃失點
+    gain_pts  = Counter()   # 累計獲得點數（每局正向點數變動之和）
     shown_all_last = False
     end_wind = 1 if length == "tonpuu" else 2   # 1=東風戰 2=半莊
 
@@ -1061,6 +1062,10 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 log = st.apply_ryuukyoku(gs, tenpai)
                 result = None
                 st.advance_after_draw(gs, tenpai)
+            # 本局獲得點數（正向變動）累加
+            for s, d in log.deltas.items():
+                if d > 0:
+                    gain_pts[gs.players[s].user_id] += d
             # 本局立直者（換局前 riichi 旗標仍在）
             for p in gs.players:
                 if p.riichi:
@@ -1174,7 +1179,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     rank=rank_of[p.user_id], score=p.score, score_delta=p.score - start_pts,
                     tsumo=tsumo_ct[p.user_id], ron=ron_ct[p.user_id],
                     houju=houju_ct[p.user_id], houju_points=houju_pts[p.user_id],
-                    riichi=riichi_ct[p.user_id],
+                    riichi=riichi_ct[p.user_id], gain_points=gain_pts[p.user_id],
                 )
             except Exception as e:
                 print(f"[stats] add_game_record 失敗：{e}")
