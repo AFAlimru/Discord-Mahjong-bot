@@ -1010,18 +1010,6 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
 
     try:
         while True:
-            # 最後一局（オーラス）開打前秀「ALL LAST」再刪掉
-            cur = _games[gid]
-            if (not shown_all_last and cur.round_wind == end_wind
-                    and cur.round_num == len(cur.players)):
-                shown_all_last = True
-                try:
-                    al = await public.send("# 🏁 ALL LAST　最終局")
-                    await asyncio.sleep(2.5)
-                    await al.delete()
-                except Exception:
-                    pass
-
             outcome = await play_hand_t(gid, channel)
             if outcome is None:
                 return
@@ -1123,6 +1111,18 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                         await m.delete()
                     except Exception:
                         pass
+
+            # 本局結束、最終局開打前秀「ALL LAST」（gs 已輪莊到下一局的局數）
+            # 四人東風＝東4 前（東3 結束）、三人東風＝東3 前（東2 結束）、半莊則為南場對應局
+            if (not shown_all_last and gs.round_wind == end_wind
+                    and gs.round_num == len(gs.players)):
+                shown_all_last = True
+                try:
+                    al = await public.send("# 🏁 ALL LAST　最終局")
+                    await asyncio.sleep(2.5)
+                    await al.delete()
+                except Exception:
+                    pass
 
             new_gs = deal_next_hand(gid, players_info, gs)
             _games[gid] = new_gs
