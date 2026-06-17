@@ -36,16 +36,26 @@ async def on_message(message: discord.Message) -> None:
     if q is not None and message.channel.id == _input_thread.get(uid):
         await q.put((message.content.strip(), message))
         return
-    # 只有「觀戰牌桌串」禁止打字（board_msg 存在）；真人對局的聊天串可自由聊天
     gid = _thread_game.get(message.channel.id)
-    if gid:
-        th = _threads.get(gid)
-        pub = th.get("public") if th else None
-        if pub is not None and message.channel.id == pub.id and th.get("board_msg") is not None:
-            try:
-                await message.delete()
-            except Exception:
-                pass
+    if not gid:
+        return
+    th = _threads.get(gid)
+    if not th:
+        return
+    # 觀戰公開牌桌串：禁止打字
+    pub = th.get("public")
+    if pub is not None and message.channel.id == pub.id and th.get("board_msg") is not None:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        return
+    # 私人手牌串：非自己回合打字也直接刪掉（不給任何提示）
+    if message.channel.id in {t.id for t in th.get("private", {}).values()}:
+        try:
+            await message.delete()
+        except Exception:
+            pass
 
 
 

@@ -31,7 +31,7 @@ from .rules import (
 )
 from .render import (
     make_thread_board, make_hand_panel, _board_info, _action_feed,
-    _log_action, result_body, dora_reveal_text,
+    _log_action, result_body, dora_reveal_text, river_panel,
 )
 from .ui import (
     HandHelpButton, RiverButton, ScoreButton, MeldButton, ActionLogButton,
@@ -103,7 +103,8 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
             except Exception:
                 pass
             private[p.user_id] = pt
-            hm = await pt.send(make_hand_panel(p, "（等待開始）", board_info=_board_info(gs)),
+            hm = await pt.send(make_hand_panel(p, "（等待開始）", board_info=_board_info(gs),
+                                               river_info=river_panel(gs)),
                                view=make_hand_view(gid))
             hand_msg[p.user_id] = hm
         except Exception as e:
@@ -501,7 +502,8 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
             extra = "🀄 已宣告立直，請**打字**打出宣言牌（再按一次「立直」可取消）"
         else:
             extra = f"{prompt_base}　（剩 {rem} 秒）"
-        return make_hand_panel(player, extra, tenpai_note, last_info, board_info)
+        return make_hand_panel(player, extra, tenpai_note, last_info, board_info,
+                               river_info=river_panel(_games[gid]))
 
     async def refresh(rem):
         try:
@@ -621,13 +623,14 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
         """把最新動態同步到每位玩家的手牌面板，讓大家一直看得到（非自己回合也更新）。"""
         feed = _action_feed(gid, gs)
         bi = _board_info(gs)
+        rv = river_panel(gs)
         for p in gs.players:
             if p.is_bot:
                 continue
             hm = hand_msg.get(p.user_id)
             if hm:
                 try:
-                    await hm.edit(content=make_hand_panel(p, "", "", feed, bi),
+                    await hm.edit(content=make_hand_panel(p, "", "", feed, bi, river_info=rv),
                                   view=make_hand_view(gid))
                 except Exception:
                     pass
@@ -648,7 +651,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
         if hm:
             try:
                 await hm.edit(content=make_hand_panel(p, prompt, tenpai_note,
-                                                      _action_feed(gid, gs), _board_info(gs)),
+                                                      _action_feed(gid, gs), _board_info(gs),
+                                                      river_info=river_panel(gs)),
                               view=make_hand_view(gid))
             except Exception:
                 pass
@@ -1151,7 +1155,8 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     continue
                 try:
                     th["hand_msg"][p.user_id] = await pt.send(
-                        make_hand_panel(p, board_info=_board_info(new_gs)),
+                        make_hand_panel(p, board_info=_board_info(new_gs),
+                                        river_info=river_panel(new_gs)),
                         view=make_hand_view(gid))
                 except Exception:
                     pass

@@ -166,12 +166,28 @@ def dora_reveal_text(gs: GameState, is_riichi: bool = False) -> str:
     return "　".join(parts)   # 寶牌與裏寶牌並排
 
 
+def river_panel(gs: GameState) -> str:
+    """各家牌河（放在私人面板最上方，往上滑即可看到最新牌河）。"""
+    lines = ["🀫 牌河"]
+    for idx, p in enumerate(gs.players):
+        if idx > 0:
+            lines.append("─" * 20)
+        cur  = "▶ " if p.seat == gs.current_seat else ""
+        disc = " ".join(str(t) for t in p.discards) if p.discards else "—"
+        lines.append(f"{cur}{WIND_LABELS[p.seat]}「{p.username}」（{len(p.discards)}）")
+        lines.append(f"# {disc}")
+    return "\n".join(lines)
+
+
 def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = "",
-                    last_info: str = "", board_info: str = "") -> str:
-    """私人討論串的個人面板：場況/寶牌、手牌｜剛摸到的牌、副露、提示。"""
+                    last_info: str = "", board_info: str = "", river_info: str = "") -> str:
+    """私人討論串的個人面板：牌河、場況/寶牌、手牌｜剛摸到的牌、副露、提示。"""
     uni, names = player.hand_display_with_names()
     sep = "=" * 35
     lines = []
+    if river_info:
+        lines.append(river_info)
+        lines.append(sep)
     if board_info:
         lines.append("\n".join("> " + ln for ln in board_info.split("\n")))
         lines.append(sep)
