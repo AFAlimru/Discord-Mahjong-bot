@@ -108,6 +108,12 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_records_user
                 ON game_records (user_id, mode, id);
+
+            -- 玩家偏好（顯示語言等）
+            CREATE TABLE IF NOT EXISTS user_prefs (
+                user_id TEXT PRIMARY KEY,
+                lang    TEXT NOT NULL DEFAULT 'zh_tw'
+            );
         """)
         # 舊資料庫補欄位（已存在則略過）
         try:
@@ -333,6 +339,21 @@ def get_mode_summary(user_id: str, mode: str) -> dict | None:
     if not row or not row["games"]:
         return None
     return dict(row)
+
+
+def get_user_lang(user_id: str) -> str | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT lang FROM user_prefs WHERE user_id=?", (user_id,)).fetchone()
+    return row["lang"] if row else None
+
+
+def set_user_lang(user_id: str, lang: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO user_prefs (user_id, lang) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET lang=excluded.lang",
+            (user_id, lang)
+        )
 
 
 def get_total_games(user_id: str) -> int:

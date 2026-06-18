@@ -1,0 +1,58 @@
+{
+  "_name": "繁體中文",
+
+  "language.choose": "選擇你的顯示語言（目前：{cur}）：",
+  "language.set": "✅ 已將你的語言設定為「{name}」。",
+
+  "mode.yonma": "四麻",
+  "mode.sanma": "三麻",
+  "len.tonpuu": "東風戰",
+  "len.hanchan": "半莊戰",
+
+  "wind.0": "東",
+  "wind.1": "南",
+  "wind.2": "西",
+  "wind.3": "北",
+
+  "board.round": "{wind}{num}局",
+  "board.honba": "本場 {n}",
+  "board.wall": "牌山 {n}",
+  "board.riichi_sticks": "立直棒 {n}",
+  "board.dora": "寶牌",
+  "board.ura_dora": "裏寶牌",
+
+  "action.tsumo": "自摸",
+  "action.ron": "榮和",
+  "action.riichi": "立直",
+  "action.chi": "吃",
+  "action.pon": "碰",
+  "action.kan": "槓",
+  "action.ankan": "暗槓",
+  "action.kakan": "加槓",
+  "action.kita": "拔北",
+  "action.skip": "跳過",
+  "action.tsumogiri": "摸切",
+  "action.tegiri": "手切",
+
+  "term.tenpai": "聽牌",
+  "term.furiten": "振聽",
+  "term.noten": "未聽",
+  "term.menzen": "門清",
+  "term.no_yaku": "無役",
+  "term.riichi_declared": "已立直",
+
+  "result.tsumo": "{name}　自摸！",
+  "result.ron": "{name}　榮和！（放銃：{loser}）",
+  "result.draw": "流局",
+  "result.nagashi": "流局滿貫！{names}",
+  "result.all_last": "ALL LAST　最終局",
+
+  "standings.title": "最終順位",
+  "standings.rank": "第 {rank} 位",
+  "standings.tenpai": "聽牌：{names}",
+
+  "panel.your_hand": "你的手牌",
+  "panel.river": "牌河",
+  "panel.melds": "副露",
+  "panel.waiting_start": "（等待開始）"
+}

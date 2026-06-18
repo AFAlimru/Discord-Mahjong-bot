@@ -19,6 +19,7 @@ from discord import app_commands
 
 from .config import AI_NAMES
 from . import db
+from . import i18n
 from . import rooms
 from .render import make_board_text
 from .ui import HelpButton, HELP_TEXT
@@ -353,6 +354,33 @@ tree.add_command(mahjong)
 @tree.command(name="help", description="查看出牌輸入說明")
 async def cmd_help_top(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(HELP_TEXT, ephemeral=True)
+
+
+# ── 語言設定（per-user）──────────────────────────────────────────
+class LanguageButton(discord.ui.Button):
+    def __init__(self, code: str):
+        super().__init__(label=i18n.lang_name(code), style=discord.ButtonStyle.primary)
+        self.code = code
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        i18n.set_user_lang(interaction.user.id, self.code)
+        await interaction.response.send_message(
+            i18n.t("language.set", self.code, name=i18n.lang_name(self.code)), ephemeral=True)
+
+
+class LanguageView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=120)
+        for code in i18n.available():
+            self.add_item(LanguageButton(code))
+
+
+@tree.command(name="language", description="設定顯示語言 / 表示言語を設定する")
+async def cmd_language(interaction: discord.Interaction) -> None:
+    cur = i18n.get_user_lang(interaction.user.id)
+    await interaction.response.send_message(
+        i18n.t("language.choose", cur, cur=i18n.lang_name(cur)),
+        view=LanguageView(), ephemeral=True)
 
 
 
