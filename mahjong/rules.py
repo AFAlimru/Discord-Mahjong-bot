@@ -247,9 +247,10 @@ def can_declare_riichi(player: PlayerState) -> bool:
 
 
 def _wait_flags(gs: GameState, player: PlayerState, discard: Tile, waits: list) -> tuple:
-    """某個進聽打法的提醒標記，回傳 (無役, 振聽)。
+    """某個進聽打法的提醒標記，回傳 (無役, 振聽, 榮和無役)。
     振聽：待牌曾在自己牌河（含正要打出的這張）。
-    無役：對所有待牌，榮和與自摸皆無役 → 不可和（多半是副露手）。"""
+    無役：對所有待牌，榮和與自摸皆無役 → 完全不可和（多半是副露手）。
+    榮和無役：對所有待牌榮和皆無役（但自摸有役，如門清自摸）→ 未立直不能榮和。"""
     river = {(int(t.suit), t.value) for t in player.discards}
     river.add((int(discard.suit), discard.value))
     furiten = any((int(w.suit), w.value) in river for w in waits)
@@ -261,27 +262,31 @@ def _wait_flags(gs: GameState, player: PlayerState, discard: Tile, waits: list) 
     saved = player.hand
     player.hand = post
     try:
-        no_yaku = all(
-            evaluate_win(gs, player, w, is_tsumo=False) is None
-            and evaluate_win(gs, player, w, is_tsumo=True) is None
-            for w in waits
-        )
+        ron_no_yaku = all(evaluate_win(gs, player, w, is_tsumo=False) is None for w in waits)
+        tsumo_no_yaku = all(evaluate_win(gs, player, w, is_tsumo=True) is None for w in waits)
     finally:
         player.hand = saved
-    return no_yaku, furiten
+    no_yaku = ron_no_yaku and tsumo_no_yaku
+    return no_yaku, furiten, ron_no_yaku
 
 
 def tenpai_note_text(gs: GameState, player: PlayerState, adv: list) -> str:
     """組出「💡 可進聽」提示，並對每個打法標註（無役）／（振聽）。"""
+    # 門清且未立直時，才需要提醒「未立直不能榮和」（立直即可解）
+    menzen_no_riichi = is_menzen(player) and not player.riichi
     lines = []
-    any_no_yaku = any_furiten = False
+    any_no_yaku = any_furiten = any_ron_only = False
     for d, waits in adv:
-        no_yaku, furiten = _wait_flags(gs, player, d, waits)
+        no_yaku, furiten, ron_no_yaku = _wait_flags(gs, player, d, waits)
+        ron_only = menzen_no_riichi and ron_no_yaku and not no_yaku  # 自摸有役、榮和無役
         any_no_yaku |= no_yaku
         any_furiten |= furiten
+        any_ron_only |= ron_only
         tags = []
         if no_yaku:
             tags.append("無役")
+        if ron_only:
+            tags.append("榮和無役")
         if furiten:
             tags.append("振聽")
         suffix = f"　（{'・'.join(tags)}）" if tags else ""
@@ -290,6 +295,8 @@ def tenpai_note_text(gs: GameState, player: PlayerState, adv: list) -> str:
     extra = []
     if any_no_yaku:
         extra.append("「無役」湊不出役、不可和")
+    if any_ron_only:
+        extra.append("「榮和無役」未立直不能榮和，需**立直**或自摸")
     if any_furiten:
         extra.append("「振聽」只能自摸、不能榮和")
     if extra:

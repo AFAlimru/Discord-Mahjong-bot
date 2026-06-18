@@ -172,9 +172,10 @@ def river_panel(gs: GameState) -> str:
     for idx, p in enumerate(gs.players):
         if idx > 0:
             lines.append("─" * 20)
-        cur  = "▶ " if p.seat == gs.current_seat else ""
+        cur    = "▶ " if p.seat == gs.current_seat else ""
+        riichi = "【立直】" if p.riichi else ""
         disc = " ".join(str(t) for t in p.discards) if p.discards else "—"
-        lines.append(f"{cur}{WIND_LABELS[p.seat]}「{p.username}」（{len(p.discards)}）")
+        lines.append(f"{cur}{WIND_LABELS[p.seat]}「{p.username}」{riichi}（{len(p.discards)}）")
         lines.append(f"# {disc}")
     return "\n".join(lines)
 
