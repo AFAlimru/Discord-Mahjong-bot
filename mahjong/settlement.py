@@ -41,11 +41,16 @@ class SettleLog:
     note: str = ""
 
     def describe(self, gs: GameState) -> str:
+        # 依結算後分數標註目前順位 Emoji（同分依座次排序）
+        order  = sorted(gs.players, key=lambda x: (-x.score, x.seat))
+        rank   = {p.seat: i for i, p in enumerate(order)}
+        medals = ["🥇", "🥈", "🥉", "4️⃣"]
         lines = []
         for p in gs.players:
             d = self.deltas.get(p.seat, 0)
             sign = "＋" if d >= 0 else "－"
-            lines.append(f"{p.username}：{sign}{abs(d)}　→　{p.score}")
+            m = medals[rank[p.seat]] if rank[p.seat] < len(medals) else ""
+            lines.append(f"{m} {p.username}：{sign}{abs(d)}　→　{p.score}")
         return "\n".join(lines)
 
 
