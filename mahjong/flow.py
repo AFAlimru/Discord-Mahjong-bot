@@ -35,7 +35,7 @@ from .render import (
 )
 from .ui import (
     HandHelpButton, RiverButton, ScoreButton, MeldButton, ActionLogButton,
-    make_hand_view, FairnessButton,
+    make_hand_view, FairnessButton, make_board_view,
 )
 from .state import (
     _games, _channel_games, _waiting, _room_owners, _room_configs, _user_game,
@@ -44,6 +44,7 @@ from .state import (
 )
 from . import settlement as st
 from . import db
+from . import i18n
 from . import rooms
 
 
@@ -76,7 +77,8 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
             name=f"🀄 {rooms.label(gid)}　{gs.round_label}",
             type=discord.ChannelType.public_thread,
         )
-        board_msg = await public.send(make_thread_board(gs, "🀄 遊戲開始，輪到莊家。"))
+        board_msg = await public.send(make_thread_board(gs, "🀄 遊戲開始，輪到莊家。"),
+                                      view=make_board_view(gid))
     else:
         public = await channel.create_thread(
             name=f"💬 {rooms.label(gid)}　{gs.round_label}",
@@ -103,8 +105,10 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
             except Exception:
                 pass
             private[p.user_id] = pt
-            hm = await pt.send(make_hand_panel(p, "（等待開始）", board_info=_board_info(gs),
-                                               river_info=river_panel(gs)),
+            _lang = i18n.get_user_lang(p.user_id)
+            hm = await pt.send(make_hand_panel(p, i18n.t("panel.waiting_start", _lang),
+                                               board_info=_board_info(gs, _lang),
+                                               river_info=river_panel(gs, _lang), lang=_lang),
                                view=make_hand_view(gid))
             hand_msg[p.user_id] = hm
         except Exception as e:
@@ -486,6 +490,10 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     """輪到玩家：自摸/立直/暗槓/拔北用按鈕，出牌用打字。回傳 (action, arg) 或 None（逾時）。
     riichi_locked=True（已立直）：鎖手，打字無效，只能按自摸或逾時自動摸切。"""
     uid   = player.user_id
+    lang  = i18n.get_user_lang(uid)
+    # 面板用該玩家語言重算（場況/動態），覆蓋傳入的母本版本
+    board_info = _board_info(_games[gid], lang)
+    last_info  = _action_feed(gid, _games[gid], lang)
     fut   = asyncio.get_event_loop().create_future()
     state = {"riichi": False, "rem": int(thinking_time)}
     view  = discord.ui.View(timeout=float(thinking_time) + 10)
@@ -503,7 +511,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
         else:
             extra = f"{prompt_base}　（剩 {rem} 秒）"
         return make_hand_panel(player, extra, tenpai_note, last_info, board_info,
-                               river_info=river_panel(_games[gid]))
+                               river_info=river_panel(_games[gid], lang), lang=lang)
 
     async def refresh(rem):
         try:
@@ -621,17 +629,17 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
 
     async def refresh_feeds():
         """把最新動態同步到每位玩家的手牌面板，讓大家一直看得到（非自己回合也更新）。"""
-        feed = _action_feed(gid, gs)
-        bi = _board_info(gs)
-        rv = river_panel(gs)
         for p in gs.players:
             if p.is_bot:
                 continue
             hm = hand_msg.get(p.user_id)
             if hm:
+                lang = i18n.get_user_lang(p.user_id)
                 try:
-                    await hm.edit(content=make_hand_panel(p, "", "", feed, bi, river_info=rv),
-                                  view=make_hand_view(gid))
+                    await hm.edit(content=make_hand_panel(
+                        p, "", "", _action_feed(gid, gs, lang), _board_info(gs, lang),
+                        river_info=river_panel(gs, lang), lang=lang),
+                        view=make_hand_view(gid))
                 except Exception:
                     pass
 
@@ -649,10 +657,11 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
     async def render_hand(p, prompt="", tenpai_note=""):
         hm = hand_msg.get(p.user_id)
         if hm:
+            lang = i18n.get_user_lang(p.user_id)
             try:
                 await hm.edit(content=make_hand_panel(p, prompt, tenpai_note,
-                                                      _action_feed(gid, gs), _board_info(gs),
-                                                      river_info=river_panel(gs)),
+                                                      _action_feed(gid, gs, lang), _board_info(gs, lang),
+                                                      river_info=river_panel(gs, lang), lang=lang),
                               view=make_hand_view(gid))
             except Exception:
                 pass
@@ -1154,9 +1163,10 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 if not pt:
                     continue
                 try:
+                    _lang = i18n.get_user_lang(p.user_id)
                     th["hand_msg"][p.user_id] = await pt.send(
-                        make_hand_panel(p, board_info=_board_info(new_gs),
-                                        river_info=river_panel(new_gs)),
+                        make_hand_panel(p, board_info=_board_info(new_gs, _lang),
+                                        river_info=river_panel(new_gs, _lang), lang=_lang),
                         view=make_hand_view(gid))
                 except Exception:
                     pass

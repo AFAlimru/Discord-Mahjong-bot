@@ -17,44 +17,57 @@ from __future__ import annotations
 from .config import WIND_LABELS
 from .engine import GameState, PlayerState, Tile, Suit
 from .state import _action_logs
+from .i18n import t, DEFAULT
+
+
+def _wind(seat: int, lang: str) -> str:
+    return t(f"wind.{seat}", lang)
+
+
+def _round(gs: GameState, lang: str) -> str:
+    """局名（如 東1局），依語言。"""
+    return t("board.round", lang, wind=t(f"wind.{gs.round_wind - 1}", lang), num=gs.round_num)
+
+
+def _mode(gs: GameState, lang: str) -> str:
+    return t("mode.sanma" if gs.is_sanma else "mode.yonma", lang)
 
 # ═══════════════════════════════════════════════════════════════
 #  Board embed
 # ═══════════════════════════════════════════════════════════════
 
-def make_board_text(gs: GameState, status: str = "", open_hand: bool = False) -> str:
+def make_board_text(gs: GameState, status: str = "", open_hand: bool = False,
+                    lang: str = DEFAULT) -> str:
     """牌局資訊（普通訊息版，用 # 標題放大牌面；牌與牌之間留空隔）
     open_hand=True 時公開每家手牌（觀戰模式）。"""
-    mode = "三麻" if gs.is_sanma else "四麻"
     # 寶牌指示：已翻開的顯示牌面，未翻開的顯示牌背 🀫（需槓才翻）
     total_ind = len(gs.dora_indicators)
-    shown     = [str(t) for t in gs.dora_indicators[:gs.revealed_dora]]
+    shown     = [str(tt) for tt in gs.dora_indicators[:gs.revealed_dora]]
     hidden    = ["🀫"] * (total_ind - gs.revealed_dora)
     ind_str   = " ".join(shown + hidden)
 
     lines = [
-        f"## 🀄 {gs.round_label}　{mode}",
-        f"本場 {gs.honba} ・ 立直棒 {gs.riichi_sticks} ・ 牌山 {gs.tiles_left} 張",
-        f"**寶牌指示**",
+        f"## 🀄 {_round(gs, lang)}　{_mode(gs, lang)}",
+        t("board.summary", lang, honba=gs.honba, sticks=gs.riichi_sticks, wall=gs.tiles_left),
         f"# {ind_str}",
     ]
     for p in gs.players:
-        wind     = WIND_LABELS[p.seat]
+        wind     = _wind(p.seat, lang)
         cur      = "▶" if p.seat == gs.current_seat else "　"
-        riichi   = "【立直】" if p.riichi else ""
+        riichi   = t("label.riichi_tag", lang) if p.riichi else ""
         bot_mark = "🤖" if p.is_bot else ""
-        kita     = f"　拔北×{p.kita}" if getattr(p, "kita", 0) else ""
-        melds    = "　".join(str(m) for m in p.melds) if p.melds else "無"
+        kita     = "　" + t("label.kita", lang, n=p.kita) if getattr(p, "kita", 0) else ""
+        melds    = "　".join(str(m) for m in p.melds) if p.melds else t("panel.none", lang)
         # 牌河：每張牌之間留空隔
-        disc     = " ".join(str(t) for t in p.discards[-18:]) if p.discards else "—"
-        lines.append(f"**{cur} {wind} {bot_mark}{p.username}{riichi}　（{p.score}點）**{kita}")
-        lines.append(f"副露：{melds}")
+        disc     = " ".join(str(tt) for tt in p.discards[-18:]) if p.discards else "—"
+        lines.append(f"**{cur} {wind} {bot_mark}{p.username}{riichi}　（{p.score}）**{kita}")
+        lines.append(f"{t('panel.melds', lang)}：{melds}")
         if open_hand:
-            hand_tiles = sorted(p.hand, key=lambda t: (t.suit, t.value))
+            hand_tiles = sorted(p.hand, key=lambda x: (x.suit, x.value))
             drawn = f"　＋{p.drawn_tile}" if p.drawn_tile else ""
-            hstr = " ".join(str(t) for t in hand_tiles) if hand_tiles else "—"
-            lines.append(f"手牌（{len(p.hand)}）：{hstr}{drawn}")
-        lines.append(f"🀫 牌河（{len(p.discards)}）")
+            hstr = " ".join(str(tt) for tt in hand_tiles) if hand_tiles else "—"
+            lines.append(f"{t('panel.your_hand', lang)}（{len(p.hand)}）：{hstr}{drawn}")
+        lines.append(f"🀫 {t('panel.river', lang)}（{len(p.discards)}）")
         lines.append(f"## {disc}")
     if status:
         lines.append("")
@@ -67,17 +80,16 @@ def make_board_text(gs: GameState, status: str = "", open_hand: bool = False) ->
 #  0.2 討論串渲染
 # ═══════════════════════════════════════════════════════════════
 
-def make_thread_board(gs: GameState, status: str = "") -> str:
+def make_thread_board(gs: GameState, status: str = "", lang: str = DEFAULT) -> str:
     """公開討論串的牌桌：玩家整行放大、副露只在有時顯示、牌河放大。"""
-    mode      = "三麻" if gs.is_sanma else "四麻"
     total_ind = len(gs.dora_indicators)
-    shown     = [str(t) for t in gs.dora_indicators[:gs.revealed_dora]]
+    shown     = [str(tt) for tt in gs.dora_indicators[:gs.revealed_dora]]
     hidden    = ["🀫"] * (total_ind - gs.revealed_dora)
     ind_str   = " ".join(shown + hidden)
 
     lines = [
-        f"## 🀄 {gs.round_label}　{mode}",
-        f"本場 {gs.honba} ・ 立直棒 {gs.riichi_sticks} ・ 牌山 {gs.tiles_left} 張",
+        f"## 🀄 {_round(gs, lang)}　{_mode(gs, lang)}",
+        t("board.summary", lang, honba=gs.honba, sticks=gs.riichi_sticks, wall=gs.tiles_left),
         f"# {ind_str}",
     ]
     for idx, p in enumerate(gs.players):
@@ -86,18 +98,18 @@ def make_thread_board(gs: GameState, status: str = "") -> str:
             lines.append("")
             lines.append("━" * 35)
             lines.append("")
-        wind     = WIND_LABELS[p.seat]
+        wind     = _wind(p.seat, lang)
         cur      = "▶" if p.seat == gs.current_seat else "　"
-        riichi   = "【立直】" if p.riichi else ""
+        riichi   = t("label.riichi_tag", lang) if p.riichi else ""
         bot_mark = "🤖" if p.is_bot else ""
-        kita     = f"　拔北×{p.kita}" if getattr(p, "kita", 0) else ""
+        kita     = "　" + t("label.kita", lang, n=p.kita) if getattr(p, "kita", 0) else ""
         # 玩家整行放大、加引言 >、名字用「」標註
-        lines.append(f"> ## {cur} {wind} {bot_mark}「{p.username}」{riichi}（{p.score}點）{kita}")
+        lines.append(f"> ## {cur} {wind} {bot_mark}「{p.username}」{riichi}（{p.score}）{kita}")
         # 副露只在有時顯示
         if p.melds:
-            lines.append("副露：" + "　".join(str(m) for m in p.melds))
-        disc = " ".join(str(t) for t in p.discards[-18:]) if p.discards else "—"
-        lines.append(f"牌河（{len(p.discards)}）：")
+            lines.append(t("panel.melds", lang) + "：" + "　".join(str(m) for m in p.melds))
+        disc = " ".join(str(tt) for tt in p.discards[-18:]) if p.discards else "—"
+        lines.append(f"{t('panel.river', lang)}（{len(p.discards)}）：")
         lines.append(f"## {disc}")
     if status:
         lines.append("")
@@ -105,11 +117,12 @@ def make_thread_board(gs: GameState, status: str = "") -> str:
     return "\n".join(lines)
 
 
-def _last_discard_info(gs: GameState) -> str:
+def _last_discard_info(gs: GameState, lang: str = DEFAULT) -> str:
     """上家剛打出的牌（含打牌者）；牌單獨一行放大。"""
     if gs is not None and gs.pending_discard is not None and gs.pending_from_seat >= 0:
         who = gs.players[gs.pending_from_seat].username
-        return f"🀫 上家：{WIND_LABELS[gs.pending_from_seat]} {who} 打出\n# {gs.pending_discard}"
+        head = t("feed.last_discard", lang, wind=_wind(gs.pending_from_seat, lang), who=who)
+        return f"{head}\n# {gs.pending_discard}"
     return ""
 
 
@@ -122,11 +135,11 @@ def _log_action(gid: str, text: str) -> None:
     del log[:-40]
 
 
-def _action_feed(gid: str, gs: GameState) -> str:
+def _action_feed(gid: str, gs: GameState, lang: str = DEFAULT) -> str:
     """私人面板上方的動態：上家剛打出的牌（放大）+ 最新一筆動作。
     完整動態請按「📜 看動態」按鈕。"""
     parts = []
-    ld = _last_discard_info(gs)
+    ld = _last_discard_info(gs, lang)
     if ld:
         parts.append(ld)
     log = _action_logs.get(gid, [])
@@ -135,53 +148,55 @@ def _action_feed(gid: str, gs: GameState) -> str:
     return "\n\n".join(parts)
 
 
-def make_action_log_text(gid: str) -> str:
+def make_action_log_text(gid: str, lang: str = DEFAULT) -> str:
     """完整動態（給「看動態」按鈕的私密訊息用）。"""
+    title = t("actionlog.title", lang)
     log = _action_logs.get(gid, [])
     if not log:
-        return "📜 **本局動態**\n（尚無動作）"
-    return "📜 **本局動態**\n" + "\n".join(f"> {t}" for t in log)
+        return f"{title}\n{t('actionlog.empty', lang)}"
+    return f"{title}\n" + "\n".join(f"> {line}" for line in log)
 
 
-def _board_info(gs: GameState) -> str:
+def _board_info(gs: GameState, lang: str = DEFAULT) -> str:
     """場況 + 寶牌指示（顯示在手牌上方；不另標「寶牌」字樣）。"""
     total_ind = len(gs.dora_indicators)
-    shown  = [str(t) for t in gs.dora_indicators[:gs.revealed_dora]]
+    shown  = [str(tt) for tt in gs.dora_indicators[:gs.revealed_dora]]
     hidden = ["🀫"] * (total_ind - gs.revealed_dora)
     ind    = " ".join(shown + hidden)
-    return (f"# {gs.round_label}　本場 {gs.honba}　牌山 {gs.tiles_left}\n"
-            f"# {ind}")
+    summary = t("board.honba_wall", lang, honba=gs.honba, wall=gs.tiles_left)
+    return f"# {_round(gs, lang)}　{summary}\n# {ind}"
 
 
-def dora_reveal_text(gs: GameState, is_riichi: bool = False) -> str:
+def dora_reveal_text(gs: GameState, is_riichi: bool = False, lang: str = DEFAULT) -> str:
     """和牌時揭曉寶牌指示牌（已翻開顯示牌面、未翻開顯示 🀫）；立直才加裏寶牌指示。"""
     total = len(gs.dora_indicators)
     rev   = gs.revealed_dora
-    dora  = [str(t) for t in gs.dora_indicators[:rev]] + ["🀫"] * (total - rev)
-    parts = [f"[寶牌：{' '.join(dora)}]"]
+    dora  = [str(tt) for tt in gs.dora_indicators[:rev]] + ["🀫"] * (total - rev)
+    parts = [f"[{t('board.dora', lang)}：{' '.join(dora)}]"]
     if is_riichi:
-        ura_face = [str(t) for t in gs.ura_indicators[:rev]]
+        ura_face = [str(tt) for tt in gs.ura_indicators[:rev]]
         ura      = ura_face + ["🀫"] * (total - len(ura_face))
-        parts.append(f"[裏寶牌：{' '.join(ura)}]")
+        parts.append(f"[{t('board.ura_dora', lang)}：{' '.join(ura)}]")
     return "　".join(parts)   # 寶牌與裏寶牌並排
 
 
-def river_panel(gs: GameState) -> str:
+def river_panel(gs: GameState, lang: str = DEFAULT) -> str:
     """各家牌河（放在私人面板最上方，往上滑即可看到最新牌河）。"""
-    lines = ["🀫 牌河"]
+    lines = [f"🀫 {t('panel.river', lang)}"]
     for idx, p in enumerate(gs.players):
         if idx > 0:
             lines.append("─" * 20)
         cur    = "▶ " if p.seat == gs.current_seat else ""
-        riichi = "【立直】" if p.riichi else ""
-        disc = " ".join(str(t) for t in p.discards) if p.discards else "—"
-        lines.append(f"{cur}{WIND_LABELS[p.seat]}「{p.username}」{riichi}（{len(p.discards)}）")
+        riichi = t("label.riichi_tag", lang) if p.riichi else ""
+        disc = " ".join(str(tt) for tt in p.discards) if p.discards else "—"
+        lines.append(f"{cur}{_wind(p.seat, lang)}「{p.username}」{riichi}（{len(p.discards)}）")
         lines.append(f"# {disc}")
     return "\n".join(lines)
 
 
 def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = "",
-                    last_info: str = "", board_info: str = "", river_info: str = "") -> str:
+                    last_info: str = "", board_info: str = "", river_info: str = "",
+                    lang: str = DEFAULT) -> str:
     """私人討論串的個人面板：牌河、場況/寶牌、手牌｜剛摸到的牌、副露、提示。"""
     uni, names = player.hand_display_with_names()
     sep = "=" * 35
@@ -195,17 +210,18 @@ def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = ""
     if last_info:
         lines.append(last_info)
         lines.append(sep)
-    lines.append("# 你的手牌" + ("　【已立直】" if player.riichi else ""))
+    riichi_tag = "　" + t("label.riichi_done", lang) if player.riichi else ""
+    lines.append(f"# {t('panel.your_hand', lang)}{riichi_tag}")
     # 手牌 ｜ 剛摸到的牌（| 右邊為剛摸到）
     if player.drawn_tile:
         lines.append(f"# {uni} | {player.drawn_tile}" if uni else f"# | {player.drawn_tile}")
     else:
-        lines.append(f"# {uni}" if uni else "（無）")
+        lines.append(f"# {uni}" if uni else t("panel.none", lang))
     if names:
         lines.append(names)
     # 副露（碰/吃/槓後）換行顯示
     if player.melds:
-        lines.append("副露：" + "　".join(str(m) for m in player.melds))
+        lines.append(t("panel.melds", lang) + "：" + "　".join(str(m) for m in player.melds))
     if tenpai_note:
         lines.append("")
         lines.append(tenpai_note)
@@ -215,57 +231,59 @@ def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = ""
     return "\n".join(lines)
 
 
-def make_river_text(gs: GameState) -> str:
+def make_river_text(gs: GameState, lang: str = DEFAULT) -> str:
     """各家牌河（給「看牌河」按鈕的私密訊息用）。"""
-    lines = ["**🀫 各家牌河**"]
+    lines = [f"**{t('river.title', lang)}**"]
     for idx, p in enumerate(gs.players):
         if idx > 0:
             lines.append("─" * 24)   # 玩家之間分隔線
-        disc = " ".join(str(t) for t in p.discards) if p.discards else "（無）"
-        lines.append(f"{WIND_LABELS[p.seat]} {p.username}（{len(p.discards)}）")
+        disc = " ".join(str(tt) for tt in p.discards) if p.discards else t("river.none", lang)
+        lines.append(f"{_wind(p.seat, lang)} {p.username}（{len(p.discards)}）")
         lines.append(f"# {disc}")
     lines.append("")
-    lines.append("＊這是當下快照；關閉後再按一次可看最新。")
+    lines.append(t("river.snapshot", lang))
     return "\n".join(lines)
 
 
 def result_body(header: str, hand_str: str, result, log, gs: GameState,
-                tenpai=None) -> str:
+                tenpai=None, lang: str = DEFAULT) -> str:
     """一局結果的靜態文字（送到聊天串與各私人討論串）。"""
     if result is None:
-        tnames = "、".join(gs.players[s].username for s in (tenpai or [])) or "無人"
-        return f"# 🀄 流局\n聽牌：{tnames}\n\n{log.describe(gs)}"
+        tnames = "、".join(gs.players[s].username for s in (tenpai or [])) or t("result.nobody", lang)
+        return (f"# {t('result.draw_title', lang)}\n"
+                f"{t('result.tenpai_list', lang, names=tnames)}\n\n{log.describe(gs)}")
     top = f"# 🎉 {header}\n## {hand_str}"
     if result.yakuman:
         yaku = "\n".join(f"・**{n}**" for n, _ in result.yakuman)
-        score_line = f"## ✨ {result.name}　{result.points} 點"
+        score_line = f"## ✨ {result.name}　{t('win.points', lang, n=result.points)}"
     else:
         yaku = "\n".join(f"・{n} {h}飜" for n, h in result.yaku)
         nm = f"　{result.name}" if result.name else ""
-        score_line = f"## {result.han} 飜 {result.fu} 符{nm}　{result.points} 點"
+        score_line = (f"## {t('win.han_fu', lang, han=result.han, fu=result.fu)}{nm}　"
+                      f"{t('win.points', lang, n=result.points)}")
     return top + "\n" + yaku + f"\n\n{score_line}\n\n" + log.describe(gs)
 
 
-def make_score_text(gs: GameState) -> str:
+def make_score_text(gs: GameState, lang: str = DEFAULT) -> str:
     """各家點數與目前順位（依點數排序）。"""
     medals = ["🥇", "🥈", "🥉", "4️⃣"]
     ranked = sorted(gs.players, key=lambda p: -p.score)
-    lines = ["**📊 點數 / 順位**"]
+    lines = [f"**{t('score.title', lang)}**"]
     for i, p in enumerate(ranked):
         bot = "🤖" if p.is_bot else ""
-        lines.append(f"{medals[i]} {WIND_LABELS[p.seat]}　{bot}{p.username}：**{p.score}** 點")
+        lines.append(f"{medals[i]} {_wind(p.seat, lang)}　{bot}{p.username}：**{p.score}** {t('score.point', lang)}")
     return "\n".join(lines)
 
 
-def make_meld_text(gs: GameState) -> str:
+def make_meld_text(gs: GameState, lang: str = DEFAULT) -> str:
     """各家副露＋風位（給「看副露」按鈕用）。"""
-    lines = ["**🀜 各家副露**"]
+    lines = [f"**{t('meld.title', lang)}**"]
     any_meld = False
     for p in gs.players:
         if p.melds:
             any_meld = True
             melds = "　".join(str(m) for m in p.melds)
-            lines.append(f"{WIND_LABELS[p.seat]}　{p.username}：{melds}")
+            lines.append(f"{_wind(p.seat, lang)}　{p.username}：{melds}")
     if not any_meld:
-        lines.append("（目前無人副露）")
+        lines.append(t("meld.none", lang))
     return "\n".join(lines)

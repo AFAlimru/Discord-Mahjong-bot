@@ -17,9 +17,11 @@ import discord
 
 from .render import (
     make_river_text, make_score_text, make_meld_text, make_action_log_text,
+    make_thread_board,
 )
 from .state import _games
 from . import db
+from . import i18n
 
 class HandHelpButton(discord.ui.Button):
     def __init__(self):
@@ -30,7 +32,7 @@ class HandHelpButton(discord.ui.Button):
 
 
 class _GameInfoButton(discord.ui.Button):
-    """共用：點擊顯示某種牌局資訊（私密）。"""
+    """共用：點擊顯示某種牌局資訊（私密，依點擊者語言）。"""
     def __init__(self, gid: str, label: str, builder):
         super().__init__(label=label, style=discord.ButtonStyle.secondary)
         self.gid = gid
@@ -41,7 +43,8 @@ class _GameInfoButton(discord.ui.Button):
         if not gs:
             await interaction.response.send_message("❌ 牌局已結束。", ephemeral=True)
             return
-        await interaction.response.send_message(self._builder(gs), ephemeral=True)
+        lang = i18n.get_user_lang(interaction.user.id)
+        await interaction.response.send_message(self._builder(gs, lang), ephemeral=True)
 
 
 def RiverButton(gid: str):
@@ -63,11 +66,35 @@ class _ActionLogButton(discord.ui.Button):
         self.gid = gid
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message(make_action_log_text(self.gid), ephemeral=True)
+        lang = i18n.get_user_lang(interaction.user.id)
+        await interaction.response.send_message(make_action_log_text(self.gid, lang), ephemeral=True)
 
 
 def ActionLogButton(gid: str):
     return _ActionLogButton(gid)
+
+
+class TranslateBoardButton(discord.ui.Button):
+    """🌐 翻譯：用點擊者的語言、僅自己可見地顯示目前牌桌。"""
+    def __init__(self, gid: str):
+        super().__init__(label="🌐 翻譯 / 翻訳", style=discord.ButtonStyle.secondary)
+        self.gid = gid
+
+    async def callback(self, interaction: discord.Interaction):
+        gs = _games.get(self.gid)
+        if not gs:
+            await interaction.response.send_message("❌ 牌局已結束。", ephemeral=True)
+            return
+        lang = i18n.get_user_lang(interaction.user.id)
+        await interaction.response.send_message(make_thread_board(gs, "", lang), ephemeral=True)
+
+
+def make_board_view(gid: str) -> discord.ui.View:
+    """公開牌桌（觀戰）按鈕：🌐 翻譯 + 公平性驗證。"""
+    v = discord.ui.View(timeout=None)
+    v.add_item(TranslateBoardButton(gid))
+    v.add_item(FairnessButton(gid))
+    return v
 
 
 def make_hand_view(gid: str) -> discord.ui.View:
