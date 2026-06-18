@@ -57,6 +57,11 @@
 
   "standings.title": "🏁 最終順位",
   "standings.rank": "第 {rank} 位",
+  "standings.settle": "精算",
+
+  "countdown.line": "⏳ {n} 秒後{tail}…",
+  "countdown.next_hand": "進入下一局",
+  "countdown.end": "結束對局",
 
   "panel.your_hand": "你的手牌",
   "panel.river": "牌河",

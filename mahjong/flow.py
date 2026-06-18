@@ -68,6 +68,28 @@ def _is_nagashi(p: PlayerState) -> bool:
     return all(t.suit in (Suit.WIND, Suit.DRAGON) or t.value in (1, 9) for t in p.discards)
 
 
+def _standings_lines(rows, lang: str) -> str:
+    """最終順位文字（依語言）。"""
+    medals = ["🥇", "🥈", "🥉", "4️⃣"]
+    out = [f"# {i18n.t('standings.title', lang)}", ""]
+    for r in rows:
+        sign = "＋" if r.total_pt >= 0 else "－"
+        out.append(
+            f"{medals[r.rank - 1]} **{i18n.t('standings.rank', lang, rank=r.rank)}**　{r.username}"
+            f"　{r.score} {i18n.t('score.point', lang)}　｜　"
+            f"{i18n.t('standings.settle', lang)} {sign}{abs(r.total_pt):.1f}"
+        )
+    return "\n".join(out)
+
+
+def _thread_langs(public, private: dict) -> list:
+    """回傳 [(討論串, 語言)]：公開串用母本，各私人串用該玩家語言。"""
+    targets = [(public, i18n.DEFAULT)]
+    for uid, pt in private.items():
+        targets.append((pt, i18n.get_user_lang(uid)))
+    return targets
+
+
 async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
                         watch: bool = False) -> None:
     """建立公開討論串 + 每位真人玩家的私人討論串。
@@ -1030,19 +1052,20 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 return
             gs = _games[gid]
             tenpai = None
-            header = ""
+            header_key, header_kw = "", {}
             hand_str = ""
 
             if outcome[0] == "tsumo":
                 _, wseat, result, hand_str = outcome
                 log = st.apply_tsumo(gs, wseat, result)
-                header = f"{gs.players[wseat].username}　自摸！"
+                header_key, header_kw = "result.tsumo", {"name": gs.players[wseat].username}
                 tsumo_ct[gs.players[wseat].user_id] += 1
                 st.advance_after_win(gs, wseat)
             elif outcome[0] == "ron":
                 _, wseat, lseat, result, hand_str = outcome
                 log = st.apply_ron(gs, wseat, lseat, result)
-                header = f"{gs.players[wseat].username}　榮和！（放銃：{gs.players[lseat].username}）"
+                header_key, header_kw = "result.ron", {
+                    "name": gs.players[wseat].username, "loser": gs.players[lseat].username}
                 ron_ct[gs.players[wseat].user_id] += 1
                 houju_ct[gs.players[lseat].user_id] += 1
                 houju_pts[gs.players[lseat].user_id] += max(0, -log.deltas.get(lseat, 0))
@@ -1056,7 +1079,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 result = ScoreResult(yaku=[("流局滿貫", 5)], han=5, fu=0,
                                      points=pts, name="流局滿貫", valid=True)
                 names = "、".join(gs.players[s].username for s in nagashi_seats)
-                header = f"🌊 流局滿貫！{names}"
+                header_key, header_kw = "result.nagashi", {"names": names}
                 hand_str = "　".join(str(t) for t in winner.discards)
                 for s in nagashi_seats:
                     tsumo_ct[gs.players[s].user_id] += 1
@@ -1087,35 +1110,36 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 th["hand_msg"][uid] = None
 
             # 和牌：公開串與各私人串都做「逐一揭曉」的和牌儀式；流局則送結果文字
+            # 公開串用母本語言，各私人串用該玩家語言。pairs = [(訊息, 完整文字, 語言)]
+            private = th.get("private", {})
+            pairs = []   # (msg, base_text, lang)
             if result is not None:
-                channels = [public] + list(th.get("private", {}).values())
+                targets = [(public, i18n.DEFAULT)] + \
+                          [(private[uid], i18n.get_user_lang(uid)) for uid in private]
                 cer = await asyncio.gather(
-                    *[win_ceremony(ch, gs, header, hand_str, result, log) for ch in channels],
+                    *[win_ceremony(ch, gs, header_key, header_kw, hand_str, result, log, lg)
+                      for ch, lg in targets],
                     return_exceptions=True,
                 )
-                all_msgs, result_body_text = [], ""
                 for c in cer:
-                    if isinstance(c, Exception):
-                        continue
-                    m, b = c
-                    all_msgs.append(m)
-                    result_body_text = b
-                result_msg = all_msgs[0] if all_msgs else None
-                priv_msgs  = all_msgs[1:]
+                    if not isinstance(c, Exception):
+                        pairs.append(c)   # (msg, body, lang)
             else:
-                result_body_text = result_body("", "", None, log, gs, tenpai)
-                result_msg = await public.send(result_body_text)
-                priv_msgs = []
-                for pt in th.get("private", {}).values():
+                pub_text = result_body("", "", None, log, gs, tenpai, i18n.DEFAULT)
+                pairs.append((await public.send(pub_text), pub_text, i18n.DEFAULT))
+                for uid, pt in private.items():
+                    lg = i18n.get_user_lang(uid)
+                    txt = result_body("", "", None, log, gs, tenpai, lg)
                     try:
-                        priv_msgs.append(await pt.send(result_body_text))
+                        pairs.append((await pt.send(txt), txt, lg))
                     except Exception:
                         pass
+            result_msg = pairs[0][0] if pairs else None
+            priv_msgs  = [p[0] for p in pairs[1:]]
 
             # 全部顯示完 → 保留完整結果，倒數 5 秒；最後一局改顯示「結束對局」
             over = st.is_game_over(gs, length, tobi)
-            await _result_countdown([result_msg, *priv_msgs], result_body_text, 5,
-                                    "結束對局" if over else "進入下一局")
+            await _result_countdown(pairs, 5, "countdown.end" if over else "countdown.next_hand")
             if over:
                 break
 
@@ -1134,11 +1158,11 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     and gs.round_num == len(gs.players)):
                 shown_all_last = True
                 banners = []
-                for tch in [public] + list(th.get("private", {}).values()):
+                for tch, lg in _thread_langs(public, th.get("private", {})):
                     if tch is None:
                         continue
                     try:
-                        banners.append(await tch.send("# 🏁 ALL LAST　最終局"))
+                        banners.append(await tch.send(f"# 🏁 {i18n.t('result.all_last', lg)}"))
                     except Exception:
                         pass
                 await asyncio.sleep(2.5)
@@ -1174,22 +1198,14 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
 
         gs = _games[gid]
         rows = st.final_standings(gs, start_points=config.get("start_points"))
-        medals = ["🥇", "🥈", "🥉", "4️⃣"]
-        lines = ["# 🏁 最終順位", ""]
-        for r in rows:
-            sign = "＋" if r.total_pt >= 0 else "－"
-            lines.append(f"{medals[r.rank - 1]} **第 {r.rank} 位**　{r.username}"
-                         f"　{r.score} 點　｜　精算 {sign}{abs(r.total_pt):.1f}")
-        # 先把最終順位貼出來（公開串 + 各私人手牌串都貼，確保玩家在自己的討論串也看得到；
-        # 即使後續寫 DB 出錯也不影響顯示）
-        standings_text = "\n".join(lines)
-        for tch in [public] + list(th.get("private", {}).values()):
+        # 最終順位：公開串用母本、各私人手牌串用該玩家語言（確保自己討論串也看得到）
+        for tch, lg in _thread_langs(public, th.get("private", {})):
             if tch is None:
                 continue
             try:
                 v = discord.ui.View(timeout=None)
                 v.add_item(FairnessButton(gid))
-                await tch.send(standings_text, view=v)
+                await tch.send(_standings_lines(rows, lg), view=v)
             except Exception as e:
                 print(f"[standings] 發送最終順位失敗：{e}")
         # 之後才寫資料庫與個人統計
@@ -1255,15 +1271,16 @@ def format_winning_hand(player: PlayerState, win_tile: Tile) -> str:
 
 
 async def win_ceremony(channel: discord.TextChannel, gs: GameState,
-                       header: str, hand_str: str, result, log: "st.SettleLog") -> None:
-    """和牌儀式：先放標題，再放手牌，接著逐一揭曉役種，最後公布等級與點數。"""
-    head = f"# 🎉 {header}"
+                       header_key: str, header_kw: dict, hand_str: str, result,
+                       log: "st.SettleLog", lang: str = i18n.DEFAULT):
+    """和牌儀式（依 lang）：先放標題，再放手牌，逐一揭曉役種，最後公布等級與點數。"""
+    head = f"# 🎉 {i18n.t(header_key, lang, **header_kw)}"
     msg = await channel.send(head)          # ① 先只放榮和／自摸標題
     await asyncio.sleep(1.0)
-    # 立直則一併揭曉裏寶牌
+    # 立直則一併揭曉裏寶牌（以原始（中文）役名判斷）
     names = [n for n, *_ in (result.yaku or [])] + [n for n, *_ in (result.yakuman or [])]
     is_riichi = any("立直" in (n or "") for n in names)
-    top = f"{head}\n{dora_reveal_text(gs, is_riichi)}\n## {hand_str}"
+    top = f"{head}\n{dora_reveal_text(gs, is_riichi, lang)}\n## {hand_str}"
     try:
         await msg.edit(content=top)         # ② 揭曉寶牌/裏寶牌 + 手牌
     except Exception:
@@ -1277,7 +1294,8 @@ async def win_ceremony(channel: discord.TextChannel, gs: GameState,
         items = [(n, h) for n, h in result.yaku]
 
     for name, han in items:
-        shown.append(f"・**{name}**" if han is None else f"・{name}　{han}飜")
+        disp = i18n.yaku(name, lang)
+        shown.append(f"・**{disp}**" if han is None else f"・{disp}　{han}飜")
         try:
             await msg.edit(content=top + "\n" + "\n".join(shown))
         except Exception:
@@ -1285,33 +1303,36 @@ async def win_ceremony(channel: discord.TextChannel, gs: GameState,
         await asyncio.sleep(0.9)
 
     await asyncio.sleep(0.4)
+    pts = i18n.t("win.points", lang, n=result.points)
     if result.yakuman:
-        score_line = f"## ✨ {result.name}　{result.points} 點"
+        score_line = f"## ✨ {i18n.yaku(result.name, lang)}　{pts}"
     else:
-        nm = f"　{result.name}" if result.name else ""
-        score_line = f"## {result.han} 飜 {result.fu} 符{nm}　{result.points} 點"
+        nm = f"　{i18n.yaku(result.name, lang)}" if result.name else ""
+        score_line = f"## {i18n.t('win.han_fu', lang, han=result.han, fu=result.fu)}{nm}　{pts}"
     body = top + "\n" + "\n".join(shown) + f"\n\n{score_line}\n\n" + log.describe(gs)
     try:
         await msg.edit(content=body)
     except Exception:
         pass
-    return msg, body
+    return msg, body, lang
 
 
-async def _result_countdown(msgs: list, base: str, secs: int = 5,
-                            tail: str = "進入下一局") -> None:
-    """一局結果全部顯示完後，保留完整結果並於尾端倒數；tail 為倒數後的動作描述。"""
+async def _result_countdown(pairs: list, secs: int = 5,
+                            tail_key: str = "countdown.next_hand") -> None:
+    """一局結果全部顯示完後，保留完整結果並於尾端倒數（每則訊息依其語言）。
+    pairs：[(訊息, 完整文字, 語言), ...]；tail_key：倒數後動作的翻譯鍵。"""
     for n in range(secs, 0, -1):
-        for m in msgs:
+        for m, base, lg in pairs:
             if not m:
                 continue
             try:
-                await m.edit(content=f"{base}\n\n⏳ {n} 秒後{tail}…")
+                line = i18n.t("countdown.line", lg, n=n, tail=i18n.t(tail_key, lg))
+                await m.edit(content=f"{base}\n\n{line}")
             except Exception:
                 pass
         await asyncio.sleep(1)
     # 倒數結束後還原為乾淨結果（保留下來的公開紀錄不會殘留倒數字樣）
-    for m in msgs:
+    for m, base, lg in pairs:
         if m:
             try:
                 await m.edit(content=base)

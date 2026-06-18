@@ -69,6 +69,19 @@ def t(key: str, lang: str | None = None, **kw) -> str:
     return s
 
 
+def yaku(name: str, lang: str | None = None) -> str:
+    """役種／滿貫等級名稱翻譯（母本直接回原名；其他語言查 yaku.<原名>，缺則回原名）。
+    處理「役牌中」這類前綴：先整體查，再退回前綴+牌名分別查。"""
+    lang = lang or DEFAULT
+    if lang == DEFAULT:
+        return name
+    _load()
+    d = _cache.get(lang, {})
+    if f"yaku.{name}" in d:
+        return d[f"yaku.{name}"]
+    return name
+
+
 def get_user_lang(user_id) -> str:
     """玩家語言（無設定回母本）。快取 + DB。"""
     uid = str(user_id)
