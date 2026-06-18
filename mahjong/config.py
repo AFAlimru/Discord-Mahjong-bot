@@ -20,6 +20,9 @@ load_dotenv()
 
 # ── Discord ───────────────────────────────────────────────────
 TOKEN = os.getenv("DISCORD_TOKEN", "")
+# 開發用：設定後，斜線指令只同步到這個測試伺服器（即時生效，免等全域約 1 小時傳播）。
+# 正式機留空 → 走全域同步。
+DEV_GUILD_ID = os.getenv("DEV_GUILD_ID", "").strip()
 
 # ── 資料庫 ────────────────────────────────────────────────────
 DATABASE_PATH = os.getenv("DATABASE_PATH", "mahjong.db")

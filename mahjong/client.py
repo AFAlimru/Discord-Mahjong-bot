@@ -16,7 +16,7 @@ from __future__ import annotations
 import discord
 from discord.ext import commands as _dpy
 
-from .config import TOKEN
+from .config import TOKEN, DEV_GUILD_ID
 from . import db
 from .state import _input_queues, _input_thread, _thread_game, _threads
 
@@ -64,8 +64,14 @@ async def on_message(message: discord.Message) -> None:
 async def on_ready() -> None:
     db.init_db()
     try:
-        synced = await tree.sync()
-        print(f"✅ 已同步 {len(synced)} 個命令")
+        if DEV_GUILD_ID:
+            guild = discord.Object(id=int(DEV_GUILD_ID))
+            tree.copy_global_to(guild=guild)
+            synced = await tree.sync(guild=guild)
+            print(f"✅ 已同步 {len(synced)} 個命令到測試伺服器 {DEV_GUILD_ID}（即時生效）")
+        else:
+            synced = await tree.sync()
+            print(f"✅ 已同步 {len(synced)} 個全域命令（新指令最多約 1 小時生效）")
     except Exception as e:
         print(f"⚠️ 命令同步錯誤: {e}")
     print(f"✅ Bot 登錄為 {bot.user}")
