@@ -22,6 +22,8 @@ import asyncio
 import discord
 from discord.ui import View, Button, button, Modal, TextInput
 
+from . import i18n
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Discard Input Modal (支持別名)
@@ -163,20 +165,28 @@ class RoomSettingsModal(Modal):
         max_length=7,
     )
 
-    def __init__(self, config: dict = None, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, config: dict = None, lang: str = i18n.DEFAULT, **kwargs):
+        super().__init__(title=i18n.t("settings.numbers_title", lang), **kwargs)
         self.config = config or {}
+        self.lang = lang
         self.success = False
+        try:   # 依語言設定欄位標籤
+            self.thinking_time.label = i18n.t("settings.thinking_label", lang)
+            self.start_points.label = i18n.t("settings.points_label", lang)
+            self.start_points.placeholder = i18n.t("settings.points_ph", lang)
+        except Exception:
+            pass
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         """提交時的回調"""
+        lang = self.lang
         try:
             tt = int(self.thinking_time.value)
         except ValueError:
-            await interaction.response.send_message("❌ 秒數應為數字", ephemeral=True)
+            await interaction.response.send_message(i18n.t("err.seconds_num", lang), ephemeral=True)
             return
         if not (5 <= tt <= 300):
-            await interaction.response.send_message("❌ 秒數應在 5-300 之間", ephemeral=True)
+            await interaction.response.send_message(i18n.t("err.seconds_range", lang), ephemeral=True)
             return
 
         sp_raw = self.start_points.value.strip()
@@ -185,10 +195,10 @@ class RoomSettingsModal(Modal):
             try:
                 sp = int(sp_raw)
             except ValueError:
-                await interaction.response.send_message("❌ 起始點數應為數字", ephemeral=True)
+                await interaction.response.send_message(i18n.t("err.points_num", lang), ephemeral=True)
                 return
             if not (0 <= sp <= 1000000):
-                await interaction.response.send_message("❌ 起始點數需介於 0 ~ 1000000", ephemeral=True)
+                await interaction.response.send_message(i18n.t("err.points_range", lang), ephemeral=True)
                 return
 
         if self.config is not None:
@@ -196,16 +206,18 @@ class RoomSettingsModal(Modal):
             self.config["start_points"] = sp   # None = 用預設
 
         self.success = True
-        pt_txt = f"{sp} 點" if sp is not None else "預設"
-        await interaction.response.send_message(f"✅ 已設定：思考 {tt} 秒、起始 {pt_txt}", ephemeral=True)
+        pt_txt = i18n.t("win.points", lang, n=sp) if sp is not None else i18n.t("settings.default", lang)
+        await interaction.response.send_message(
+            i18n.t("settings.saved", lang, tt=tt, pt=pt_txt), ephemeral=True)
 
 
 class RoomSettingsView(View):
     """房間設定按鈕菜單"""
     
-    def __init__(self, gid: str, timeout: float = 300):
+    def __init__(self, gid: str, lang: str = i18n.DEFAULT, timeout: float = 300):
         super().__init__(timeout=timeout)
         self.game_id = gid
+        self.lang = lang
         self.thinking_time = 25
         self.start_points = None   # None=依模式預設
         self.open_hand = False
@@ -213,35 +225,40 @@ class RoomSettingsView(View):
         self.hanchan = False   # False=東風戰, True=半莊戰
         self.tobi = True       # 擊飛：點數為負即結束（預設開啟）
         self.ruleset = "mixed"  # "mixed"=混合式 / "tenhou"=完全天鳳式
+        # 依語言設定按鈕標籤（children 依宣告順序：數值/三麻/戰長/擊飛/規則/確認）
+        for child, key in zip(self.children, ("settings.numbers", "settings.sanma",
+                                              "settings.length_tonpuu", "settings.tobi_on",
+                                              "settings.rule_default", "settings.confirm")):
+            child.label = i18n.t(key, lang)
 
     @button(label="⚙️ 數值設定", style=discord.ButtonStyle.primary)
     async def modify_time(self, interaction: discord.Interaction, button: Button):
-        modal = RoomSettingsModal(self.__dict__)
+        modal = RoomSettingsModal(self.__dict__, self.lang)
         await interaction.response.send_modal(modal)
 
     @button(label="👥 三麻模式", style=discord.ButtonStyle.secondary)
     async def toggle_sanma(self, interaction: discord.Interaction, button: Button):
         self.sanma = not self.sanma
-        state = "開啟" if self.sanma else "關閉"
-        button.label = f"👥 三麻模式({state})"
+        state = i18n.t("toggle.on" if self.sanma else "toggle.off", self.lang)
+        button.label = i18n.t("settings.sanma_state", self.lang, state=state)
         await interaction.response.edit_message(view=self)
 
     @button(label="🀄 戰長：東風戰", style=discord.ButtonStyle.secondary)
     async def toggle_length(self, interaction: discord.Interaction, button: Button):
         self.hanchan = not self.hanchan
-        button.label = "🀄 戰長：半莊戰" if self.hanchan else "🀄 戰長：東風戰"
+        button.label = i18n.t("settings.length_hanchan" if self.hanchan else "settings.length_tonpuu", self.lang)
         await interaction.response.edit_message(view=self)
 
     @button(label="💥 擊飛：開啟", style=discord.ButtonStyle.secondary)
     async def toggle_tobi(self, interaction: discord.Interaction, button: Button):
         self.tobi = not self.tobi
-        button.label = "💥 擊飛：開啟" if self.tobi else "💥 擊飛：關閉"
+        button.label = i18n.t("settings.tobi_on" if self.tobi else "settings.tobi_off", self.lang)
         await interaction.response.edit_message(view=self)
 
     @button(label="📐 規則：預設", style=discord.ButtonStyle.secondary)
     async def toggle_ruleset(self, interaction: discord.Interaction, button: Button):
         self.ruleset = "tenhou" if self.ruleset == "mixed" else "mixed"
-        button.label = "📐 規則：完全天鳳式" if self.ruleset == "tenhou" else "📐 規則：預設"
+        button.label = i18n.t("settings.rule_tenhou" if self.ruleset == "tenhou" else "settings.rule_default", self.lang)
         await interaction.response.edit_message(view=self)
 
     @button(label="✅ 確認", style=discord.ButtonStyle.success)

@@ -143,5 +143,31 @@
   "yaku.三倍滿": "三倍満",
   "yaku.役滿": "役満",
   "yaku.累計役滿": "数え役満",
-  "yaku.流局滿貫": "流し満貫"
+  "yaku.流局滿貫": "流し満貫",
+
+  "toggle.on": "オン",
+  "toggle.off": "オフ",
+
+  "settings.prompt": "⚙️ ゲーム設定を選び、完了したら ✅ 確定 を押してください：",
+  "settings.numbers": "⚙️ 数値設定",
+  "settings.numbers_title": "⚙️ 数値設定",
+  "settings.sanma": "👥 三人打ち",
+  "settings.sanma_state": "👥 三人打ち（{state}）",
+  "settings.length_tonpuu": "🀄 戦長：東風戦",
+  "settings.length_hanchan": "🀄 戦長：半荘戦",
+  "settings.tobi_on": "💥 飛び：あり",
+  "settings.tobi_off": "💥 飛び：なし",
+  "settings.rule_default": "📐 ルール：標準",
+  "settings.rule_tenhou": "📐 ルール：天鳳式",
+  "settings.confirm": "✅ 確定",
+  "settings.thinking_label": "思考秒数 (5-300)",
+  "settings.points_label": "持ち点 (0〜1000000、空欄=既定)",
+  "settings.points_ph": "四人 25000、三人 35000",
+  "settings.saved": "✅ 設定：思考 {tt} 秒、持ち点 {pt}",
+  "settings.default": "既定",
+
+  "err.seconds_num": "❌ 秒数は数字で入力してください",
+  "err.seconds_range": "❌ 秒数は 5〜300 の範囲です",
+  "err.points_num": "❌ 持ち点は数字で入力してください",
+  "err.points_range": "❌ 持ち点は 0〜1000000 の範囲です"
 }

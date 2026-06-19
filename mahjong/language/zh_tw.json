@@ -83,5 +83,31 @@
   "actionlog.empty": "（尚無動作）",
 
   "win.points": "{n} 點",
-  "win.han_fu": "{han} 飜 {fu} 符"
+  "win.han_fu": "{han} 飜 {fu} 符",
+
+  "toggle.on": "開啟",
+  "toggle.off": "關閉",
+
+  "settings.prompt": "⚙️ 請設定遊戲選項，完成後按 ✅ 確認：",
+  "settings.numbers": "⚙️ 數值設定",
+  "settings.numbers_title": "⚙️ 數值設定",
+  "settings.sanma": "👥 三麻模式",
+  "settings.sanma_state": "👥 三麻模式（{state}）",
+  "settings.length_tonpuu": "🀄 戰長：東風戰",
+  "settings.length_hanchan": "🀄 戰長：半莊戰",
+  "settings.tobi_on": "💥 擊飛：開啟",
+  "settings.tobi_off": "💥 擊飛：關閉",
+  "settings.rule_default": "📐 規則：預設",
+  "settings.rule_tenhou": "📐 規則：完全天鳳式",
+  "settings.confirm": "✅ 確認",
+  "settings.thinking_label": "思考秒數 (5-300)",
+  "settings.points_label": "起始點數 (0~1000000，留空=預設)",
+  "settings.points_ph": "四麻預設 25000、三麻預設 35000",
+  "settings.saved": "✅ 已設定：思考 {tt} 秒、起始 {pt}",
+  "settings.default": "預設",
+
+  "err.seconds_num": "❌ 秒數應為數字",
+  "err.seconds_range": "❌ 秒數應在 5-300 之間",
+  "err.points_num": "❌ 起始點數應為數字",
+  "err.points_range": "❌ 起始點數需介於 0 ~ 1000000"
 }

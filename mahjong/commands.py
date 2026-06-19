@@ -164,8 +164,9 @@ async def cmd_start(interaction: discord.Interaction) -> None:
         await interaction.response.send_message("❌ 此頻道已有牌局！", ephemeral=True)
         return
 
-    sv = RoomSettingsView(gid="setup")
-    await interaction.response.send_message("⚙️ 請設定遊戲選項，完成後按 ✅ 確認：", view=sv, ephemeral=True)
+    host_lang = i18n.get_user_lang(user_id)
+    sv = RoomSettingsView(gid="setup", lang=host_lang)
+    await interaction.response.send_message(i18n.t("settings.prompt", host_lang), view=sv, ephemeral=True)
     await sv.wait()
 
     is_sanma      = sv.sanma
