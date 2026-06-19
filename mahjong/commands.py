@@ -77,6 +77,7 @@ class LobbyView(discord.ui.View):
             await interaction.response.send_message("❌ 房間已滿！", ephemeral=True)
             return
 
+        await _close_owned_waiting_rooms(uid, gid)   # 加入別人的房 → 關掉自己開的房
         _waiting[gid].append({"user_id": uid, "username": interaction.user.display_name, "is_bot": False})
         await self._update(interaction)
 
@@ -149,6 +150,24 @@ class LobbyView(discord.ui.View):
             if self.lobby_message:
                 try:
                     await self.lobby_message.edit(content="❌ 等待逾時，房間已關閉。", view=None)
+                except Exception:
+                    pass
+
+
+async def _close_owned_waiting_rooms(uid: str, except_gid: str) -> None:
+    """玩家加入別的房間時，關掉自己開的、仍在等待中的房間（已開始的對局不動）。"""
+    for other_gid, owner in list(_room_owners.items()):
+        if owner != uid or other_gid == except_gid or other_gid in _games:
+            continue
+        chan_id = next((c for c, g in _channel_games.items() if g == other_gid), "")
+        lobby = _lobbies.get(other_gid)
+        _cleanup(other_gid, chan_id)
+        if lobby is not None:
+            lobby.stop()
+            if getattr(lobby, "lobby_message", None):
+                try:
+                    await lobby.lobby_message.edit(
+                        content="❌ 房主已加入其他房間，本房已關閉。", view=None)
                 except Exception:
                     pass
 
@@ -236,6 +255,7 @@ async def cmd_join(interaction: discord.Interaction, host: discord.Member = None
         await interaction.response.send_message("❌ 房間已滿！", ephemeral=True)
         return
 
+    await _close_owned_waiting_rooms(uid, gid)   # 加入別人的房 → 關掉自己開的房
     waiting.append({"user_id": uid, "username": interaction.user.display_name, "is_bot": False})
     await interaction.response.send_message(
         f"✅ 已加入房間！（{len(waiting)}/{max_p}）", ephemeral=True)
