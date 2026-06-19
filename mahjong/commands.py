@@ -34,7 +34,8 @@ from .client import bot, tree
 
 class LobbyView(discord.ui.View):
     def __init__(self, gid: str, channel: discord.TextChannel):
-        super().__init__(timeout=300)
+        # 不因等待而自動關房（timeout=None）；只有關掉機器人才會結束（重啟後大廳即失效）。
+        super().__init__(timeout=None)
         self.gid           = gid
         self.channel       = channel
         self.lobby_message: Optional[discord.Message] = None
