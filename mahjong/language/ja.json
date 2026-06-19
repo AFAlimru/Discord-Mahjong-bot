@@ -5,6 +5,11 @@
   "language.set": "✅ 言語を「{name}」に設定しました。",
   "language.button_translate": "🌐 翻訳",
 
+  "lobby.title": "麻雀ルーム開設！",
+  "lobby.info": "モード：{mode}　戦長：{length}　飛び：{tobi}　思考：{tt}秒",
+  "lobby.players": "プレイヤー（{cur}/{max}）：",
+  "lobby.join_hint": "ボタンで参加、または房主が AI で空席を埋められます！",
+
   "mode.yonma": "四人打ち",
   "mode.sanma": "三人打ち",
   "len.tonpuu": "東風戦",

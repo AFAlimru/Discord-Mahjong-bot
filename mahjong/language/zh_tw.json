@@ -5,6 +5,11 @@
   "language.set": "✅ 已將你的語言設定為「{name}」。",
   "language.button_translate": "🌐 翻譯",
 
+  "lobby.title": "麻將房間開啟！",
+  "lobby.info": "模式：{mode}　戰長：{length}　擊飛：{tobi}　思考：{tt} 秒",
+  "lobby.players": "玩家（{cur}/{max}）：",
+  "lobby.join_hint": "點擊按鈕加入，或由房主加入 AI 填滿空位！",
+
   "mode.yonma": "四麻",
   "mode.sanma": "三麻",
   "len.tonpuu": "東風戰",

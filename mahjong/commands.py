@@ -43,23 +43,23 @@ class LobbyView(discord.ui.View):
         # 等待加入時也能看出牌說明
         self.add_item(HelpButton())
 
-    def _content(self) -> str:
+    def _content(self, lang: str = i18n.DEFAULT) -> str:
         cfg       = _room_configs.get(self.gid, {})
-        mode      = "三麻" if cfg.get("is_sanma") else "四麻"
+        mode      = i18n.t("mode.sanma" if cfg.get("is_sanma") else "mode.yonma", lang)
         tt        = cfg.get("thinking_time", 25)
         max_p     = cfg.get("max_players", 4)
-        len_label = "半莊戰" if cfg.get("length") == "hanchan" else "東風戰"
-        tobi_label = "開啟" if cfg.get("tobi", True) else "關閉"
+        length    = i18n.t("len.hanchan" if cfg.get("length") == "hanchan" else "len.tonpuu", lang)
+        tobi      = i18n.t("toggle.on" if cfg.get("tobi", True) else "toggle.off", lang)
         players   = _waiting.get(self.gid, [])
         plist     = "\n".join(
             f"• {'🤖' if p.get('is_bot') else ''}{p['username']}"
             for p in players
         )
         return (
-            f"**麻將房間開啟！**\n"
-            f"模式：{mode}　戰長：{len_label}　擊飛：{tobi_label}　思考：{tt} 秒\n"
-            f"玩家（{len(players)}/{max_p}）：\n{plist}\n\n"
-            f"點擊按鈕加入，或由房主加入 AI 填滿空位！"
+            f"**{i18n.t('lobby.title', lang)}**\n"
+            f"{i18n.t('lobby.info', lang, mode=mode, length=length, tobi=tobi, tt=tt)}\n"
+            f"{i18n.t('lobby.players', lang, cur=len(players), max=max_p)}\n{plist}\n\n"
+            f"{i18n.t('lobby.join_hint', lang)}"
         )
 
     @discord.ui.button(label="加入遊戲", style=discord.ButtonStyle.success)
@@ -100,6 +100,11 @@ class LobbyView(discord.ui.View):
         self._ai_count += 1
         _waiting[gid].append({"user_id": ai_uid, "username": ai_name, "is_bot": True})
         await self._update(interaction)
+
+    @discord.ui.button(label="🌐 翻譯 / 翻訳", style=discord.ButtonStyle.secondary)
+    async def translate_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        lang = i18n.get_user_lang(interaction.user.id)
+        await interaction.response.send_message(self._content(lang), ephemeral=True)
 
     async def _update(self, interaction: discord.Interaction):
         gid   = self.gid
