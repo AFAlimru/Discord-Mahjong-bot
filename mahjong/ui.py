@@ -24,8 +24,8 @@ from . import db
 from . import i18n
 
 class HandHelpButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="❓ 說明", style=discord.ButtonStyle.secondary)
+    def __init__(self, lang: str = i18n.DEFAULT):
+        super().__init__(label=i18n.t("btn.help", lang), style=discord.ButtonStyle.secondary)
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_message(HELP_TEXT, ephemeral=True)
@@ -47,22 +47,22 @@ class _GameInfoButton(discord.ui.Button):
         await interaction.response.send_message(self._builder(gs, lang), ephemeral=True)
 
 
-def RiverButton(gid: str):
-    return _GameInfoButton(gid, "🀫 看牌河", make_river_text)
+def RiverButton(gid: str, lang: str = i18n.DEFAULT):
+    return _GameInfoButton(gid, i18n.t("btn.river", lang), make_river_text)
 
 
-def ScoreButton(gid: str):
-    return _GameInfoButton(gid, "📊 看點數", make_score_text)
+def ScoreButton(gid: str, lang: str = i18n.DEFAULT):
+    return _GameInfoButton(gid, i18n.t("btn.score", lang), make_score_text)
 
 
-def MeldButton(gid: str):
-    return _GameInfoButton(gid, "🀜 看副露", make_meld_text)
+def MeldButton(gid: str, lang: str = i18n.DEFAULT):
+    return _GameInfoButton(gid, i18n.t("btn.meld", lang), make_meld_text)
 
 
 class _ActionLogButton(discord.ui.Button):
     """點擊顯示本局完整動態（私密）。"""
-    def __init__(self, gid: str):
-        super().__init__(label="📜 看動態", style=discord.ButtonStyle.secondary)
+    def __init__(self, gid: str, lang: str = i18n.DEFAULT):
+        super().__init__(label=i18n.t("btn.log", lang), style=discord.ButtonStyle.secondary)
         self.gid = gid
 
     async def callback(self, interaction: discord.Interaction):
@@ -70,8 +70,8 @@ class _ActionLogButton(discord.ui.Button):
         await interaction.response.send_message(make_action_log_text(self.gid, lang), ephemeral=True)
 
 
-def ActionLogButton(gid: str):
-    return _ActionLogButton(gid)
+def ActionLogButton(gid: str, lang: str = i18n.DEFAULT):
+    return _ActionLogButton(gid, lang)
 
 
 class TranslateBoardButton(discord.ui.Button):
@@ -97,14 +97,14 @@ def make_board_view(gid: str) -> discord.ui.View:
     return v
 
 
-def make_hand_view(gid: str) -> discord.ui.View:
-    """手牌面板常駐按鈕：看牌河 / 看點數 / 看副露 / 看動態，說明放最右。"""
+def make_hand_view(gid: str, lang: str = i18n.DEFAULT) -> discord.ui.View:
+    """手牌面板常駐按鈕：看牌河 / 看點數 / 看副露 / 看動態，說明放最右（依玩家語言）。"""
     v = discord.ui.View(timeout=None)
-    v.add_item(RiverButton(gid))
-    v.add_item(ScoreButton(gid))
-    v.add_item(MeldButton(gid))
-    v.add_item(ActionLogButton(gid))
-    v.add_item(HandHelpButton())
+    v.add_item(RiverButton(gid, lang))
+    v.add_item(ScoreButton(gid, lang))
+    v.add_item(MeldButton(gid, lang))
+    v.add_item(ActionLogButton(gid, lang))
+    v.add_item(HandHelpButton(lang))
     return v
 
 

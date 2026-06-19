@@ -68,6 +68,18 @@
   "countdown.next_hand": "進入下一局",
   "countdown.end": "結束對局",
 
+  "btn.river": "🀫 看牌河",
+  "btn.score": "📊 看點數",
+  "btn.meld": "🀜 看副露",
+  "btn.log": "📜 看動態",
+  "btn.help": "❓ 說明",
+
+  "prompt.discard": "✍️ **打字**丟牌；其他行動請看「說明」",
+  "prompt.remain": "（剩 {n} 秒）",
+  "prompt.riichi_locked": "🀄 **已立直**：將自動摸切，可按「自摸」",
+  "prompt.riichi_declared": "🀄 已宣告立直，請**打字**打出宣言牌（再按一次「立直」可取消）",
+  "prompt.riichi_auto": "🀄 **已立直**：自動摸切（可自摸）",
+
   "panel.your_hand": "你的手牌",
   "panel.river": "牌河",
   "panel.melds": "副露",

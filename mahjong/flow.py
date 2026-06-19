@@ -131,7 +131,7 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
             hm = await pt.send(make_hand_panel(p, i18n.t("panel.waiting_start", _lang),
                                                board_info=_board_info(gs, _lang),
                                                river_info=river_panel(gs, _lang), lang=_lang),
-                               view=make_hand_view(gid))
+                               view=make_hand_view(gid, _lang))
             hand_msg[p.user_id] = hm
         except Exception as e:
             print(f"[threads] 建立 {p.username} 私人討論串失敗：{e}")
@@ -520,18 +520,19 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     state = {"riichi": False, "rem": int(thinking_time)}
     view  = discord.ui.View(timeout=float(thinking_time) + 10)
     # 資訊按鈕：看牌河 / 看點數 / 看副露（輪到自己時也能看）；說明最後加（最右）
-    view.add_item(RiverButton(gid))
-    view.add_item(ScoreButton(gid))
-    view.add_item(MeldButton(gid))
-    view.add_item(ActionLogButton(gid))
+    view.add_item(RiverButton(gid, lang))
+    view.add_item(ScoreButton(gid, lang))
+    view.add_item(MeldButton(gid, lang))
+    view.add_item(ActionLogButton(gid, lang))
 
     def panel(rem):
+        remain = i18n.t("prompt.remain", lang, n=rem)
         if riichi_locked:
-            extra = f"🀄 **已立直**：將自動摸切，可按「自摸」　（剩 {rem} 秒）"
+            extra = f"{i18n.t('prompt.riichi_locked', lang)}　{remain}"
         elif state["riichi"]:
-            extra = "🀄 已宣告立直，請**打字**打出宣言牌（再按一次「立直」可取消）"
+            extra = i18n.t("prompt.riichi_declared", lang)
         else:
-            extra = f"{prompt_base}　（剩 {rem} 秒）"
+            extra = f"{prompt_base}　{remain}"
         return make_hand_panel(player, extra, tenpai_note, last_info, board_info,
                                river_info=river_panel(_games[gid], lang), lang=lang)
 
@@ -556,20 +557,20 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
         b.callback = cb
         view.add_item(b)
 
-    # 順序：說明、摸切、拔北、暗槓、加槓、立直、自摸
-    view.add_item(HandHelpButton())   # 說明
+    # 順序：說明、摸切、拔北、暗槓、加槓、立直、自摸（依玩家語言）
+    view.add_item(HandHelpButton(lang))   # 說明
     if player.drawn_tile is not None:
-        add_btn("摸切", discord.ButtonStyle.secondary, ("discard", player.drawn_tile))
+        add_btn(i18n.t("action.tsumogiri", lang), discord.ButtonStyle.secondary, ("discard", player.drawn_tile))
     if kita_ok:
-        add_btn("拔北", discord.ButtonStyle.secondary, ("kita", None))
+        add_btn(i18n.t("action.kita", lang), discord.ButtonStyle.secondary, ("kita", None))
     if ankan_opts:
-        add_btn("暗槓", discord.ButtonStyle.secondary, ("ankan", ankan_opts[0]))
+        add_btn(i18n.t("action.ankan", lang), discord.ButtonStyle.secondary, ("ankan", ankan_opts[0]))
     if kakan_opts:
-        add_btn("加槓", discord.ButtonStyle.secondary, ("kakan", kakan_opts[0]))
+        add_btn(i18n.t("action.kakan", lang), discord.ButtonStyle.secondary, ("kakan", kakan_opts[0]))
     if can_riichi:
-        add_btn("立直", discord.ButtonStyle.secondary, "riichi")
+        add_btn(i18n.t("action.riichi", lang), discord.ButtonStyle.secondary, "riichi")
     if can_tsumo:
-        add_btn("自摸", discord.ButtonStyle.danger, ("tsumo", None))       # 紅
+        add_btn(i18n.t("action.tsumo", lang), discord.ButtonStyle.danger, ("tsumo", None))   # 紅
 
     await refresh(int(thinking_time))
 
@@ -632,7 +633,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
         _input_queues.pop(uid, None)
         _input_thread.pop(uid, None)
         try:
-            await hand_msg.edit(view=make_hand_view(gid))   # 回合結束保留說明/看牌河
+            await hand_msg.edit(view=make_hand_view(gid, lang))   # 回合結束保留說明/看牌河
         except Exception:
             pass
     return result
@@ -661,7 +662,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     await hm.edit(content=make_hand_panel(
                         p, "", "", _action_feed(gid, gs, lang), _board_info(gs, lang),
                         river_info=river_panel(gs, lang), lang=lang),
-                        view=make_hand_view(gid))
+                        view=make_hand_view(gid, lang))
                 except Exception:
                     pass
 
@@ -684,7 +685,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 await hm.edit(content=make_hand_panel(p, prompt, tenpai_note,
                                                       _action_feed(gid, gs, lang), _board_info(gs, lang),
                                                       river_info=river_panel(gs, lang), lang=lang),
-                              view=make_hand_view(gid))
+                              view=make_hand_view(gid, lang))
             except Exception:
                 pass
 
@@ -756,6 +757,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
         # ── Human（打字）────────────────────────────────────
         else:
             already_riichi = player.riichi
+            lang_p = i18n.get_user_lang(player.user_id)
             can_tsumo  = bool(player.drawn_tile) and evaluate_win(
                 gs, player, player.drawn_tile, is_tsumo=True, is_rinshan=is_rinshan_draw) is not None
 
@@ -767,7 +769,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 kakan_opts  = []
                 kita_ok     = False
                 tenpai_note = ""
-                prompt_base = "🀄 **已立直**：自動摸切（可自摸）"
+                prompt_base = i18n.t("prompt.riichi_auto", lang_p)
                 turn_time   = thinking_time if can_tsumo else 3
             else:
                 adv = tenpai_advice(player)   # 14 張時：打哪張可進聽
@@ -777,7 +779,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 kita_ok    = gs.is_sanma and has_kita(player)
                 # 進聽提示：打哪張可聽、聽哪些；並標註（無役）／（振聽）
                 tenpai_note = tenpai_note_text(gs, player, adv) if adv else ""
-                prompt_base = "✍️ **打字**丟牌；其他行動請看「說明」"
+                prompt_base = i18n.t("prompt.discard", lang_p)
                 turn_time   = thinking_time
 
             await render_board(f"輪到 <@{player.user_id}>（{WIND_LABELS[player.seat]}）出牌", log=False)
@@ -1191,7 +1193,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     th["hand_msg"][p.user_id] = await pt.send(
                         make_hand_panel(p, board_info=_board_info(new_gs, _lang),
                                         river_info=river_panel(new_gs, _lang), lang=_lang),
-                        view=make_hand_view(gid))
+                        view=make_hand_view(gid, _lang))
                 except Exception:
                     pass
             await asyncio.sleep(1)

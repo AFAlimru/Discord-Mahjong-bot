@@ -68,6 +68,18 @@
   "countdown.next_hand": "次局へ",
   "countdown.end": "対局終了",
 
+  "btn.river": "🀫 河を見る",
+  "btn.score": "📊 点数",
+  "btn.meld": "🀜 副露",
+  "btn.log": "📜 ログ",
+  "btn.help": "❓ ヘルプ",
+
+  "prompt.discard": "✍️ **打字**で捨て牌；他の操作は「ヘルプ」へ",
+  "prompt.remain": "（残り {n} 秒）",
+  "prompt.riichi_locked": "🀄 **リーチ中**：自動ツモ切り、「ツモ」可",
+  "prompt.riichi_declared": "🀄 リーチ宣言済み：**打字**で宣言牌を切ってください（「リーチ」をもう一度押すと取消）",
+  "prompt.riichi_auto": "🀄 **リーチ済み**：自動ツモ切り（ツモ可）",
+
   "panel.your_hand": "あなたの手牌",
   "panel.river": "河",
   "panel.melds": "副露",
