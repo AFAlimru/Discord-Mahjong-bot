@@ -28,7 +28,8 @@ class HandHelpButton(discord.ui.Button):
         super().__init__(label=i18n.t("btn.help", lang), style=discord.ButtonStyle.secondary)
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message(HELP_TEXT, ephemeral=True)
+        await interaction.response.send_message(
+            help_text(i18n.get_user_lang(interaction.user.id)), ephemeral=True)
 
 
 class _GameInfoButton(discord.ui.Button):
@@ -172,21 +173,9 @@ class FairnessButton(discord.ui.Button):
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-HELP_TEXT = (
-    "**🀄 操作說明（直接在你的私人討論串打字）**\n"
-    "輪到你時，直接在自己的私人討論串輸入下列指令（打完 bot 會自動刪字）：\n\n"
-    "**出牌**\n"
-    "・數字牌：`1m`~`9m`（萬）、`1p`~`9p`（筒）、`1s`~`9s`（索），大小寫皆可\n"
-    "・紅寶牌：`0m` / `0p` / `0s`\n"
-    "・字牌：`東/南/西/北`（或 `e/s/w/n`）、`中`(=`r`)、`白`(=`wh`)、`發`(=`g`)\n\n"
-    "**特殊行動**\n"
-    "・自摸：`tsumo`\n"
-    "・立直：`立直 5m`（指定要打出的牌）\n"
-    "・暗槓：`暗槓 5m`\n"
-    "・拔北（三麻）：`!n`\n\n"
-    "**別人打牌時可回應**\n"
-    "・`ron` 榮和、`pon` 碰、`chi 1` 吃（選編號）、`kan` 槓、`skip` 跳過"
-)
+def help_text(lang: str = i18n.DEFAULT) -> str:
+    """出牌輸入說明（依語言）。"""
+    return i18n.t("help.text", lang)
 
 
 class HelpButton(discord.ui.Button):
@@ -194,7 +183,8 @@ class HelpButton(discord.ui.Button):
         super().__init__(label="❓ 說明", style=discord.ButtonStyle.secondary)
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message(HELP_TEXT, ephemeral=True)
+        await interaction.response.send_message(
+            help_text(i18n.get_user_lang(interaction.user.id)), ephemeral=True)
 
 
 # ═══════════════════════════════════════════════════════════════

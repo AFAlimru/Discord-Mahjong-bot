@@ -22,7 +22,7 @@ from . import db
 from . import i18n
 from . import rooms
 from .render import make_board_text
-from .ui import HelpButton, HELP_TEXT
+from .ui import HelpButton, help_text
 from .views import RoomSettingsView
 from .flow import launch_game, _cleanup, _delete_threads
 from .state import (
@@ -296,10 +296,11 @@ async def cmd_end(interaction: discord.Interaction) -> None:
 
 @mahjong.command(name="status", description="查看當前牌局狀態")
 async def cmd_status(interaction: discord.Interaction) -> None:
+    lang       = i18n.get_user_lang(interaction.user.id)
     channel_id = str(interaction.channel_id)
     gid        = _channel_games.get(channel_id)
     if not gid:
-        await interaction.response.send_message("❌ 此頻道沒有進行中的牌局。", ephemeral=True)
+        await interaction.response.send_message(i18n.t("status.no_game", lang), ephemeral=True)
         return
     gs = _games.get(gid)
     if not gs:
@@ -307,12 +308,12 @@ async def cmd_status(interaction: discord.Interaction) -> None:
         cfg     = _room_configs.get(gid, {})
         max_p   = cfg.get("max_players", 4)
         plist   = "\n".join(f"• {p['username']}" for p in waiting)
-        await interaction.response.send_message(
-            f"🕐 等待玩家中...（{len(waiting)}/{max_p}）\n{plist}", ephemeral=True
-        )
+        head    = i18n.t("status.waiting", lang, cur=len(waiting), max=max_p)
+        await interaction.response.send_message(f"{head}\n{plist}", ephemeral=True)
         return
     open_hand = _room_configs.get(gid, {}).get("open_hand", False)
-    await interaction.response.send_message(content=make_board_text(gs, "", open_hand), ephemeral=True)
+    await interaction.response.send_message(
+        content=make_board_text(gs, "", open_hand, lang), ephemeral=True)
 
 
 @mahjong.command(name="watch", description="觀戰模式：全部 AI 自動對局（公開手牌）")
@@ -368,7 +369,8 @@ async def cmd_stats(interaction: discord.Interaction) -> None:
 
 @mahjong.command(name="help", description="查看出牌輸入說明")
 async def cmd_help(interaction: discord.Interaction) -> None:
-    await interaction.response.send_message(HELP_TEXT, ephemeral=True)
+    await interaction.response.send_message(
+        help_text(i18n.get_user_lang(interaction.user.id)), ephemeral=True)
 
 
 tree.add_command(mahjong)
@@ -380,7 +382,8 @@ tree.add_command(mahjong)
 
 @tree.command(name="help", description="查看出牌輸入說明")
 async def cmd_help_top(interaction: discord.Interaction) -> None:
-    await interaction.response.send_message(HELP_TEXT, ephemeral=True)
+    await interaction.response.send_message(
+        help_text(i18n.get_user_lang(interaction.user.id)), ephemeral=True)
 
 
 # ── 語言設定（per-user）──────────────────────────────────────────

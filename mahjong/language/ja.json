@@ -70,6 +70,18 @@
   "feed.word_discard": "打牌",
   "feed.tenpai_note": "🀄 **テンパイ！** 待ち：{waits}",
 
+  "react.discarded": "## ⬇️ {who} の打牌",
+  "react.chi_combo": "# チー {combo}",
+  "react.chi_combo_n": "# チー{circ} {combo}",
+  "react.choose": "選んでください（残り {n} 秒）",
+  "react.chankan": "## 🀄 {name} が加槓宣言\n# {tile}\nこの牌でロン（槍槓）できる人は押してください；残り {n} 秒",
+  "react.chankan_btn": "槍槓ロン",
+
+  "status.no_game": "❌ このチャンネルに進行中の対局はありません。",
+  "status.waiting": "🕐 プレイヤー待ち…（{cur}/{max}）",
+
+  "help.text": "**🀄 操作説明（自分の個人スレッドに直接入力）**\n自分の番になったら、個人スレッドに下記を入力してください（入力後 bot が自動で削除）：\n\n**打牌**\n・数牌：`1m`〜`9m`（萬）、`1p`〜`9p`（筒）、`1s`〜`9s`（索）、大文字小文字どちらでも\n・赤ドラ：`0m` / `0p` / `0s`\n・字牌：`東/南/西/北`（または `e/s/w/n`）、`中`(=`r`)、`白`(=`wh`)、`發`(=`g`)\n\n**特殊操作**\n・ツモ：`tsumo`\n・リーチ：`立直 5m`（切る牌を指定）\n・暗槓：`暗槓 5m`\n・北抜き（三人打ち）：`!n`\n\n**他家の打牌への反応**\n・`ron` ロン、`pon` ポン、`chi 1` チー（番号選択）、`kan` カン、`skip` スキップ",
+
   "result.tsumo": "{name}　ツモ！",
   "result.ron": "{name}　ロン！（放銃：{loser}）",
   "result.draw_title": "🀄 流局",

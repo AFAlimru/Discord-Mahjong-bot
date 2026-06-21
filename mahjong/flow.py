@@ -314,6 +314,7 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
         if not pt:
             return None
         uid = p.user_id
+        lang_p = i18n.get_user_lang(uid)
         fut = asyncio.get_event_loop().create_future()
         view = discord.ui.View(timeout=thinking_time + 5)
 
@@ -336,27 +337,28 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
             srt = sorted([t1, t2, discard_tile], key=lambda t: (t.suit, t.value))
             chi_combos.append(" ".join(str(t) for t in srt))
 
-        # 順序：吃、碰、槓、榮和、跳過
+        # 順序：吃、碰、槓、榮和、跳過（依玩家語言）
+        _chi = i18n.t("action.chi", lang_p)
         if "chi" in actions:
             for idx, (t1, t2) in enumerate(chi_opts):
-                lbl = "吃" if len(chi_opts) == 1 else f"吃{CIRC[idx]}"
+                lbl = _chi if len(chi_opts) == 1 else f"{_chi}{CIRC[idx]}"
                 add_btn(lbl, discord.ButtonStyle.success, "chi", (t1, t2))  # 綠
         if "pon" in actions:
-            add_btn("碰", discord.ButtonStyle.primary, "pon", None)         # 藍
+            add_btn(i18n.t("action.pon", lang_p), discord.ButtonStyle.primary, "pon", None)   # 藍
         if "kan" in actions:
-            add_btn("槓", discord.ButtonStyle.primary, "kan", None)         # 藍
+            add_btn(i18n.t("action.kan", lang_p), discord.ButtonStyle.primary, "kan", None)   # 藍
         if "ron" in actions:
-            add_btn("榮和", discord.ButtonStyle.danger, "ron", None)        # 紅
-        add_btn("跳過", discord.ButtonStyle.secondary, "skip", None)        # 灰
+            add_btn(i18n.t("action.ron", lang_p), discord.ButtonStyle.danger, "ron", None)    # 紅
+        add_btn(i18n.t("action.skip", lang_p), discord.ButtonStyle.secondary, "skip", None)   # 灰
 
         def prompt_text(rem):
-            lines = [f"## ⬇️ {from_name} 打出", f"# {discard_tile}"]
+            lines = [i18n.t("react.discarded", lang_p, who=from_name), f"# {discard_tile}"]
             if len(chi_combos) == 1:
-                lines.append(f"# 吃 {chi_combos[0]}")
+                lines.append(i18n.t("react.chi_combo", lang_p, combo=chi_combos[0]))
             else:
                 for idx, cmb in enumerate(chi_combos):
-                    lines.append(f"# 吃{CIRC[idx]} {cmb}")
-            lines.append(f"請選擇（剩 {rem} 秒）")
+                    lines.append(i18n.t("react.chi_combo_n", lang_p, circ=CIRC[idx], combo=cmb))
+            lines.append(i18n.t("react.choose", lang_p, n=rem))
             return "\n".join(lines)
 
         try:
@@ -427,6 +429,7 @@ async def collect_chankan_t(gs, gid, kan_tile, kan_seat, thinking_time,
         if not pt:
             return None
         uid = p.user_id
+        lang_p = i18n.get_user_lang(uid)
         fut = asyncio.get_event_loop().create_future()
         view = discord.ui.View(timeout=thinking_time + 5)
 
@@ -442,12 +445,11 @@ async def collect_chankan_t(gs, gid, kan_tile, kan_seat, thinking_time,
             b.callback = cb
             view.add_item(b)
 
-        add_btn("搶槓榮和", discord.ButtonStyle.danger, "ron")
-        add_btn("跳過", discord.ButtonStyle.secondary, "skip")
+        add_btn(i18n.t("react.chankan_btn", lang_p), discord.ButtonStyle.danger, "ron")
+        add_btn(i18n.t("action.skip", lang_p), discord.ButtonStyle.secondary, "skip")
 
         def prompt_text(rem):
-            return (f"## 🀄 {kan_name} 宣告加槓\n# {kan_tile}\n"
-                    f"可**搶槓榮和**！請選擇（剩 {rem} 秒）")
+            return i18n.t("react.chankan", lang_p, name=kan_name, tile=kan_tile, n=rem)
 
         try:
             prompt_msg = await pt.send(prompt_text(int(thinking_time)), view=view)
