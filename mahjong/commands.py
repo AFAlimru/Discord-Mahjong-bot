@@ -29,7 +29,6 @@ from .state import (
     _games, _channel_games, _waiting, _room_owners, _room_configs, _user_game,
     _game_tasks, _lobbies, _threads, _thread_game,
 )
-from .client import bot, tree
 
 
 class LobbyView(discord.ui.View):
@@ -375,14 +374,10 @@ async def cmd_help(interaction: discord.Interaction) -> None:
         help_text(i18n.get_user_lang(interaction.user.id)), ephemeral=True)
 
 
-tree.add_command(mahjong)
-
-
 # ═══════════════════════════════════════════════════════════════
-#  Top-level reaction / action commands
+#  Top-level commands（由 register(tree) 在入口掛上）
 # ═══════════════════════════════════════════════════════════════
 
-@tree.command(name="help", description="查看出牌輸入說明")
 async def cmd_help_top(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(
         help_text(i18n.get_user_lang(interaction.user.id)), ephemeral=True)
@@ -407,12 +402,18 @@ class LanguageView(discord.ui.View):
             self.add_item(LanguageButton(code))
 
 
-@tree.command(name="language", description="設定顯示語言 / 表示言語を設定する")
 async def cmd_language(interaction: discord.Interaction) -> None:
     cur = i18n.get_user_lang(interaction.user.id)
     await interaction.response.send_message(
         i18n.t("language.choose", cur, cur=i18n.lang_name(cur)),
         view=LanguageView(), ephemeral=True)
+
+
+def register(tree) -> None:
+    """把指令掛到 tree（由入口 run.py 在 bot/tree 建好後呼叫）。"""
+    tree.add_command(mahjong)
+    tree.command(name="help", description="查看出牌輸入說明")(cmd_help_top)
+    tree.command(name="language", description="設定顯示語言 / 表示言語を設定する")(cmd_language)
 
 
 

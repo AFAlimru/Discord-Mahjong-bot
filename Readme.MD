@@ -29,10 +29,9 @@
 
 ```
 Suzume Tsuk/
-├── run.py              # 啟動入口：python run.py
+├── run.py              # 啟動入口：建立 bot/tree、事件處理，python run.py
 ├── mahjong/            # 主套件
-│   ├── client.py       # 建立 bot/tree、事件處理、啟動 run()
-│   ├── commands.py     # /mahjong 指令群組與大廳 LobbyView
+│   ├── commands.py     # /mahjong 指令群組與大廳 LobbyView；register(tree) 掛上指令
 │   ├── flow.py         # 對局流程：討論串/反應/單局/多局/和牌儀式/開局
 │   ├── ui.py           # Discord 按鈕與視圖、操作說明文字
 │   ├── render.py       # 文字版面渲染（牌桌/手牌面板/牌河/點數…）
@@ -56,8 +55,8 @@ Suzume Tsuk/
 
 | 模組 | 內容 |
 |------|------|
-| `client.py` | `bot`/`tree`、`on_message`/`on_ready`、入口 `run()` |
-| `commands.py` | `/mahjong start/join/end/status/watch/stats/help`、大廳 LobbyView |
+| `run.py` | `bot`/`tree`、`on_message`/`on_ready`、入口 `run()`（啟動檔，位於專案根目錄） |
+| `commands.py` | `/mahjong start/join/end/status/watch/stats/help`、`/language`、大廳 LobbyView；`register(tree)` 掛上指令 |
 | `flow.py` | 討論串建立/清理、反應收集、輪到行動、單/多局迴圈、和牌儀式、`launch_game` |
 | `rules.py` | 牌工具、AI、`evaluate_win`、`tenpai_advice`/`is_furiten`（純邏輯，不依賴 discord） |
 | `engine.py` | `Tile`/`GameState`/`PlayerState`、牌山生成與編碼、`is_complete`/`is_tenpai`/待牌 |
