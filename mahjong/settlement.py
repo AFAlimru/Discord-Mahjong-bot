@@ -108,12 +108,12 @@ def apply_tsumo(gs: GameState, winner_seat: int, result: ScoreResult) -> SettleL
 def apply_ryuukyoku(gs: GameState, tenpai_seats: list[int]) -> SettleLog:
     """
     流局：聽牌罰符。
-    聽牌人數 1~3 時，未聽牌者合計支付 3000，聽牌者平分。
-    0 或 4 人聽牌：無點數移動。立直棒留到下一局。
+    有聽牌也有未聽（1 ~ 人數−1 人聽牌）時，未聽者合計支付 3000，聽牌者平分。
+    全員聽牌或全員未聽：無點數移動。立直棒留到下一局。
     """
     deltas = {p.seat: 0 for p in gs.players}
     n = len(tenpai_seats)
-    if 1 <= n <= 3:
+    if 0 < n < len(gs.players):   # 同時有聽牌與未聽者（三麻全聽=3 人也排除，避免除以零）
         noten = [p.seat for p in gs.players if p.seat not in tenpai_seats]
         pay_each_noten = 3000 // len(noten)
         recv_each_tenpai = 3000 // n
