@@ -71,10 +71,10 @@ class LobbyView(discord.ui.View):
         waiting = _waiting.get(gid, [])
 
         if any(p["user_id"] == uid for p in waiting):
-            await interaction.response.send_message("❌ 你已在房間中！", ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.already_in_room", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
             return
         if len(waiting) >= max_p:
-            await interaction.response.send_message("❌ 房間已滿！", ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
             return
 
         await _close_owned_waiting_rooms(uid, gid)   # 加入別人的房 → 關掉自己開的房
@@ -86,13 +86,13 @@ class LobbyView(discord.ui.View):
         gid     = self.gid
         uid     = str(interaction.user.id)
         if _room_owners.get(gid) != uid:
-            await interaction.response.send_message("❌ 只有房主可以加入 AI。", ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.only_host_ai", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
             return
         cfg   = _room_configs.get(gid, {})
         max_p = cfg.get("max_players", 4)
         waiting = _waiting.get(gid, [])
         if len(waiting) >= max_p:
-            await interaction.response.send_message("❌ 房間已滿！", ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
             return
 
         ai_uid  = f"ai_{gid}_{self._ai_count}"
@@ -186,7 +186,7 @@ async def cmd_start(interaction: discord.Interaction) -> None:
     user_id    = str(interaction.user.id)
 
     if channel_id in _channel_games:
-        await interaction.response.send_message("❌ 此頻道已有牌局！", ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.channel_has_game", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
 
     host_lang = i18n.get_user_lang(user_id)
@@ -239,14 +239,15 @@ async def cmd_join(interaction: discord.Interaction, host: discord.Member = None
 
     if not gid:
         await interaction.response.send_message(
-            "❌ 此頻道沒有開放中的房間，請先 `/mahjong start` 開房。", ephemeral=True)
+            i18n.t("msg.no_open_room", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
     if gid in _games:
-        await interaction.response.send_message("❌ 該房間已開始遊戲，無法加入。", ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.game_started_nojoin", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
     if host is not None and _room_owners.get(gid) != str(host.id):
         await interaction.response.send_message(
-            f"❌ {host.display_name} 不是此頻道的房主。", ephemeral=True)
+            i18n.t("msg.not_host_named", i18n.get_user_lang(interaction.user.id),
+                   host=host.display_name), ephemeral=True)
         return
 
     cfg     = _room_configs.get(gid, {})
@@ -254,16 +255,17 @@ async def cmd_join(interaction: discord.Interaction, host: discord.Member = None
     waiting = _waiting.get(gid, [])
 
     if any(p["user_id"] == uid for p in waiting):
-        await interaction.response.send_message("❌ 你已在房間中！", ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.already_in_room", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
     if len(waiting) >= max_p:
-        await interaction.response.send_message("❌ 房間已滿！", ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
 
     await _close_owned_waiting_rooms(uid, gid)   # 加入別人的房 → 關掉自己開的房
     waiting.append({"user_id": uid, "username": interaction.user.display_name, "is_bot": False})
     await interaction.response.send_message(
-        f"✅ 已加入房間！（{len(waiting)}/{max_p}）", ephemeral=True)
+        i18n.t("msg.joined", i18n.get_user_lang(interaction.user.id),
+               cur=len(waiting), max=max_p), ephemeral=True)
 
     lobby = _lobbies.get(gid)
     if lobby:
@@ -277,10 +279,10 @@ async def cmd_end(interaction: discord.Interaction) -> None:
     # 可在主頻道或任一遊戲討論串內使用
     gid = _channel_games.get(channel_id) or _thread_game.get(int(channel_id))
     if not gid:
-        await interaction.response.send_message("❌ 沒有進行中的牌局。", ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.no_game", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
     if _room_owners.get(gid) != user_id:
-        await interaction.response.send_message("❌ 只有房主可以結束牌局。", ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.only_host_end", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
     # 找出主頻道 id（給 _cleanup 用）
     parent_cid = next((c for c, g in _channel_games.items() if g == gid), channel_id)
@@ -289,7 +291,7 @@ async def cmd_end(interaction: discord.Interaction) -> None:
     _cleanup(gid, parent_cid)
     if task and not task.done():
         task.cancel()
-    await interaction.response.send_message("✅ 牌局已強制結束，討論串將關閉。", ephemeral=True)
+    await interaction.response.send_message(i18n.t("msg.game_ended_forced", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
     if th:
         await _delete_threads(th)
 
@@ -321,7 +323,7 @@ async def cmd_status(interaction: discord.Interaction) -> None:
 async def cmd_watch(interaction: discord.Interaction, half: bool = False, sanma: bool = False) -> None:
     channel_id = str(interaction.channel_id)
     if channel_id in _channel_games:
-        await interaction.response.send_message("❌ 此頻道已有牌局！", ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.channel_has_game", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
 
     n_players = 3 if sanma else 4
@@ -355,7 +357,7 @@ async def cmd_stats(interaction: discord.Interaction) -> None:
     uid   = str(interaction.user.id)
     stats = db.get_stats(uid)
     if not stats:
-        await interaction.response.send_message("❌ 你還沒有遊戲記錄。", ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.no_stats", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
     embed = discord.Embed(title=f"📊 {interaction.user.display_name} 的統計", color=0x3498DB)
     embed.add_field(name="遊玩場次", value=str(stats["games_played"]))

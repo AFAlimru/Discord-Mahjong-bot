@@ -42,7 +42,8 @@ class _GameInfoButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         gs = _games.get(self.gid)
         if not gs:
-            await interaction.response.send_message("❌ 牌局已結束。", ephemeral=True)
+            await interaction.response.send_message(
+                i18n.t("msg.game_ended", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
             return
         lang = i18n.get_user_lang(interaction.user.id)
         await interaction.response.send_message(self._builder(gs, lang), ephemeral=True)
@@ -84,7 +85,8 @@ class TranslateBoardButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         gs = _games.get(self.gid)
         if not gs:
-            await interaction.response.send_message("❌ 牌局已結束。", ephemeral=True)
+            await interaction.response.send_message(
+                i18n.t("msg.game_ended", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
             return
         lang = i18n.get_user_lang(interaction.user.id)
         await interaction.response.send_message(make_thread_board(gs, "", lang), ephemeral=True)

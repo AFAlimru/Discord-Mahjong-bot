@@ -236,19 +236,19 @@ def _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts):
     s = raw.strip()
     low = s.lower()
     if low in ("tsumo", "自摸", "zimo"):
-        return (True, ("tsumo", None), "") if can_tsumo else (False, None, "現在無法自摸")
+        return (True, ("tsumo", None), "") if can_tsumo else (False, None, "msg.cant_tsumo")
     if low in ("!n", "n!", "拔北", "kita"):
-        return (True, ("kita", None), "") if kita_ok else (False, None, "現在無法拔北")
+        return (True, ("kita", None), "") if kita_ok else (False, None, "msg.cant_kita")
     if low.startswith(("riichi", "reach")) or s.startswith("立直"):
         rest = s
         for kw in ("riichi", "reach", "立直", "RIICHI", "Reach"):
             rest = rest.replace(kw, "")
         rest = rest.strip()
         if not can_riichi:
-            return (False, None, "現在無法立直")
+            return (False, None, "msg.cant_riichi")
         t = parse_tile(rest, player.hand, player.drawn_tile)
         if not t:
-            return (False, None, "立直需指定要打的牌，例如：立直 5m")
+            return (False, None, "msg.riichi_need_tile")
         test = list(player.hand)
         dt = player.drawn_tile
         if t == dt:
@@ -256,7 +256,7 @@ def _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts):
         elif t in test:
             test.remove(t)
         if not is_tenpai(test + ([dt] if dt else [])):
-            return (False, None, "打出該牌後未聽牌，不能立直")
+            return (False, None, "msg.riichi_not_tenpai")
         return (True, ("riichi", t), "")
     if s.startswith(("暗槓", "暗槓")) or low.startswith("ankan"):
         rest = s
@@ -266,11 +266,11 @@ def _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts):
         t = parse_tile(rest, player.hand, player.drawn_tile) if rest else (ankan_opts[0] if ankan_opts else None)
         if t and any(o.suit == t.suit and o.value == t.value for o in ankan_opts):
             return (True, ("ankan", t), "")
-        return (False, None, "無法暗槓該牌")
+        return (False, None, "msg.cant_ankan")
     t = parse_tile(s, player.hand, player.drawn_tile)
     if t:
         return (True, ("discard", t), "")
-    return (False, None, f"看不懂「{raw}」，請打出要丟的牌（如 5m、東、中）")
+    return (False, None, "msg.unknown_input")
 
 
 async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
@@ -322,7 +322,8 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
             b = discord.ui.Button(label=label, style=style)
             async def cb(inter):
                 if str(inter.user.id) != uid:
-                    await inter.response.send_message("❌ 不是你的回應", ephemeral=True)
+                    await inter.response.send_message(
+                        i18n.t("msg.not_your_reaction", i18n.get_user_lang(inter.user.id)), ephemeral=True)
                     return
                 await inter.response.defer()
                 if not fut.done():
@@ -437,7 +438,8 @@ async def collect_chankan_t(gs, gid, kan_tile, kan_seat, thinking_time,
             b = discord.ui.Button(label=label, style=style)
             async def cb(inter):
                 if str(inter.user.id) != uid:
-                    await inter.response.send_message("❌ 不是你的回應", ephemeral=True)
+                    await inter.response.send_message(
+                        i18n.t("msg.not_your_reaction", i18n.get_user_lang(inter.user.id)), ephemeral=True)
                     return
                 await inter.response.defer()
                 if not fut.done():
@@ -548,7 +550,8 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
         b = discord.ui.Button(label=label, style=style)
         async def cb(inter):
             if str(inter.user.id) != uid:
-                await inter.response.send_message("❌ 不是你的回合", ephemeral=True)
+                await inter.response.send_message(
+                    i18n.t("msg.not_your_turn", i18n.get_user_lang(inter.user.id)), ephemeral=True)
                 return
             await inter.response.defer()
             if kind == "riichi":
@@ -597,12 +600,12 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
             except Exception:
                 pass
             if riichi_locked:
-                await _warn(pt, "立直中只能摸切（可按「自摸」），無法換牌或副露")
+                await _warn(pt, i18n.t("msg.riichi_locked_warn", lang))
                 continue
             if state["riichi"]:
                 t = parse_tile(raw, player.hand, player.drawn_tile)
                 if not t:
-                    await _warn(pt, f"看不懂「{raw}」")
+                    await _warn(pt, i18n.t("msg.unknown_short", lang, raw=raw))
                     continue
                 test = list(player.hand)
                 dt = player.drawn_tile
@@ -614,14 +617,14 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
                     if not fut.done():
                         fut.set_result(("riichi", t))
                     return
-                await _warn(pt, "打出該牌後未聽牌，不能立直")
+                await _warn(pt, i18n.t("msg.riichi_not_tenpai", lang))
             else:
                 ok, val, err = _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts)
                 if ok:
                     if not fut.done():
                         fut.set_result(val)
                     return
-                await _warn(pt, err)
+                await _warn(pt, i18n.t(err, lang, raw=raw))
 
     cd = asyncio.create_task(countdown())
     rd = asyncio.create_task(reader())
