@@ -150,32 +150,24 @@ class DiscardView(View):
 
 class RoomSettingsModal(Modal):
     """房間設定對話框：思考秒數 + 起始點數"""
-    title = "⚙️ 數值設定"
-
-    thinking_time = TextInput(
-        label="思考秒數 (5-300)",
-        placeholder="25",
-        min_length=1,
-        max_length=3,
-    )
-    start_points = TextInput(
-        label="起始點數 (0~1000000，留空=預設)",
-        placeholder="四麻預設 25000、三麻預設 35000",
-        required=False,
-        max_length=7,
-    )
 
     def __init__(self, config: dict = None, lang: str = i18n.DEFAULT, **kwargs):
         super().__init__(title=i18n.t("settings.numbers_title", lang), **kwargs)
         self.config = config or {}
         self.lang = lang
         self.success = False
-        try:   # 依語言設定欄位標籤
-            self.thinking_time.label = i18n.t("settings.thinking_label", lang)
-            self.start_points.label = i18n.t("settings.points_label", lang)
-            self.start_points.placeholder = i18n.t("settings.points_ph", lang)
-        except Exception:
-            pass
+        # 在 __init__ 直接用翻譯好的標籤建立欄位（避免事後設定 .label 觸發棄用警告）
+        self.thinking_time = TextInput(
+            label=i18n.t("settings.thinking_label", lang),
+            placeholder="25", min_length=1, max_length=3,
+        )
+        self.start_points = TextInput(
+            label=i18n.t("settings.points_label", lang),
+            placeholder=i18n.t("settings.points_ph", lang),
+            required=False, max_length=7,
+        )
+        self.add_item(self.thinking_time)
+        self.add_item(self.start_points)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         """提交時的回調"""
