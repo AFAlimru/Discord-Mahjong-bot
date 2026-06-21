@@ -21,6 +21,7 @@ from .engine import (
 )
 from .scoring import score_hand, WinContext
 from .state import _room_configs
+from . import i18n
 
 # ═══════════════════════════════════════════════════════════════
 #  Tile helpers
@@ -270,8 +271,9 @@ def _wait_flags(gs: GameState, player: PlayerState, discard: Tile, waits: list) 
     return no_yaku, furiten, ron_no_yaku
 
 
-def tenpai_note_text(gs: GameState, player: PlayerState, adv: list) -> str:
-    """組出「💡 可進聽」提示，並對每個打法標註（無役）／（振聽）。"""
+def tenpai_note_text(gs: GameState, player: PlayerState, adv: list,
+                     lang: str = i18n.DEFAULT) -> str:
+    """組出「💡 可進聽」提示（依語言），並對每個打法標註（無役）／（振聽）。"""
     # 門清且未立直時，才需要提醒「未立直不能榮和」（立直即可解）
     menzen_no_riichi = is_menzen(player) and not player.riichi
     lines = []
@@ -284,21 +286,22 @@ def tenpai_note_text(gs: GameState, player: PlayerState, adv: list) -> str:
         any_ron_only |= ron_only
         tags = []
         if no_yaku:
-            tags.append("無役")
+            tags.append(i18n.t("term.no_yaku", lang))
         if ron_only:
-            tags.append("榮和無役")
+            tags.append(i18n.t("term.ron_no_yaku", lang))
         if furiten:
-            tags.append("振聽")
+            tags.append(i18n.t("term.furiten", lang))
         suffix = f"　（{'・'.join(tags)}）" if tags else ""
-        lines.append(f"# 打 {d} → 聽 {' '.join(str(w) for w in waits)}{suffix}")
-    note = "💡 **可進聽**：\n" + "\n".join(lines)
+        lines.append(i18n.t("tenpai.line", lang, d=d,
+                            waits=' '.join(str(w) for w in waits)) + suffix)
+    note = i18n.t("tenpai.advice_title", lang) + "\n" + "\n".join(lines)
     extra = []
     if any_no_yaku:
-        extra.append("「無役」湊不出役、不可和")
+        extra.append(i18n.t("tenpai.expl_no_yaku", lang))
     if any_ron_only:
-        extra.append("「榮和無役」未立直不能榮和，需**立直**或自摸")
+        extra.append(i18n.t("tenpai.expl_ron_only", lang))
     if any_furiten:
-        extra.append("「振聽」只能自摸、不能榮和")
+        extra.append(i18n.t("tenpai.expl_furiten", lang))
     if extra:
         note += "\n（" + "；".join(extra) + "）"
     return note

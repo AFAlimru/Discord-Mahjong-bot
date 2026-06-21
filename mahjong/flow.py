@@ -31,7 +31,7 @@ from .rules import (
 )
 from .render import (
     make_thread_board, make_hand_panel, _board_info, _action_feed,
-    _log_action, result_body, dora_reveal_text, river_panel,
+    _log_action, result_body, dora_reveal_text, river_panel, feed_text,
 )
 from .ui import (
     HandHelpButton, RiverButton, ScoreButton, MeldButton, ActionLogButton,
@@ -666,14 +666,15 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 except Exception:
                     pass
 
-    async def render_board(status="", log=True):
-        if log:
-            _log_action(gid, status)   # 真人對局沒有牌桌，動作改記在私人面板上方
-            await refresh_feeds()      # 每筆動作即時更新所有玩家面板的動態
+    async def render_board(key="", log=True, **kw):
+        if log and key:
+            _log_action(gid, key, **kw)   # 真人對局沒有牌桌，動作改記在私人面板上方
+            await refresh_feeds()         # 每筆動作即時更新所有玩家面板的動態
         if board_msg is None:   # 真人對局沒有公開牌桌（資訊改用按鈕看）
             return
+        status = feed_text(key, i18n.DEFAULT, **kw) if key else ""
         try:
-            await board_msg.edit(content=make_thread_board(gs, status))
+            await board_msg.edit(content=make_thread_board(gs, status, i18n.DEFAULT))
         except Exception:
             pass
 
@@ -729,7 +730,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             ) if player.drawn_tile else None
             if res:
                 hs = format_winning_hand(player, player.drawn_tile)
-                await render_board(f"🎉 🤖 {player.username} 自摸！")
+                await render_board("feed.tsumo", name=f"🤖 {player.username}")
                 return ("tsumo", player.seat, res, hs)
             if gs.is_sanma and has_kita(player):
                 if player.drawn_tile is not None:
@@ -738,7 +739,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     if t.suit == Suit.WIND and t.value == 4:
                         player.hand.pop(i); break
                 player.kita += 1
-                await render_board(f"🤖 {player.username} 拔北 ×{player.kita}")
+                await render_board("feed.kita", name=f"🤖 {player.username}", n=player.kita)
                 await asyncio.sleep(0.6)
                 continue
             drawn = player.drawn_tile
@@ -749,9 +750,10 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 return ("draw", [p.seat for p in gs.players if hand_waits(p)])
             player.hand.remove(discard_tile)
             player.discards.append(discard_tile)
-            giri = "摸切" if (drawn is not None and discard_tile == drawn) else "手切"
+            giri = "action.tsumogiri" if (drawn is not None and discard_tile == drawn) else "action.tegiri"
             nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)])
-            await render_board(f"🤖 {player.username} 出牌「{discard_tile}」（{giri}），輪到 {nxt}")
+            await render_board("feed.discard", name=f"🤖 {player.username}",
+                               word="feed.word_discard", tile=discard_tile, giri=giri, nxt=nxt)
             await asyncio.sleep(1.0)
 
         # ── Human（打字）────────────────────────────────────
@@ -778,11 +780,12 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 kakan_opts = get_shouminkan_options(player)   # 加槓：已碰且持有第 4 張
                 kita_ok    = gs.is_sanma and has_kita(player)
                 # 進聽提示：打哪張可聽、聽哪些；並標註（無役）／（振聽）
-                tenpai_note = tenpai_note_text(gs, player, adv) if adv else ""
+                tenpai_note = tenpai_note_text(gs, player, adv, lang_p) if adv else ""
                 prompt_base = i18n.t("prompt.discard", lang_p)
                 turn_time   = thinking_time
 
-            await render_board(f"輪到 <@{player.user_id}>（{WIND_LABELS[player.seat]}）出牌", log=False)
+            await render_board("feed.your_turn", log=False,
+                               mention=f"<@{player.user_id}>", wind=f"wind.{player.seat}")
 
             pt = private.get(player.user_id)
             hm = hand_msg.get(player.user_id)
@@ -822,7 +825,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 )
                 if res:
                     hs = format_winning_hand(player, player.drawn_tile)
-                    await render_board(f"🎉 {player.username} 自摸！")
+                    await render_board("feed.tsumo", name=player.username)
                     return ("tsumo", player.seat, res, hs)
                 action = "discard"  # 萬一無效退回出牌
 
@@ -835,7 +838,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                         player.hand.pop(i); break
                 player.kita += 1
                 await render_hand(player)
-                await render_board(f"{player.username} 拔北 ×{player.kita}")
+                await render_board("feed.kita", name=player.username, n=player.kita)
                 continue
 
             # ── 暗槓 ──
@@ -852,13 +855,13 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     ippatsu[s] = False
                 rinshan_next = True
                 await render_hand(player)
-                await render_board(f"{player.username} 暗槓 {kan_tile}")
+                await render_board("feed.ankan", name=player.username, tile=kan_tile)
                 continue
 
             # ── 加槓（小明槓）+ 搶槓 ──
             if action == "kakan" and arg is not None:
                 kan_tile = arg
-                await render_board(f"{player.username} 宣告加槓 {kan_tile}…（搶槓確認中）")
+                await render_board("feed.kakan_declare", name=player.username, tile=kan_tile)
                 robber = await collect_chankan_t(
                     gs, gid, kan_tile, player.seat, min(thinking_time, 12),
                     furiten_perm, temp_furiten,
@@ -871,7 +874,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     )
                     if res:
                         hs = format_winning_hand(rp, kan_tile)
-                        await render_board(f"🎉 {rp.username} 搶槓！榮和 {player.username} 加槓的 {kan_tile}")
+                        await render_board("feed.chankan", name=rp.username,
+                                           loser=player.username, tile=kan_tile)
                         return ("ron", rp.seat, player.seat, res, hs)
                 # 放過搶槓 → 同巡振聽（立直者永久）
                 _wk = (int(kan_tile.suit), kan_tile.value)
@@ -898,7 +902,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     ippatsu[s] = False
                 rinshan_next = True
                 await render_hand(player)
-                await render_board(f"{player.username} 加槓 {kan_tile}！摸嶺上牌。")
+                await render_board("feed.kakan", name=player.username, tile=kan_tile)
                 continue
 
             # ── 出牌 / 立直 ──
@@ -907,7 +911,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             else:
                 discard_tile = arg
             drawn = player.drawn_tile
-            giri = "摸切" if (drawn is not None and discard_tile == drawn) else "手切"
+            giri = "action.tsumogiri" if (drawn is not None and discard_tile == drawn) else "action.tegiri"
 
             if action == "riichi" and not player.riichi:
                 player.riichi = True
@@ -915,11 +919,11 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 player.score -= 1000
                 double_rii[player.seat] = (not any_call) and (len(player.discards) == 0)
                 ippatsu[player.seat] = True
-                word = "宣告立直！"
+                word = "feed.word_riichi"
             elif timed:
-                word = "超時自動打出"
+                word = "feed.word_timeout"
             else:
-                word = "出牌了"
+                word = "feed.word_discard"
 
             if player.drawn_tile is not None:
                 player.hand.append(player.drawn_tile); player.drawn_tile = None
@@ -934,14 +938,17 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 ws = hand_waits(player)   # 含副露的聽牌判定
                 if ws:
                     wtiles = [Tile(Suit(s), v) for s, v in sorted(ws)]
-                    post_note = f"🀄 **聽牌！** 待牌：{' '.join(str(t) for t in wtiles)}"
+                    waits = ' '.join(str(t) for t in wtiles)
+                    post_note = i18n.t("feed.tenpai_note", lang_p, waits=waits)
             await render_hand(player, "", post_note)
 
             nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)])
             if already_riichi:
-                await render_board(f"{player.username} 立直摸切「{discard_tile}」，輪到 {nxt}")
+                await render_board("feed.riichi_tsumogiri", name=player.username,
+                                   tile=discard_tile, nxt=nxt)
             else:
-                await render_board(f"{player.username} {word}「{discard_tile}」（{giri}），輪到 {nxt}")
+                await render_board("feed.discard", name=player.username, word=word,
+                                   tile=discard_tile, giri=giri, nxt=nxt)
 
         gs.pending_discard   = discard_tile
         gs.pending_from_seat = player.seat
@@ -965,9 +972,9 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                                    is_ippatsu=ippatsu[rp.seat], is_double_riichi=double_rii[rp.seat])
                 if res:
                     hs = format_winning_hand(rp, discard_tile)
-                    await render_board(f"🎉 {rp.username} 榮和 {from_name} 的 {discard_tile}！")
+                    await render_board("feed.ron", name=rp.username, loser=from_name, tile=discard_tile)
                     return ("ron", rp.seat, player.seat, res, hs)
-                await render_board(f"❌ {rp.username} 榮和無效")
+                await render_board("feed.ron_invalid", name=rp.username)
             elif rtype == "pon" and rp:
                 removed, new_hand = 0, []
                 for t in rp.hand:
@@ -986,7 +993,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 for s in ippatsu:
                     ippatsu[s] = False
                 await render_hand(rp)
-                await render_board(f"{rp.username} 碰了 {from_name} 的 {discard_tile}！請出牌。")
+                await render_board("feed.pon", name=rp.username, loser=from_name, tile=discard_tile)
                 continue
             elif rtype == "chi" and rp and extra:
                 t1, t2 = extra
@@ -1002,7 +1009,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 for s in ippatsu:
                     ippatsu[s] = False
                 await render_hand(rp)
-                await render_board(f"{rp.username} 吃了 {from_name} 的 {discard_tile}！請出牌。")
+                await render_board("feed.chi", name=rp.username, loser=from_name, tile=discard_tile)
                 continue
             elif rtype == "kan" and rp:
                 removed, new_hand = 0, []
@@ -1023,7 +1030,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     ippatsu[s] = False
                 rinshan_next = True
                 await render_hand(rp)
-                await render_board(f"{rp.username} 槓了 {from_name} 的 {discard_tile}！摸嶺上牌。")
+                await render_board("feed.kan", name=rp.username, loser=from_name, tile=discard_tile)
                 continue
 
         gs.current_seat = (gs.current_seat + 1) % len(gs.players)

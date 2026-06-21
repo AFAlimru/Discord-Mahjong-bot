@@ -126,35 +126,45 @@ def _last_discard_info(gs: GameState, lang: str = DEFAULT) -> str:
     return ""
 
 
-def _log_action(gid: str, text: str) -> None:
-    """記錄一筆玩家動作（保留本局最近 40 筆，供「看動態」按鈕顯示完整記錄）。"""
-    if not text:
+_FEED_TRANS_PREFIX = ("action.", "feed.", "wind.", "term.")
+
+
+def _log_action(gid: str, key: str, **kw) -> None:
+    """記錄一筆玩家動作為「翻譯鍵 + 參數」（保留本局最近 40 筆，供逐人語言渲染）。"""
+    if not key:
         return
     log = _action_logs.setdefault(gid, [])
-    log.append(text)
+    log.append((key, kw))
     del log[:-40]
 
 
+def feed_text(key: str, lang: str = DEFAULT, **kw) -> str:
+    """把一筆動態（key + 參數）依語言組成文字；參數值若本身是翻譯鍵也一併翻譯。"""
+    kw2 = {f: (t(v, lang) if isinstance(v, str) and v.startswith(_FEED_TRANS_PREFIX) else v)
+           for f, v in kw.items()}
+    return t(key, lang, **kw2)
+
+
 def _action_feed(gid: str, gs: GameState, lang: str = DEFAULT) -> str:
-    """私人面板上方的動態：上家剛打出的牌（放大）+ 最新一筆動作。
-    完整動態請按「📜 看動態」按鈕。"""
+    """私人面板上方的動態：上家剛打出的牌（放大）+ 最新一筆動作（依玩家語言）。"""
     parts = []
     ld = _last_discard_info(gs, lang)
     if ld:
         parts.append(ld)
     log = _action_logs.get(gid, [])
     if log:
-        parts.append(f"📜 {log[-1]}")
+        key, kw = log[-1]
+        parts.append(f"📜 {feed_text(key, lang, **kw)}")
     return "\n\n".join(parts)
 
 
 def make_action_log_text(gid: str, lang: str = DEFAULT) -> str:
-    """完整動態（給「看動態」按鈕的私密訊息用）。"""
+    """完整動態（給「看動態」按鈕的私密訊息用，依語言）。"""
     title = t("actionlog.title", lang)
     log = _action_logs.get(gid, [])
     if not log:
         return f"{title}\n{t('actionlog.empty', lang)}"
-    return f"{title}\n" + "\n".join(f"> {line}" for line in log)
+    return f"{title}\n" + "\n".join(f"> {feed_text(k, lang, **kw)}" for k, kw in log)
 
 
 def _board_info(gs: GameState, lang: str = DEFAULT) -> str:
