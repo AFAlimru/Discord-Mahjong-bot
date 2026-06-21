@@ -200,9 +200,21 @@ def is_game_over(gs: GameState, length: str = "tonpuu", tobi: bool = True) -> bo
 
 # ─── 金流：賽末順位與馬點積分 ─────────────────────────────────────────────────
 
-# 順位馬（10-20，天鳳式；千點單位）。三麻把二、三位合併為中間 0。
-UMA_YONMA = (20, 10, -10, -20)
-UMA_SANMA = (20, 0, -20)
+# 順位馬（千點單位）。三麻把二、三位合併為中間 0。
+UMA_YONMA         = (20, 10, -10, -20)   # 預設／半莊
+UMA_YONMA_TONPUU  = (10, 5, -5, -10)     # 天鳳式四麻東風戰
+UMA_SANMA         = (20, 0, -20)         # 三麻（天鳳東風/半莊相同）
+
+
+def _pick_uma(is_sanma: bool, length: str, ruleset: str) -> tuple:
+    """依模式/戰長/規則選順位馬。
+    天鳳式：四麻東風 10-5、四麻半莊 20-10、三麻 20-0-20。
+    預設(mixed)：四麻一律 20-10（沿用舊行為）。"""
+    if is_sanma:
+        return UMA_SANMA
+    if ruleset == "tenhou" and length == "tonpuu":
+        return UMA_YONMA_TONPUU
+    return UMA_YONMA
 
 
 @dataclass
@@ -218,19 +230,21 @@ class FinalRow:
 
 def final_standings(gs: GameState, uma: tuple = None,
                     start_points: int = None,
-                    return_points: int = None) -> list[FinalRow]:
+                    return_points: int = None,
+                    length: str = "hanchan", ruleset: str = "mixed") -> list[FinalRow]:
     """
     依精算規則計算賽末積分：
         精算 =（結算點數 − 返點）÷ 1000 ＋ 順位馬
         一位 = 其餘各家精算之和取相反數（自動吸收頭名賞 オカ 與小數進位差）
 
     原點/返點預設：四麻 25000/30000、三麻 35000/40000。
+    順位馬依 length/ruleset 選擇（天鳳式四麻東風 10-5、半莊 20-10）。
     頭名賞 =（返點 − 原點）÷1000 × 人數，全數歸於一位。
     """
     n = len(gs.players)
     is_sanma = (n == 3)
     if uma is None:
-        uma = UMA_SANMA if is_sanma else UMA_YONMA
+        uma = _pick_uma(is_sanma, length, ruleset)
     if start_points is None:
         # 預設起始點數：四麻 25000、三麻 35000
         start_points = 35000 if is_sanma else 25000

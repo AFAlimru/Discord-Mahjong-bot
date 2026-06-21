@@ -1211,7 +1211,9 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             await asyncio.sleep(1)
 
         gs = _games[gid]
-        rows = st.final_standings(gs, start_points=config.get("start_points"))
+        rows = st.final_standings(gs, start_points=config.get("start_points"),
+                                  length=config.get("length", "hanchan"),
+                                  ruleset=config.get("ruleset", "mixed"))
         # 最終順位：公開串用母本、各私人手牌串用該玩家語言（確保自己討論串也看得到）
         for tch, lg in _thread_langs(public, th.get("private", {})):
             if tch is None:
@@ -1565,7 +1567,9 @@ async def finalize_interrupted(gid: str, channel: discord.TextChannel) -> None:
         config = json.loads(g.get("room_config") or "{}")
     except Exception:
         pass
-    rows = st.final_standings(gs, start_points=config.get("start_points"))
+    rows = st.final_standings(gs, start_points=config.get("start_points"),
+                              length=config.get("length", "hanchan"),
+                              ruleset=config.get("ruleset", "mixed"))
     medals = ["🥇", "🥈", "🥉", "4️⃣"]
     lines = ["# 🏁 最終順位（對局中斷結算）", ""]
     for r in rows:
