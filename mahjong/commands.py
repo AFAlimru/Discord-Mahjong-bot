@@ -100,7 +100,7 @@ class LobbyView(discord.ui.View):
         _waiting[gid].append({"user_id": ai_uid, "username": ai_name, "is_bot": True})
         await self._update(interaction)
 
-    @discord.ui.button(label="🌐 翻譯 / 翻訳", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="🌐 翻譯 / 翻訳 / Translate", style=discord.ButtonStyle.secondary)
     async def translate_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         lang = i18n.get_user_lang(interaction.user.id)
         await interaction.response.send_message(self._content(lang), ephemeral=True)

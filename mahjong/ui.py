@@ -79,7 +79,7 @@ def ActionLogButton(gid: str, lang: str = i18n.DEFAULT):
 class TranslateBoardButton(discord.ui.Button):
     """🌐 翻譯：用點擊者的語言、僅自己可見地顯示目前牌桌。"""
     def __init__(self, gid: str):
-        super().__init__(label="🌐 翻譯 / 翻訳", style=discord.ButtonStyle.secondary)
+        super().__init__(label="🌐 翻譯 / 翻訳 / Translate", style=discord.ButtonStyle.secondary)
         self.gid = gid
 
     async def callback(self, interaction: discord.Interaction):
