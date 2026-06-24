@@ -81,6 +81,21 @@
   "status.no_game": "❌ このチャンネルに進行中の対局はありません。",
   "status.waiting": "🕐 プレイヤー待ち…（{cur}/{max}）",
 
+  "stats.title": "📊 {name} の成績",
+  "stats.games": "対局数",
+  "stats.avg_rank": "平均順位",
+  "stats.ranks": "順位",
+  "stats.tsumo": "ツモ",
+  "stats.ron": "ロン",
+  "stats.houju": "放銃",
+  "stats.riichi": "リーチ",
+  "stats.gain": "獲得",
+  "stats.lost": "放銃失点",
+
+  "action.kyuushu": "🀫 流局（九種九牌）",
+  "feed.kyuushu": "🀫 {name} が九種九牌で流局を宣言",
+  "result.kyuushu": "🀄 流局（九種九牌）",
+
   "msg.not_your_turn": "❌ あなたの番ではありません",
   "msg.not_your_reaction": "❌ あなたの反応ではありません",
   "msg.game_ended": "❌ 対局は終了しました。",

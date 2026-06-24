@@ -256,11 +256,14 @@ def make_river_text(gs: GameState, lang: str = DEFAULT) -> str:
 
 
 def result_body(header: str, hand_str: str, result, log, gs: GameState,
-                tenpai=None, lang: str = DEFAULT) -> str:
+                tenpai=None, lang: str = DEFAULT, draw_key: str = "result.draw_title") -> str:
     """一局結果的靜態文字（送到聊天串與各私人討論串）。"""
     if result is None:
+        title = t(draw_key, lang)
+        if tenpai is None:   # 途中流局（如九種九牌）：無聽牌罰符、無點數移動
+            return f"# {title}"
         tnames = "、".join(gs.players[s].username for s in (tenpai or [])) or t("result.nobody", lang)
-        return (f"# {t('result.draw_title', lang)}\n"
+        return (f"# {title}\n"
                 f"{t('result.tenpai_list', lang, names=tnames)}\n\n{log.describe(gs)}")
     top = f"# 🎉 {header}\n## {hand_str}"
     if result.yakuman:

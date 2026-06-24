@@ -349,18 +349,34 @@ async def cmd_watch(interaction: discord.Interaction, half: bool = False, sanma:
 
 @mahjong.command(name="stats", description="查看個人統計")
 async def cmd_stats(interaction: discord.Interaction) -> None:
-    uid   = str(interaction.user.id)
-    stats = db.get_stats(uid)
-    if not stats:
-        await interaction.response.send_message(i18n.t("msg.no_stats", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+    uid  = str(interaction.user.id)
+    lang = i18n.get_user_lang(uid)
+    y = db.get_mode_summary(uid, "yonma")
+    s = db.get_mode_summary(uid, "sanma")
+    if not y and not s:
+        await interaction.response.send_message(i18n.t("msg.no_stats", lang), ephemeral=True)
         return
-    embed = discord.Embed(title=f"📊 {interaction.user.display_name} 的統計", color=0x3498DB)
-    embed.add_field(name="遊玩場次", value=str(stats["games_played"]))
-    embed.add_field(name="勝場",     value=str(stats["wins"]))
-    embed.add_field(name="自摸",     value=str(stats["tsumo_wins"]))
-    embed.add_field(name="榮和",     value=str(stats["ron_wins"]))
-    embed.add_field(name="立直次數", value=str(stats["riichi_count"]))
-    embed.add_field(name="累積得分", value=str(stats["total_score"]))
+
+    def _signed(n):
+        n = n or 0
+        return f"+{n}" if n >= 0 else str(n)
+
+    embed = discord.Embed(
+        title=i18n.t("stats.title", lang, name=interaction.user.display_name), color=0x3498DB)
+    for mode, summ in (("yonma", y), ("sanma", s)):
+        if not summ:
+            continue
+        is4   = (mode == "yonma")
+        ranks = [summ["r1"] or 0, summ["r2"] or 0, summ["r3"] or 0] + ([summ["r4"] or 0] if is4 else [])
+        L     = lambda k: i18n.t(k, lang)
+        value = "\n".join([
+            f"{L('stats.games')} {summ['games']} ・ {L('stats.avg_rank')} {(summ['avg_rank'] or 0):.2f}",
+            f"{L('stats.ranks')} {'/'.join(str(x) for x in ranks)}",
+            f"{L('stats.tsumo')} {summ['tsumo'] or 0} ・ {L('stats.ron')} {summ['ron'] or 0} ・ {L('stats.houju')} {summ['houju'] or 0}",
+            f"{L('stats.riichi')} {summ['riichi'] or 0} ・ {L('stats.gain')} {_signed(summ['gain_points'])} ・ {L('stats.lost')} {summ['houju_points'] or 0}",
+        ])
+        embed.add_field(name=i18n.t("mode.yonma" if is4 else "mode.sanma", lang),
+                        value=value, inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

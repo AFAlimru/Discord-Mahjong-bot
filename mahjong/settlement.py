@@ -164,6 +164,12 @@ def advance_after_draw(gs: GameState, tenpai_seats: list[int]) -> None:
     _reset_hand_flags(gs)
 
 
+def advance_abortive(gs: GameState) -> None:
+    """途中流局（九種九牌等）：莊家連莊、本場 +1，不移動點數、不輪莊。"""
+    gs.honba += 1
+    _reset_hand_flags(gs)
+
+
 def _rotate_dealer(gs: GameState) -> None:
     """莊家順移到下一位；繞一圈則場風推進（東→南→西→北）。"""
     n = len(gs.players)

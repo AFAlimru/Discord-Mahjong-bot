@@ -247,6 +247,15 @@ def can_declare_riichi(player: PlayerState) -> bool:
     return (not player.riichi) and is_menzen(player) and bool(tenpai_advice(player))
 
 
+def is_kyuushu_kyuuhai(tiles: list) -> bool:
+    """九種九牌：手中（14 張）含 9 種以上不同的么九牌（1/9 數牌 + 字牌）。"""
+    yaochuu = set()
+    for t in tiles:
+        if t.suit in (Suit.WIND, Suit.DRAGON) or t.value in (1, 9):
+            yaochuu.add((int(t.suit), t.value))
+    return len(yaochuu) >= 9
+
+
 def _wait_flags(gs: GameState, player: PlayerState, discard: Tile, waits: list) -> tuple:
     """某個進聽打法的提醒標記，回傳 (無役, 振聽, 榮和無役)。
     振聽：待牌曾在自己牌河（含正要打出的這張）。

@@ -81,6 +81,21 @@
   "status.no_game": "❌ No game in progress in this channel.",
   "status.waiting": "🕐 Waiting for players… ({cur}/{max})",
 
+  "stats.title": "📊 {name}'s Stats",
+  "stats.games": "Games",
+  "stats.avg_rank": "Avg rank",
+  "stats.ranks": "Ranks",
+  "stats.tsumo": "Tsumo",
+  "stats.ron": "Ron",
+  "stats.houju": "Deal-in",
+  "stats.riichi": "Riichi",
+  "stats.gain": "Gained",
+  "stats.lost": "Lost",
+
+  "action.kyuushu": "🀫 Abort (Nine Terminals)",
+  "feed.kyuushu": "🀫 {name} declared Nine Terminals abort",
+  "result.kyuushu": "🀄 Abortive Draw (Nine Terminals)",
+
   "msg.not_your_turn": "❌ Not your turn",
   "msg.not_your_reaction": "❌ Not your reaction",
   "msg.game_ended": "❌ The game has ended.",

@@ -27,7 +27,7 @@ from .rules import (
     count_tiles, get_chi_options, get_ankan_options, has_kita,
     get_shouminkan_options, parse_tile, ai_choose_discard, ai_should_pon,
     evaluate_win, hand_waits, tenpai_advice, tenpai_note_text,
-    is_furiten, ai_should_ron, is_menzen,
+    is_furiten, ai_should_ron, is_menzen, is_kyuushu_kyuuhai,
 )
 from .render import (
     make_thread_board, make_hand_panel, _board_info, _action_feed,
@@ -513,7 +513,7 @@ async def _ping_turn(thread, uid: str) -> None:
 async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
                            can_tsumo, can_riichi, kita_ok, ankan_opts,
                            prompt_base, tenpai_note, last_info="", board_info="",
-                           riichi_locked=False, kakan_opts=None):
+                           riichi_locked=False, kakan_opts=None, kyuushu_ok=False):
     """輪到玩家：自摸/立直/暗槓/拔北用按鈕，出牌用打字。回傳 (action, arg) 或 None（逾時）。
     riichi_locked=True（已立直）：鎖手，打字無效，只能按自摸或逾時自動摸切。"""
     uid   = player.user_id
@@ -575,6 +575,8 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
         add_btn(i18n.t("action.kakan", lang), discord.ButtonStyle.secondary, ("kakan", kakan_opts[0]))
     if can_riichi:
         add_btn(i18n.t("action.riichi", lang), discord.ButtonStyle.secondary, "riichi")
+    if kyuushu_ok:
+        add_btn(i18n.t("action.kyuushu", lang), discord.ButtonStyle.secondary, ("kyuushu", None))
     if can_tsumo:
         add_btn(i18n.t("action.tsumo", lang), discord.ButtonStyle.danger, ("tsumo", None))   # 紅
 
@@ -770,6 +772,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             can_tsumo  = bool(player.drawn_tile) and evaluate_win(
                 gs, player, player.drawn_tile, is_tsumo=True, is_rinshan=is_rinshan_draw) is not None
 
+            kyuushu_ok = False
             if already_riichi:
                 # 立直後：鎖手，只能摸切或自摸，不可立直／暗槓／加槓／拔北
                 adv = []
@@ -786,6 +789,10 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 ankan_opts = get_ankan_options(player.hand + ([player.drawn_tile] if player.drawn_tile else []))
                 kakan_opts = get_shouminkan_options(player)   # 加槓：已碰且持有第 4 張
                 kita_ok    = gs.is_sanma and has_kita(player)
+                # 九種九牌：第一巡（未出牌、無人鳴牌）且 14 張含 9 種以上么九 → 可宣告途中流局
+                kyuushu_ok = (len(player.discards) == 0 and not any_call
+                              and player.drawn_tile is not None
+                              and is_kyuushu_kyuuhai(player.hand + [player.drawn_tile]))
                 # 進聽提示：打哪張可聽、聽哪些；並標註（無役）／（振聽）
                 tenpai_note = tenpai_note_text(gs, player, adv, lang_p) if adv else ""
                 prompt_base = i18n.t("prompt.discard", lang_p)
@@ -810,7 +817,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     gid, player, pt, hm, turn_time,
                     can_tsumo, can_riichi, kita_ok, ankan_opts,
                     prompt_base, tenpai_note, _action_feed(gid, gs), _board_info(gs),
-                    riichi_locked=already_riichi, kakan_opts=kakan_opts,
+                    riichi_locked=already_riichi, kakan_opts=kakan_opts, kyuushu_ok=kyuushu_ok,
                 )
             else:
                 await render_hand(player, prompt_base, tenpai_note)
@@ -822,6 +829,11 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
 
             timed = result is None
             action, arg = ("discard", None) if timed else result
+
+            # ── 九種九牌（途中流局）──
+            if action == "kyuushu":
+                await render_board("feed.kyuushu", name=player.username)
+                return ("kyuushu",)
 
             # ── Tsumo ──
             if action == "tsumo":
@@ -1071,6 +1083,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             tenpai = None
             header_key, header_kw = "", {}
             hand_str = ""
+            draw_key = "result.draw_title"
 
             if outcome[0] == "tsumo":
                 _, wseat, result, hand_str = outcome
@@ -1101,6 +1114,12 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 for s in nagashi_seats:
                     tsumo_ct[gs.players[s].user_id] += 1
                 st.advance_after_draw(gs, tenpai)
+            elif outcome[0] == "kyuushu":
+                # 九種九牌（途中流局）：莊家連莊、本場 +1，無點數移動、無聽牌罰符
+                log = st.SettleLog({p.seat: 0 for p in gs.players}, note="九種九牌")
+                result = None
+                draw_key = "result.kyuushu"
+                st.advance_abortive(gs)
             else:
                 _, tenpai = outcome
                 log = st.apply_ryuukyoku(gs, tenpai)
@@ -1142,11 +1161,11 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     if not isinstance(c, Exception):
                         pairs.append(c)   # (msg, body, lang)
             else:
-                pub_text = result_body("", "", None, log, gs, tenpai, i18n.DEFAULT)
+                pub_text = result_body("", "", None, log, gs, tenpai, i18n.DEFAULT, draw_key)
                 pairs.append((await public.send(pub_text), pub_text, i18n.DEFAULT))
                 for uid, pt in private.items():
                     lg = i18n.get_user_lang(uid)
-                    txt = result_body("", "", None, log, gs, tenpai, lg)
+                    txt = result_body("", "", None, log, gs, tenpai, lg, draw_key)
                     try:
                         pairs.append((await pt.send(txt), txt, lg))
                     except Exception:
