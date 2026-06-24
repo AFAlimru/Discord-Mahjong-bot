@@ -45,7 +45,7 @@
   "term.noten": "未聽",
   "term.menzen": "門清",
   "term.no_yaku": "無役",
-  "term.ron_no_yaku": "榮和無役",
+  "term.ron_no_yaku": "無役",
 
   "label.riichi_tag": "【立直】",
   "label.riichi_done": "【已立直】",
@@ -141,7 +141,7 @@
   "tenpai.advice_title": "💡 **可進聽**：",
   "tenpai.line": "# 打 {d} → 聽 {waits}",
   "tenpai.expl_no_yaku": "「無役」湊不出役、不可和",
-  "tenpai.expl_ron_only": "「榮和無役」未立直不能榮和，需**立直**或自摸",
+  "tenpai.expl_ron_only": "「無役」未立直不能榮和，需**立直**或自摸",
   "tenpai.expl_furiten": "「振聽」只能自摸、不能榮和",
 
   "panel.your_hand": "你的手牌",
