@@ -54,6 +54,20 @@ def lang_name(code: str) -> str:
     return _cache.get(code, {}).get("_name", code)
 
 
+def translate_label(default_lang: str | None = None) -> str:
+    """🌐 翻譯按鈕文字：列出「當前顯示語言以外」的其他語言
+    （內容已是某語言時，就不需要翻成同一種）。例：預設繁中 → 「🌐 Translate / 翻訳」。"""
+    default_lang = default_lang or DEFAULT
+    _load()
+    words = []
+    for code in available():
+        if code == default_lang:
+            continue
+        w = _cache.get(code, {}).get("language.button_translate", code).replace("🌐", "").strip()
+        words.append(w)
+    return "🌐 " + " / ".join(words) if words else "🌐"
+
+
 def t(key: str, lang: str | None = None, **kw) -> str:
     """取翻譯字串；找不到鍵或語言則退回繁中母本，再退回鍵本身。支援 {name} 之類的格式化。"""
     _load()

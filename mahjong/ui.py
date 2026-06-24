@@ -77,9 +77,10 @@ def ActionLogButton(gid: str, lang: str = i18n.DEFAULT):
 
 
 class TranslateBoardButton(discord.ui.Button):
-    """🌐 翻譯：用點擊者的語言、僅自己可見地顯示目前牌桌。"""
-    def __init__(self, gid: str):
-        super().__init__(label="🌐 翻譯 / 翻訳 / Translate", style=discord.ButtonStyle.secondary)
+    """🌐 翻譯：用點擊者的語言、僅自己可見地顯示目前牌桌。
+    標籤列出「牌桌顯示語言以外」的語言。"""
+    def __init__(self, gid: str, default_lang: str = i18n.DEFAULT):
+        super().__init__(label=i18n.translate_label(default_lang), style=discord.ButtonStyle.secondary)
         self.gid = gid
 
     async def callback(self, interaction: discord.Interaction):
@@ -92,10 +93,10 @@ class TranslateBoardButton(discord.ui.Button):
         await interaction.response.send_message(make_thread_board(gs, "", lang), ephemeral=True)
 
 
-def make_board_view(gid: str) -> discord.ui.View:
+def make_board_view(gid: str, default_lang: str = i18n.DEFAULT) -> discord.ui.View:
     """公開牌桌（觀戰）按鈕：🌐 翻譯 + 公平性驗證。"""
     v = discord.ui.View(timeout=None)
-    v.add_item(TranslateBoardButton(gid))
+    v.add_item(TranslateBoardButton(gid, default_lang))
     v.add_item(FairnessButton(gid))
     return v
 

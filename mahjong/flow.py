@@ -94,13 +94,14 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
                         watch: bool = False) -> None:
     """建立公開討論串 + 每位真人玩家的私人討論串。
     watch=True（觀戰）：公開串當牌桌；否則當聊天/和牌資訊串（牌桌資訊改用按鈕看）。"""
+    rlang = _room_configs.get(gid, {}).get("lang", i18n.DEFAULT)   # 公開牌桌顯示語言
     if watch:
         public = await channel.create_thread(
             name=f"🀄 {rooms.label(gid)}　{gs.round_label}",
             type=discord.ChannelType.public_thread,
         )
-        board_msg = await public.send(make_thread_board(gs, "🀄 遊戲開始，輪到莊家。"),
-                                      view=make_board_view(gid))
+        board_msg = await public.send(make_thread_board(gs, "", rlang),
+                                      view=make_board_view(gid, rlang))
     else:
         public = await channel.create_thread(
             name=f"💬 {rooms.label(gid)}　{gs.round_label}",
@@ -677,9 +678,10 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             await refresh_feeds()         # 每筆動作即時更新所有玩家面板的動態
         if board_msg is None:   # 真人對局沒有公開牌桌（資訊改用按鈕看）
             return
-        status = feed_text(key, i18n.DEFAULT, **kw) if key else ""
+        rlang = config.get("lang", i18n.DEFAULT)   # 觀戰牌桌用房間語言
+        status = feed_text(key, rlang, **kw) if key else ""
         try:
-            await board_msg.edit(content=make_thread_board(gs, status, i18n.DEFAULT))
+            await board_msg.edit(content=make_thread_board(gs, status, rlang))
         except Exception:
             pass
 
@@ -1191,7 +1193,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             if th.get("board_msg"):
                 try:
                     await th["board_msg"].edit(
-                        content=make_thread_board(new_gs, f"🀄 {new_gs.round_label} 開始，輪到莊家。"))
+                        content=make_thread_board(new_gs, "", config.get("lang", i18n.DEFAULT)))
                 except Exception:
                     pass
             for p in new_gs.players:

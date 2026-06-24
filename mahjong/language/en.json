@@ -9,6 +9,7 @@
   "lobby.info": "Mode: {mode}　Length: {length}　Bust: {tobi}　Think: {tt}s",
   "lobby.players": "Players ({cur}/{max}):",
   "lobby.join_hint": "Click to join, or the host can add AI to fill the seats!",
+  "lobby.full": "✅ **Room full — the game is starting!**",
 
   "mode.yonma": "4-Player",
   "mode.sanma": "3-Player",

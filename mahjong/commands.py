@@ -39,6 +39,11 @@ class LobbyView(discord.ui.View):
         self.channel       = channel
         self.lobby_message: Optional[discord.Message] = None
         self._ai_count     = 0
+        self.lang          = _room_configs.get(gid, {}).get("lang", i18n.DEFAULT)
+        # 翻譯按鈕：列出「房間語言以外」的語言（動態改 decorator 按鈕的標籤）
+        for c in self.children:
+            if getattr(c, "label", None) and str(c.label).startswith("🌐"):
+                c.label = i18n.translate_label(self.lang)
         # 等待加入時也能看出牌說明
         self.add_item(HelpButton())
 
@@ -100,7 +105,7 @@ class LobbyView(discord.ui.View):
         _waiting[gid].append({"user_id": ai_uid, "username": ai_name, "is_bot": True})
         await self._update(interaction)
 
-    @discord.ui.button(label="🌐 翻譯 / 翻訳 / Translate", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="🌐", style=discord.ButtonStyle.secondary)   # 標籤於 __init__ 依房間語言設定
     async def translate_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         lang = i18n.get_user_lang(interaction.user.id)
         await interaction.response.send_message(self._content(lang), ephemeral=True)
@@ -110,12 +115,12 @@ class LobbyView(discord.ui.View):
         cfg   = _room_configs.get(gid, {})
         max_p = cfg.get("max_players", 4)
         count = len(_waiting.get(gid, []))
-        content = self._content()
+        content = self._content(self.lang)
 
         if count >= max_p:
             for child in self.children:
                 child.disabled = True
-            content += "\n\n✅ **人數已滿，遊戲即將開始！**"
+            content += "\n\n" + i18n.t("lobby.full", self.lang)
             await interaction.response.edit_message(content=content, view=self)
             self.stop()
             await launch_game(gid, self.channel)
@@ -128,11 +133,11 @@ class LobbyView(discord.ui.View):
         cfg   = _room_configs.get(gid, {})
         max_p = cfg.get("max_players", 4)
         count = len(_waiting.get(gid, []))
-        content = self._content()
+        content = self._content(self.lang)
         if count >= max_p:
             for child in self.children:
                 child.disabled = True
-            content += "\n\n✅ **人數已滿，遊戲即將開始！**"
+            content += "\n\n" + i18n.t("lobby.full", self.lang)
             if self.lobby_message:
                 try:
                     await self.lobby_message.edit(content=content, view=self)
@@ -209,22 +214,12 @@ async def cmd_start(interaction: discord.Interaction) -> None:
     _room_configs[gid]       = {
         "is_sanma": is_sanma, "thinking_time": thinking_time, "max_players": max_players,
         "length": length, "tobi": tobi, "ruleset": ruleset, "start_points": start_points,
+        "lang": i18n.get_user_lang(user_id),   # 房間顯示語言＝房主語言（公開內容/翻譯按鈕用）
     }
     rooms.register(gid, interaction.guild_id, channel_id)
 
-    mode      = "三麻" if is_sanma else "四麻"
-    len_label = "半莊戰" if length == "hanchan" else "東風戰"
-    tobi_label = "開啟" if tobi else "關閉"
-    rule_label = "天鳳式" if ruleset == "tenhou" else "預設"
     lobby = LobbyView(gid, interaction.channel)
-    msg   = await interaction.followup.send(
-        f"**🀄 {rooms.label(gid)} 開啟！**\n"
-        f"模式：{mode}　戰長：{len_label}　擊飛：{tobi_label}　規則：{rule_label}\n"
-        f"起始：{start_points} 點　思考：{thinking_time} 秒\n"
-        f"玩家（1/{max_players}）：\n• {interaction.user.display_name}\n\n"
-        f"點擊按鈕加入（或用 `/mahjong join`），或由房主加入 AI 填滿空位！",
-        view=lobby,
-    )
+    msg   = await interaction.followup.send(lobby._content(lobby.lang), view=lobby)
     lobby.lobby_message = msg
     _lobbies[gid] = lobby
 
@@ -340,6 +335,7 @@ async def cmd_watch(interaction: discord.Interaction, half: bool = False, sanma:
         "open_hand": True,   # 觀戰模式預設公開手牌
         "ruleset": "mixed",
         "start_points": 35000 if sanma else 25000,
+        "lang": i18n.get_user_lang(interaction.user.id),   # 觀戰牌桌顯示語言＝開局者語言
     }
     rooms.register(gid, interaction.guild_id, channel_id)
 

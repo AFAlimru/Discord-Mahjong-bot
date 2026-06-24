@@ -9,6 +9,7 @@
   "lobby.info": "モード：{mode}　戦長：{length}　飛び：{tobi}　思考：{tt}秒",
   "lobby.players": "プレイヤー（{cur}/{max}）：",
   "lobby.join_hint": "ボタンで参加、または房主が AI で空席を埋められます！",
+  "lobby.full": "✅ **満員！まもなく開始します！**",
 
   "mode.yonma": "四人打ち",
   "mode.sanma": "三人打ち",
