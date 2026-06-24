@@ -118,8 +118,9 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
         try:
             _rn = rooms.room_no(gid)
             _suffix = f" #{_rn:04d}" if _rn else ""
+            _lang = i18n.get_user_lang(p.user_id)
             pt = await channel.create_thread(
-                name=f"🀫 {p.username} 的手牌{_suffix}",
+                name=f"🀫 {i18n.t('thread.hand', _lang, name=p.username)}{_suffix}",
                 type=discord.ChannelType.private_thread,
                 invitable=False,
             )
@@ -128,7 +129,6 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
             except Exception:
                 pass
             private[p.user_id] = pt
-            _lang = i18n.get_user_lang(p.user_id)
             hm = await pt.send(make_hand_panel(p, i18n.t("panel.waiting_start", _lang),
                                                board_info=_board_info(gs, _lang),
                                                river_info=river_panel(gs, _lang), lang=_lang),
@@ -236,13 +236,13 @@ def _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts):
     """解析玩家輪到時打的字 → (ok, (action, arg), err)。"""
     s = raw.strip()
     low = s.lower()
-    if low in ("tsumo", "自摸", "zimo"):
+    if low in ("tsumo", "自摸", "zimo", "ツモ", "つも"):
         return (True, ("tsumo", None), "") if can_tsumo else (False, None, "msg.cant_tsumo")
-    if low in ("!n", "n!", "拔北", "kita"):
+    if low in ("!n", "n!", "拔北", "kita", "北抜き", "北抜"):
         return (True, ("kita", None), "") if kita_ok else (False, None, "msg.cant_kita")
-    if low.startswith(("riichi", "reach")) or s.startswith("立直"):
+    if low.startswith(("riichi", "reach")) or s.startswith(("立直", "リーチ")):
         rest = s
-        for kw in ("riichi", "reach", "立直", "RIICHI", "Reach"):
+        for kw in ("riichi", "reach", "立直", "リーチ", "RIICHI", "Reach"):
             rest = rest.replace(kw, "")
         rest = rest.strip()
         if not can_riichi:
@@ -503,7 +503,7 @@ async def _warn(thread, text: str) -> None:
 async def _ping_turn(thread, uid: str) -> None:
     """在玩家私人討論串 @ 一下提醒輪到他，隨即刪除（通知已送出）。"""
     try:
-        m = await thread.send(f"<@{uid}> 輪到你了！")
+        m = await thread.send(i18n.t("ping.your_turn", i18n.get_user_lang(uid), mention=f"<@{uid}>"))
         await asyncio.sleep(0.6)
         await m.delete()
     except Exception:
@@ -800,7 +800,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             # 立直後是自動摸切，不必每巡 @；只有能自摸時才提醒
             if pt and (not already_riichi or can_tsumo):
                 try:
-                    ping_msg = await pt.send(f"<@{player.user_id}> 輪到你了！")
+                    ping_msg = await pt.send(
+                        i18n.t("ping.your_turn", lang_p, mention=f"<@{player.user_id}>"))
                 except Exception:
                     pass
             result = None
