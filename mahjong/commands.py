@@ -380,6 +380,28 @@ async def cmd_stats(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+@mahjong.command(name="repair", description="掃描並修復戰績資料（限管理員）")
+async def cmd_repair(interaction: discord.Interaction) -> None:
+    perms = getattr(interaction.user, "guild_permissions", None)
+    if not (perms and perms.administrator):
+        await interaction.response.send_message("此指令僅限伺服器管理員使用。", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    try:
+        rep = db.repair_game_records()
+    except Exception as e:
+        await interaction.followup.send(f"❌ 修復失敗：{e}", ephemeral=True)
+        return
+    await interaction.followup.send(
+        "🛠️ **戰績修復完成**\n"
+        f"・掃描紀錄：{rep['scanned']} 筆（{rep['games']} 場）\n"
+        f"・去除重複：{rep['dups']} 筆\n"
+        f"・依結算牌譜重算次數：{rep['counter_fixed']} 筆\n"
+        f"・負值歸零：{rep['clamp_fixed']} 筆\n"
+        f"・無牌譜可重算的舊對局：{rep['no_log_games']} 場（立直等逐手資料無法回填）",
+        ephemeral=True)
+
+
 @mahjong.command(name="help", description="查看出牌輸入說明")
 async def cmd_help(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(

@@ -1144,15 +1144,18 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             dbl_winners = None   # 雙榮：[(seat, result, hand_str), …]，否則 None
 
             # 本局立直者：須在 advance_*（會清除 riichi 旗標）之前統計
-            for p in gs.players:
-                if p.riichi:
-                    riichi_ct[p.user_id] += 1
+            riichi_uids = [p.user_id for p in gs.players if p.riichi]
+            for uid in riichi_uids:
+                riichi_ct[uid] += 1
+            win_seats: list[int] = []   # 本局贏家座位（牌譜結算用）
+            loser_seat = None           # 本局放銃者座位
 
             if outcome[0] == "tsumo":
                 _, wseat, result, hand_str = outcome
                 log = st.apply_tsumo(gs, wseat, result)
                 header_key, header_kw = "result.tsumo", {"name": gs.players[wseat].username}
                 tsumo_ct[gs.players[wseat].user_id] += 1
+                win_seats = [wseat]
                 st.advance_after_win(gs, wseat)
             elif outcome[0] == "ron":
                 _, wseat, lseat, result, hand_str = outcome
@@ -1162,6 +1165,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 ron_ct[gs.players[wseat].user_id] += 1
                 houju_ct[gs.players[lseat].user_id] += 1
                 houju_pts[gs.players[lseat].user_id] += max(0, -log.deltas.get(lseat, 0))
+                win_seats, loser_seat = [wseat], lseat
                 st.advance_after_win(gs, wseat)
             elif outcome[0] == "dblron":
                 # 雙榮（ダブロン）：兩家同時榮和、放銃者分別支付
@@ -1171,6 +1175,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     ron_ct[gs.players[s].user_id] += 1
                 houju_ct[gs.players[lseat].user_id] += 1
                 houju_pts[gs.players[lseat].user_id] += max(0, -log.deltas.get(lseat, 0))
+                win_seats, loser_seat = [s for s, _, _ in dbl_winners], lseat
                 # 莊家若在贏家中→連莊，否則輪莊
                 dealer = gs.dealer_seat
                 st.advance_after_win(gs, dealer if any(s == dealer for s, _, _ in dbl_winners)
@@ -1188,6 +1193,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 hand_str = "　".join(str(t) for t in winner.discards)
                 for s in nagashi_seats:
                     tsumo_ct[gs.players[s].user_id] += 1
+                win_seats = list(nagashi_seats)
                 st.advance_after_draw(gs, tenpai)
             elif outcome[0] == "abort":
                 # 途中流局（九種九牌／四風連打／四槓散了／四家立直／三家和）：
@@ -1205,6 +1211,19 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             for s, d in log.deltas.items():
                 if d > 0:
                     gain_pts[gs.players[s].user_id] += d
+
+            # 牌譜：每局結算事件（以 user_id 記錄，供 /mahjong repair 重算戰績）
+            try:
+                db.log_action(gid, gs.turn, {
+                    "t": "settle",
+                    "win": outcome[0],
+                    "winners": [gs.players[s].user_id for s in win_seats],
+                    "loser": gs.players[loser_seat].user_id if loser_seat is not None else None,
+                    "riichi": riichi_uids,
+                    "deltas": {gs.players[s].user_id: int(d) for s, d in log.deltas.items()},
+                })
+            except Exception as e:
+                print(f"[gamelog] settle 記錄失敗：{e}")
 
             db.update_game_state(gid, "playing", gs.to_dict())
 
@@ -1492,6 +1511,17 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
     db.create_game(gid, str(channel.guild.id), str(channel.id), gs.wall_seed,
                    room_no=rooms.room_no(gid))
     db.update_game_state(gid, "playing", gs.to_dict())
+    # 牌譜：開局事件（名單／模式／起始點數），供日後重算與重播
+    try:
+        db.log_action(gid, 0, {
+            "t": "gamestart",
+            "mode": "sanma" if is_sanma else "yonma",
+            "start": config.get("start_points") or (35000 if is_sanma else 25000),
+            "players": {p.user_id: {"seat": p.seat, "name": p.username, "bot": p.is_bot}
+                        for p in gs.players},
+        })
+    except Exception as e:
+        print(f"[gamelog] gamestart 記錄失敗：{e}")
     try:
         db.set_room_config(gid, config)   # 保存設定，供重連回復對局
     except Exception as e:

@@ -374,5 +374,111 @@ def get_recent_records(user_id: str, mode: str, limit: int = 20) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_settle_logs(game_id: str) -> list[dict]:
+    """某對局的每局結算事件（牌譜中 t=='settle' 者，依序）。"""
+    out = []
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT action FROM game_log WHERE game_id=? ORDER BY id", (game_id,)
+        ).fetchall()
+    for r in rows:
+        try:
+            a = json.loads(r["action"])
+            if a.get("t") == "settle":
+                out.append(a)
+        except Exception:
+            pass
+    return out
+
+
+def _counts_from_settles(logs: list[dict]) -> dict[str, dict]:
+    """由結算牌譜重算每位玩家的各項次數（與對局中即時統計的口徑一致）。"""
+    agg: dict[str, dict] = {}
+    for a in logs:
+        deltas  = a.get("deltas", {}) or {}
+        winners = set(a.get("winners", []) or [])
+        loser   = a.get("loser")
+        riichi  = set(a.get("riichi", []) or [])
+        win     = a.get("win", "")
+        uids = set(deltas) | winners | riichi | ({loser} if loser else set())
+        for uid in uids:
+            c = agg.setdefault(uid, dict(tsumo=0, ron=0, houju=0,
+                                         houju_points=0, gain_points=0, riichi=0))
+            if uid in winners:
+                if win in ("tsumo", "nagashi"):
+                    c["tsumo"] += 1
+                elif win in ("ron", "dblron"):
+                    c["ron"] += 1
+            if loser and uid == loser:
+                c["houju"] += 1
+                c["houju_points"] += max(0, -int(deltas.get(uid, 0)))
+            c["gain_points"] += max(0, int(deltas.get(uid, 0)))
+            if uid in riichi:
+                c["riichi"] += 1
+    return agg
+
+
+def repair_game_records() -> dict:
+    """掃描並修復 game_records（只動可由現有資料推導的欄位）：
+      1) 去重：同 game_id+user_id 多筆 → 留最後一筆、刪其餘
+      2) 重算次數：對有結算牌譜（settle）的對局，依牌譜重算自摸／榮和／放銃／
+         放銃失點／獲得點數／立直，覆寫回紀錄（順位、終局點數不動，因牌譜含 bot 較完整但
+         順位本就以全員計算正確）
+      3) 收尾：放銃失點／獲得點數的負值歸零
+    回傳統計報告。"""
+    COUNT_COLS = ("tsumo", "ron", "houju", "houju_points", "gain_points", "riichi")
+    rep = {"scanned": 0, "games": 0, "dups": 0, "counter_fixed": 0,
+           "clamp_fixed": 0, "no_log_games": 0}
+    with get_connection() as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM game_records ORDER BY id").fetchall()]
+        rep["scanned"] = len(rows)
+        by_game: dict[str, list] = {}
+        for r in rows:
+            by_game.setdefault(r["game_id"], []).append(r)
+        rep["games"] = len(by_game)
+
+        for gid, recs in by_game.items():
+            # 1) 去重：同 user_id 多筆 → 留 id 最大者
+            seen: dict[str, list] = {}
+            for r in recs:
+                seen.setdefault(r["user_id"], []).append(r)
+            kept = []
+            for uid, lst in seen.items():
+                lst.sort(key=lambda x: x["id"])
+                for dead in lst[:-1]:
+                    conn.execute("DELETE FROM game_records WHERE id=?", (dead["id"],))
+                    rep["dups"] += 1
+                kept.append(lst[-1])
+
+            # 2) 由結算牌譜重算次數
+            logs = get_settle_logs(gid) if gid else []
+            if logs:
+                agg = _counts_from_settles(logs)
+                for r in kept:
+                    c = agg.get(r["user_id"])
+                    if not c:
+                        continue
+                    if tuple(r[k] for k in COUNT_COLS) != tuple(c[k] for k in COUNT_COLS):
+                        conn.execute(
+                            "UPDATE game_records SET tsumo=?,ron=?,houju=?,houju_points=?,"
+                            "gain_points=?,riichi=? WHERE id=?",
+                            (c["tsumo"], c["ron"], c["houju"], c["houju_points"],
+                             c["gain_points"], c["riichi"], r["id"]))
+                        rep["counter_fixed"] += 1
+                        r.update(c)
+            else:
+                rep["no_log_games"] += 1
+
+            # 3) 負值歸零
+            for r in kept:
+                fixes = {k: 0 for k in ("houju_points", "gain_points") if r[k] < 0}
+                if fixes:
+                    for k, v in fixes.items():
+                        conn.execute(f"UPDATE game_records SET {k}=? WHERE id=?", (v, r["id"]))
+                    rep["clamp_fixed"] += 1
+    return rep
+
+
 if __name__ == "__main__":
     init_db()
