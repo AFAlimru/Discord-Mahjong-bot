@@ -401,6 +401,9 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
 
     if not results:
         return None
+    # 三家和：同一張捨牌被三家同時榮和 → 途中流局
+    if sum(1 for r in results if r[2] == "ron") >= 3:
+        return ("sanchahou", None, None)
     results.sort(key=lambda x: x[0])
     _, seat, choice, extra = results[0]
     return (choice, gs.players[seat].user_id, extra)
@@ -706,6 +709,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
     any_call     = False
     rinshan_next = False
     no_draw      = False
+    kan_count    = 0          # 全局已宣告的槓數（四槓散了用）
+    kan_seats    = set()      # 宣告過槓的座位（同一人四槓＝四槓子，不流局）
 
     while True:
         if _games.get(gid) is not gs:
@@ -833,7 +838,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             # ── 九種九牌（途中流局）──
             if action == "kyuushu":
                 await render_board("feed.kyuushu", name=player.username)
-                return ("kyuushu",)
+                return ("abort", "result.kyuushu")
 
             # ── Tsumo ──
             if action == "tsumo":
@@ -871,6 +876,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 player.melds.append(Meld(MeldType.ANKAN, [Tile(kan_tile.suit, kan_tile.value)] * 4, -1))
                 gs.open_dora()
                 any_call = True
+                kan_count += 1; kan_seats.add(player.seat)
                 for s in ippatsu:
                     ippatsu[s] = False
                 rinshan_next = True
@@ -918,6 +924,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                         break
                 gs.open_dora()
                 any_call = True
+                kan_count += 1; kan_seats.add(player.seat)
                 for s in ippatsu:
                     ippatsu[s] = False
                 rinshan_next = True
@@ -985,6 +992,9 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
 
         if reaction:
             rtype, r_uid, extra = reaction
+            if rtype == "sanchahou":
+                await render_board("feed.sanchahou")
+                return ("abort", "result.sanchahou")
             rp = next((p for p in gs.players if p.user_id == r_uid), None)
             from_name = player.username
             if rtype == "ron" and rp:
@@ -1046,12 +1056,31 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 gs.open_dora()
                 gs.current_seat = rp.seat
                 any_call = True
+                kan_count += 1; kan_seats.add(rp.seat)
                 for s in ippatsu:
                     ippatsu[s] = False
                 rinshan_next = True
                 await render_hand(rp)
                 await render_board("feed.kan", name=rp.username, loser=from_name, tile=discard_tile)
                 continue
+
+        # ── 途中流局檢查（一張牌捨出、無人鳴牌後）──
+        n = len(gs.players)
+        # 四風連打：四人第一巡捨同一張風牌、其間無人鳴牌
+        if n == 4 and not any_call and all(len(p.discards) == 1 for p in gs.players):
+            firsts = [p.discards[0] for p in gs.players]
+            f0 = firsts[0]
+            if f0.suit == Suit.WIND and all(d.suit == Suit.WIND and d.value == f0.value for d in firsts):
+                await render_board("feed.suufon", name=player.username)
+                return ("abort", "result.suufon")
+        # 四家立直：全員立直且最後一張立直宣言牌無人榮和
+        if all(p.riichi for p in gs.players):
+            await render_board("feed.suucha_riichi")
+            return ("abort", "result.suucha_riichi")
+        # 四槓散了：場上累計四槓且由兩人以上宣告（同一人四槓＝四槓子，不流局）
+        if kan_count >= 4 and len(kan_seats) >= 2:
+            await render_board("feed.suukaikan")
+            return ("abort", "result.suukaikan")
 
         gs.current_seat = (gs.current_seat + 1) % len(gs.players)
 
@@ -1114,11 +1143,12 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 for s in nagashi_seats:
                     tsumo_ct[gs.players[s].user_id] += 1
                 st.advance_after_draw(gs, tenpai)
-            elif outcome[0] == "kyuushu":
-                # 九種九牌（途中流局）：莊家連莊、本場 +1，無點數移動、無聽牌罰符
-                log = st.SettleLog({p.seat: 0 for p in gs.players}, note="九種九牌")
+            elif outcome[0] == "abort":
+                # 途中流局（九種九牌／四風連打／四槓散了／四家立直／三家和）：
+                # 莊家連莊、本場 +1，無點數移動、無聽牌罰符；立直棒留到下一局
+                draw_key = outcome[1]
+                log = st.SettleLog({p.seat: 0 for p in gs.players}, note=draw_key)
                 result = None
-                draw_key = "result.kyuushu"
                 st.advance_abortive(gs)
             else:
                 _, tenpai = outcome
