@@ -90,8 +90,8 @@
   "stats.ron": "Ron",
   "stats.houju": "Deal-in",
   "stats.riichi": "Riichi",
-  "stats.gain": "Gained",
-  "stats.lost": "Lost",
+  "stats.gain": "Total Gained",
+  "stats.lost": "Total Lost",
 
   "action.kyuushu": "🀫 Abort (Nine Terminals)",
   "feed.kyuushu": "🀫 {name} declared Nine Terminals abort",

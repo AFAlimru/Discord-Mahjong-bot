@@ -90,8 +90,8 @@
   "stats.ron": "榮和",
   "stats.houju": "放銃",
   "stats.riichi": "立直",
-  "stats.gain": "獲得",
-  "stats.lost": "放銃失點",
+  "stats.gain": "總獲得",
+  "stats.lost": "總放銃失點",
 
   "action.kyuushu": "🀫 流局（九種九牌）",
   "feed.kyuushu": "🀫 {name} 宣告九種九牌流局",
