@@ -217,7 +217,11 @@ class Meld:
     def __str__(self) -> str:
         type_names = {1: "吃", 2: "碰", 3: "槓", 4: "暗槓"}
         name = type_names.get(self.meld_type, "?")
-        tiles_str = "".join(str(t) for t in self.tiles)
+        if self.meld_type == 4 and len(self.tiles) == 4:
+            # 暗槓：頭尾蓋牌（🀫），只露出中間兩張，較易辨識
+            tiles_str = f"🀫 {self.tiles[1]} {self.tiles[2]} 🀫"
+        else:
+            tiles_str = " ".join(str(t) for t in self.tiles)
         return f"{name}:{tiles_str}"
 
 
