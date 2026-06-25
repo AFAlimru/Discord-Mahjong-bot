@@ -200,7 +200,7 @@ def river_panel(gs: GameState, lang: str = DEFAULT) -> str:
         riichi = t("label.riichi_tag", lang) if p.riichi else ""
         melds  = ("　" + t("panel.melds", lang) + "：" + "　".join(str(m) for m in p.melds)) if p.melds else ""
         disc = " ".join(str(tt) for tt in p.discards) if p.discards else "—"
-        lines.append(f"{cur}{_wind(p.seat, lang)}「{p.username}」{riichi}（{len(p.discards)}）{melds}")
+        lines.append(f"## {cur}{_wind(p.seat, lang)}「{p.username}」{riichi}（{len(p.discards)}）{melds}")
         lines.append(f"# {disc}")
     return "\n".join(lines)
 
@@ -212,17 +212,17 @@ def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = ""
     uni, names = player.hand_display_with_names()
     sep = "=" * 35
     lines = []
+    if board_info:   # 場況／寶牌移到最上面
+        lines.append("\n".join("> " + ln for ln in board_info.split("\n")))
+        lines.append(sep)
     if river_info:
         lines.append(river_info)
-        lines.append(sep)
-    if board_info:
-        lines.append("\n".join("> " + ln for ln in board_info.split("\n")))
         lines.append(sep)
     if last_info:
         lines.append(last_info)
         lines.append(sep)
-    riichi_tag = "　" + t("label.riichi_done", lang) if player.riichi else ""
-    lines.append(f"# {t('panel.your_hand', lang)}{riichi_tag}")
+    if player.riichi:   # 去掉「你的手牌」標題，立直時仍標註
+        lines.append(f"# {t('label.riichi_done', lang)}")
     # 手牌 ｜ 剛摸到的牌（| 右邊為剛摸到）
     if player.drawn_tile:
         lines.append(f"# {uni} | {player.drawn_tile}" if uni else f"# | {player.drawn_tile}")

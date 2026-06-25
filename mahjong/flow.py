@@ -1398,7 +1398,7 @@ def format_winning_hand(player: PlayerState, win_tile: Tile) -> str:
     parts = [" ".join(str(t) for t in hand_sorted)]
     if player.melds:
         parts.append("　".join(str(m) for m in player.melds))
-    return "　".join(parts) + f"　🟦[{win_tile}]"
+    return "　".join(parts) + f"　| {win_tile}"
 
 
 async def win_ceremony(channel: discord.TextChannel, gs: GameState,
