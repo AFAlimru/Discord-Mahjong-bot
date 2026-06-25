@@ -404,7 +404,9 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
     # 三家和：同一張捨牌被三家同時榮和 → 途中流局
     if sum(1 for r in results if r[2] == "ron") >= 3:
         return ("sanchahou", None, None)
-    results.sort(key=lambda x: x[0])
+    # 頭跳：同優先序時，取離捨牌者最近的下家（榮和＞碰槓＞吃）
+    n = len(gs.players)
+    results.sort(key=lambda x: (x[0], (x[1] - from_seat - 1) % n))
     _, seat, choice, extra = results[0]
     return (choice, gs.players[seat].user_id, extra)
 
