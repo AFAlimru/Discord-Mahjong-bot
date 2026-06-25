@@ -1013,8 +1013,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                         winners.append((wp.seat, res, format_winning_hand(wp, discard_tile)))
                 if len(winners) >= 2:
                     await render_board("feed.dblron", n1=gs.players[winners[0][0]].username,
-                                       n2=gs.players[winners[1][0]].username,
-                                       loser=player.username, tile=discard_tile)
+                                       n2=gs.players[winners[1][0]].username)
                     return ("dblron", winners, player.seat)
                 if len(winners) == 1:
                     wseat, res, hs = winners[0]

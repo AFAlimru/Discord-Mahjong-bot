@@ -62,7 +62,7 @@
   "feed.kakan": "{name} Kakan {tile}! Draws from the dead wall.",
   "feed.riichi_tsumogiri": "{name} Riichi tsumogiri “{tile}”; next: {nxt}",
   "feed.ron": "🎉 {name} Ron on {loser}'s {tile}!",
-  "feed.dblron": "🎉 Double Ron! {n1} and {n2} both Ron on {loser}'s {tile}!",
+  "feed.dblron": "🎉 Ron! {n1} {n2} Ron",
   "feed.ron_invalid": "❌ {name}'s Ron is invalid",
   "feed.pon": "{name} Pon on {loser}'s {tile}! Please discard.",
   "feed.chi": "{name} Chi on {loser}'s {tile}! Please discard.",
