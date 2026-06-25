@@ -418,6 +418,40 @@ def _counts_from_settles(logs: list[dict]) -> dict[str, dict]:
     return agg
 
 
+def get_hand_rates(user_id: str, mode: str) -> dict:
+    """由結算牌譜統計某玩家在該模式「有牌譜對局」的逐局數據，供和了率／放銃率／副露率／
+    平均和了打點等。回傳 hands（總局數）、agari、agari_pts（和了打點和）、tsumo、ron、
+    houju、riichi、furo（副露局數），以及 games（有牌譜場數）。"""
+    with get_connection() as conn:
+        gids = [r["game_id"] for r in conn.execute(
+            "SELECT DISTINCT game_id FROM game_records WHERE user_id=? AND mode=?",
+            (user_id, mode)).fetchall()]
+    o = dict(hands=0, agari=0, agari_pts=0, tsumo=0, ron=0, houju=0, riichi=0, furo=0, games=0)
+    for gid in gids:
+        if not gid:
+            continue
+        logs = get_settle_logs(gid)
+        if not logs:
+            continue
+        o["games"] += 1
+        for a in logs:
+            o["hands"] += 1
+            if user_id in set(a.get("winners", []) or []):
+                o["agari"] += 1
+                o["agari_pts"] += int((a.get("wp", {}) or {}).get(user_id, 0))
+                if a.get("win") in ("tsumo", "nagashi"):
+                    o["tsumo"] += 1
+                elif a.get("win") in ("ron", "dblron"):
+                    o["ron"] += 1
+            if a.get("loser") == user_id:
+                o["houju"] += 1
+            if user_id in set(a.get("riichi", []) or []):
+                o["riichi"] += 1
+            if user_id in set(a.get("furo", []) or []):
+                o["furo"] += 1
+    return o
+
+
 def repair_game_records() -> dict:
     """掃描並修復 game_records（只動可由現有資料推導的欄位）：
       1) 去重：同 game_id+user_id 多筆 → 留最後一筆、刪其餘

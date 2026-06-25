@@ -357,27 +357,50 @@ async def cmd_stats(interaction: discord.Interaction) -> None:
         await interaction.response.send_message(i18n.t("msg.no_stats", lang), ephemeral=True)
         return
 
-    def _signed(n):
-        n = n or 0
-        return f"+{n}" if n >= 0 else str(n)
+    L      = lambda k: i18n.t(k, lang)
+    pct    = lambda n, d: f"{(100 * n / d):.0f}%" if d else "—"
+    signed = lambda n: (f"+{n}" if (n or 0) >= 0 else str(n))
+    medals = ["🥇", "🥈", "🥉", "4️⃣"]
 
     embed = discord.Embed(
-        title=i18n.t("stats.title", lang, name=interaction.user.display_name), color=0x3498DB)
+        title=i18n.t("stats.title", lang, name=interaction.user.display_name), color=0xE0AF68)
+    try:
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+    except Exception:
+        pass
+
     for mode, summ in (("yonma", y), ("sanma", s)):
         if not summ:
             continue
-        is4   = (mode == "yonma")
-        ranks = [summ["r1"] or 0, summ["r2"] or 0, summ["r3"] or 0] + ([summ["r4"] or 0] if is4 else [])
-        L     = lambda k: i18n.t(k, lang)
-        value = "\n".join([
-            f"{L('stats.games')} {summ['games']} ・ {L('stats.avg_rank')} {(summ['avg_rank'] or 0):.2f}",
-            f"{L('stats.ranks')} {'/'.join(str(x) for x in ranks)}",
-            f"{L('stats.tsumo')} {summ['tsumo'] or 0} ・ {L('stats.ron')} {summ['ron'] or 0} ・ {L('stats.houju')} {summ['houju'] or 0}",
-            f"{L('stats.riichi')} {summ['riichi'] or 0} ・ {L('stats.gain')} {_signed(summ['gain_points'])} ・ {L('stats.lost')} {summ['houju_points'] or 0}",
-        ])
+        is4 = (mode == "yonma")
+        g   = summ["games"] or 0
+        r   = [summ["r1"] or 0, summ["r2"] or 0, summ["r3"] or 0, summ["r4"] or 0]
+        last = r[3] if is4 else r[2]
+        dist = "　".join(f"{medals[i]} {r[i]}" for i in range(4 if is4 else 3))
+        lines = [
+            f"`{L('stats.games')}` **{g}**　`{L('stats.avg_rank')}` **{(summ['avg_rank'] or 0):.2f}**",
+            dist,
+            (f"`{L('stats.top_rate')}` {pct(r[0], g)}　`{L('stats.rentai')}` {pct(r[0] + r[1], g)}"
+             f"　`{L('stats.last_rate')}` {pct(last, g)}"),
+        ]
+        rt = db.get_hand_rates(uid, mode)
+        if rt["hands"]:
+            h, ag = rt["hands"], rt["agari"]
+            lines.append(
+                f"`{L('stats.agari_rate')}` {pct(ag, h)}　`{L('stats.houju_rate')}` {pct(rt['houju'], h)}"
+                f"　`{L('stats.riichi_rate')}` {pct(rt['riichi'], h)}　`{L('stats.furo_rate')}` {pct(rt['furo'], h)}")
+            avg_h = round((summ["houju_points"] or 0) / summ["houju"]) if summ["houju"] else 0
+            if ag:
+                lines.append(f"`{L('stats.avg_agari')}` {round(rt['agari_pts'] / ag)}"
+                             f"　`{L('stats.avg_houju')}` {avg_h}")
+            lines.append(f"_{i18n.t('stats.rates_note', lang, n=h)}_")
+        lines.append(
+            f"`{L('stats.tsumo')}` {summ['tsumo'] or 0}　`{L('stats.ron')}` {summ['ron'] or 0}"
+            f"　`{L('stats.houju')}` {summ['houju'] or 0}　`{L('stats.riichi')}` {summ['riichi'] or 0}")
+        lines.append(f"`{L('stats.gain')}` {signed(summ['gain_points'])}　`{L('stats.lost')}` {summ['houju_points'] or 0}")
         embed.add_field(name=i18n.t("mode.yonma" if is4 else "mode.sanma", lang),
-                        value=value, inline=False)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+                        value="\n".join(lines), inline=False)
+    await interaction.response.send_message(embed=embed)   # 公開顯示（非 ephemeral）
 
 
 @mahjong.command(name="repair", description="掃描並修復戰績資料（限管理員）")

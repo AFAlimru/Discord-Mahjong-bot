@@ -1217,14 +1217,22 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 if d > 0:
                     gain_pts[gs.players[s].user_id] += d
 
-            # 牌譜：每局結算事件（以 user_id 記錄，供 /mahjong repair 重算戰績）
+            # 牌譜：每局結算事件（以 user_id 記錄，供 /mahjong repair 重算戰績與進階數據）
             try:
+                if outcome[0] == "dblron":
+                    win_points = {gs.players[s].user_id: r.points for s, r, _ in dbl_winners}
+                elif win_seats and result is not None:
+                    win_points = {gs.players[s].user_id: result.points for s in win_seats}
+                else:
+                    win_points = {}
                 db.log_action(gid, gs.turn, {
                     "t": "settle",
                     "win": outcome[0],
                     "winners": [gs.players[s].user_id for s in win_seats],
                     "loser": gs.players[loser_seat].user_id if loser_seat is not None else None,
                     "riichi": riichi_uids,
+                    "furo": [p.user_id for p in gs.players if p.melds],   # 本局有副露者
+                    "wp": win_points,                                    # 和了打點（贏家）
                     "deltas": {gs.players[s].user_id: int(d) for s, d in log.deltas.items()},
                 })
             except Exception as e:
