@@ -222,7 +222,7 @@ class Meld:
             tiles_str = f"🀫 {self.tiles[1]} {self.tiles[2]} 🀫"
         else:
             tiles_str = " ".join(str(t) for t in self.tiles)
-        return f"{name}:{tiles_str}"
+        return f"{name}:[{tiles_str}]"
 
 
 @dataclass
