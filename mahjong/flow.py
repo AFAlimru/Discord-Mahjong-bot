@@ -401,11 +401,16 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
 
     if not results:
         return None
-    # 三家和：同一張捨牌被三家同時榮和 → 途中流局
-    if sum(1 for r in results if r[2] == "ron") >= 3:
-        return ("sanchahou", None, None)
-    # 頭跳：同優先序時，取離捨牌者最近的下家（榮和＞碰槓＞吃）
     n = len(gs.players)
+    rons = [r for r in results if r[2] == "ron"]
+    # 三家和：同一張捨牌被三家同時榮和 → 途中流局
+    if len(rons) >= 3:
+        return ("sanchahou", None, None)
+    # 雙榮（ダブロン）：兩家同時榮和，依頭跳排序（最近下家在前）回傳兩位
+    if len(rons) == 2:
+        rons.sort(key=lambda x: (x[1] - from_seat - 1) % n)
+        return ("dblron", [gs.players[r[1]].user_id for r in rons], None)
+    # 頭跳：同優先序時，取離捨牌者最近的下家（榮和＞碰槓＞吃）
     results.sort(key=lambda x: (x[0], (x[1] - from_seat - 1) % n))
     _, seat, choice, extra = results[0]
     return (choice, gs.players[seat].user_id, extra)
@@ -997,7 +1002,29 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             if rtype == "sanchahou":
                 await render_board("feed.sanchahou")
                 return ("abort", "result.sanchahou")
-            rp = next((p for p in gs.players if p.user_id == r_uid), None)
+            if rtype == "dblron":
+                # 雙榮：兩家同時榮和。r_uid 為依頭跳排序的兩個 uid
+                winners = []
+                for uid in r_uid:
+                    wp = next(p for p in gs.players if p.user_id == uid)
+                    res = evaluate_win(gs, wp, discard_tile, is_tsumo=False,
+                                       is_ippatsu=ippatsu[wp.seat], is_double_riichi=double_rii[wp.seat])
+                    if res:
+                        winners.append((wp.seat, res, format_winning_hand(wp, discard_tile)))
+                if len(winners) >= 2:
+                    await render_board("feed.dblron", n1=gs.players[winners[0][0]].username,
+                                       n2=gs.players[winners[1][0]].username,
+                                       loser=player.username, tile=discard_tile)
+                    return ("dblron", winners, player.seat)
+                if len(winners) == 1:
+                    wseat, res, hs = winners[0]
+                    await render_board("feed.ron", name=gs.players[wseat].username,
+                                       loser=player.username, tile=discard_tile)
+                    return ("ron", wseat, player.seat, res, hs)
+                bad = next(p for p in gs.players if p.user_id == r_uid[0])
+                await render_board("feed.ron_invalid", name=bad.username)
+                reaction = None   # 皆無效 → 視同放過，落入下方振聽處理
+            rp = next((p for p in gs.players if p.user_id == r_uid), None) if reaction else None
             from_name = player.username
             if rtype == "ron" and rp:
                 res = evaluate_win(gs, rp, discard_tile, is_tsumo=False,
@@ -1115,6 +1142,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             header_key, header_kw = "", {}
             hand_str = ""
             draw_key = "result.draw_title"
+            dbl_winners = None   # 雙榮：[(seat, result, hand_str), …]，否則 None
 
             if outcome[0] == "tsumo":
                 _, wseat, result, hand_str = outcome
@@ -1131,6 +1159,18 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 houju_ct[gs.players[lseat].user_id] += 1
                 houju_pts[gs.players[lseat].user_id] += max(0, -log.deltas.get(lseat, 0))
                 st.advance_after_win(gs, wseat)
+            elif outcome[0] == "dblron":
+                # 雙榮（ダブロン）：兩家同時榮和、放銃者分別支付
+                _, dbl_winners, lseat = outcome
+                log = st.apply_ron_multi(gs, [(s, r) for s, r, _ in dbl_winners], lseat)
+                for s, _, _ in dbl_winners:
+                    ron_ct[gs.players[s].user_id] += 1
+                houju_ct[gs.players[lseat].user_id] += 1
+                houju_pts[gs.players[lseat].user_id] += max(0, -log.deltas.get(lseat, 0))
+                # 莊家若在贏家中→連莊，否則輪莊
+                dealer = gs.dealer_seat
+                st.advance_after_win(gs, dealer if any(s == dealer for s, _, _ in dbl_winners)
+                                     else dbl_winners[0][0])
             elif outcome[0] == "nagashi":
                 _, nagashi_seats, tenpai = outcome
                 log = st.apply_nagashi(gs, nagashi_seats)
@@ -1178,32 +1218,54 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 th["hand_msg"][uid] = None
 
             # 和牌：公開串與各私人串都做「逐一揭曉」的和牌儀式；流局則送結果文字
-            # 公開串用母本語言，各私人串用該玩家語言。pairs = [(訊息, 完整文字, 語言)]
+            # 公開串用母本語言，各私人串用該玩家語言。每則 = (訊息, 完整文字, 語言)
+            # 公開串訊息保留為紀錄、私人串訊息換局前刪除，故分開收集。
             private = th.get("private", {})
-            pairs = []   # (msg, base_text, lang)
-            if result is not None:
-                targets = [(public, i18n.DEFAULT)] + \
-                          [(private[uid], i18n.get_user_lang(uid)) for uid in private]
+            targets = [(public, i18n.DEFAULT)] + \
+                      [(private[uid], i18n.get_user_lang(uid)) for uid in private]
+            pub_pairs, priv_pairs = [], []
+
+            if dbl_winners is not None:
+                # 雙榮：每個串依序揭曉兩位贏家（最後一位才附上合計分數表）
+                async def run_dbl(ch, lg):
+                    out = []
+                    for i, (seat, res, hs) in enumerate(dbl_winners):
+                        hkw = {"name": gs.players[seat].username,
+                               "loser": gs.players[lseat].username}
+                        out.append(await win_ceremony(
+                            ch, gs, "result.ron", hkw, hs, res, log, lg,
+                            show_log=(i == len(dbl_winners) - 1)))
+                    return out
+                res_lists = await asyncio.gather(
+                    *[run_dbl(ch, lg) for ch, lg in targets], return_exceptions=True)
+                for idx, rl in enumerate(res_lists):
+                    if isinstance(rl, Exception):
+                        continue
+                    (pub_pairs if idx == 0 else priv_pairs).extend(rl)
+            elif result is not None:
                 cer = await asyncio.gather(
                     *[win_ceremony(ch, gs, header_key, header_kw, hand_str, result, log, lg)
                       for ch, lg in targets],
                     return_exceptions=True,
                 )
-                for c in cer:
-                    if not isinstance(c, Exception):
-                        pairs.append(c)   # (msg, body, lang)
+                for idx, c in enumerate(cer):
+                    if isinstance(c, Exception):
+                        continue
+                    (pub_pairs if idx == 0 else priv_pairs).append(c)
             else:
                 pub_text = result_body("", "", None, log, gs, tenpai, i18n.DEFAULT, draw_key)
-                pairs.append((await public.send(pub_text), pub_text, i18n.DEFAULT))
+                pub_pairs.append((await public.send(pub_text), pub_text, i18n.DEFAULT))
                 for uid, pt in private.items():
                     lg = i18n.get_user_lang(uid)
                     txt = result_body("", "", None, log, gs, tenpai, lg, draw_key)
                     try:
-                        pairs.append((await pt.send(txt), txt, lg))
+                        priv_pairs.append((await pt.send(txt), txt, lg))
                     except Exception:
                         pass
-            result_msg = pairs[0][0] if pairs else None
-            priv_msgs  = [p[0] for p in pairs[1:]]
+
+            pairs = pub_pairs + priv_pairs
+            result_msg = pub_pairs[0][0] if pub_pairs else None
+            priv_msgs  = [p[0] for p in priv_pairs]
 
             # 全部顯示完 → 保留完整結果，倒數 5 秒；最後一局改顯示「結束對局」
             over = st.is_game_over(gs, length, tobi)
@@ -1342,8 +1404,9 @@ def format_winning_hand(player: PlayerState, win_tile: Tile) -> str:
 
 async def win_ceremony(channel: discord.TextChannel, gs: GameState,
                        header_key: str, header_kw: dict, hand_str: str, result,
-                       log: "st.SettleLog", lang: str = i18n.DEFAULT):
-    """和牌儀式（依 lang）：先放標題，再放手牌，逐一揭曉役種，最後公布等級與點數。"""
+                       log: "st.SettleLog", lang: str = i18n.DEFAULT, show_log: bool = True):
+    """和牌儀式（依 lang）：先放標題，再放手牌，逐一揭曉役種，最後公布等級與點數。
+    show_log=False 時不附最終分數表（雙榮時只在最後一位附上合計）。"""
     head = f"# 🎉 {i18n.t(header_key, lang, **header_kw)}"
     msg = await channel.send(head)          # ① 先只放榮和／自摸標題
     await asyncio.sleep(1.0)
@@ -1379,7 +1442,9 @@ async def win_ceremony(channel: discord.TextChannel, gs: GameState,
     else:
         nm = f"　{i18n.yaku(result.name, lang)}" if result.name else ""
         score_line = f"## {i18n.t('win.han_fu', lang, han=result.han, fu=result.fu)}{nm}　{pts}"
-    body = top + "\n" + "\n".join(shown) + f"\n\n{score_line}\n\n" + log.describe(gs)
+    body = top + "\n" + "\n".join(shown) + f"\n\n{score_line}"
+    if show_log:
+        body += "\n\n" + log.describe(gs)
     try:
         await msg.edit(content=body)
     except Exception:

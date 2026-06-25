@@ -62,6 +62,7 @@
   "feed.kakan": "{name} 加槓 {tile}！摸嶺上牌。",
   "feed.riichi_tsumogiri": "{name} 立直摸切「{tile}」，輪到 {nxt}",
   "feed.ron": "🎉 {name} 榮和 {loser} 的 {tile}！",
+  "feed.dblron": "🎉 雙榮！{n1} 與 {n2} 同時榮和 {loser} 的 {tile}！",
   "feed.ron_invalid": "❌ {name} 榮和無效",
   "feed.pon": "{name} 碰了 {loser} 的 {tile}！請出牌。",
   "feed.chi": "{name} 吃了 {loser} 的 {tile}！請出牌。",

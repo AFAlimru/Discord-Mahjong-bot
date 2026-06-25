@@ -62,6 +62,7 @@
   "feed.kakan": "{name} 加槓 {tile}！嶺上牌をツモ。",
   "feed.riichi_tsumogiri": "{name} リーチツモ切り「{tile}」、次は {nxt}",
   "feed.ron": "🎉 {name} が {loser} の {tile} をロン！",
+  "feed.dblron": "🎉 ダブロン！{n1} と {n2} が {loser} の {tile} を同時にロン！",
   "feed.ron_invalid": "❌ {name} のロンは無効",
   "feed.pon": "{name} が {loser} の {tile} をポン！打牌してください。",
   "feed.chi": "{name} が {loser} の {tile} をチー！打牌してください。",

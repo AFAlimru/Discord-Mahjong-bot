@@ -73,6 +73,25 @@ def apply_ron(gs: GameState, winner_seat: int, loser_seat: int,
     return SettleLog(deltas, note=f"{result.name} {result.describe()}")
 
 
+def apply_ron_multi(gs: GameState, winners: list[tuple[int, ScoreResult]],
+                    loser_seat: int) -> SettleLog:
+    """雙榮（ダブロン）：同一張捨牌被兩家榮和，放銃者分別支付兩家。
+    winners：[(座位, ScoreResult), …]，第一位為頭跳側（收本場棒與立直棒）。"""
+    deltas = {p.seat: 0 for p in gs.players}
+    honba_bonus = 300 * gs.honba
+    for i, (wseat, res) in enumerate(winners):
+        pay = res.ron_payment + (honba_bonus if i == 0 else 0)  # 本場僅付頭跳側一次
+        deltas[wseat] += pay
+        deltas[loser_seat] -= pay
+    # 立直棒全歸頭跳側
+    stick = gs.riichi_sticks * 1000
+    deltas[winners[0][0]] += stick
+    gs.riichi_sticks = 0
+    _apply_deltas(gs, deltas)
+    note = "／".join(f"{r.name} {r.describe()}" for _, r in winners)
+    return SettleLog(deltas, note=note)
+
+
 def apply_tsumo(gs: GameState, winner_seat: int, result: ScoreResult) -> SettleLog:
     """自摸結算。"""
     deltas = {p.seat: 0 for p in gs.players}
