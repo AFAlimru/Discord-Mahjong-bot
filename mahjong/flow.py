@@ -1143,6 +1143,11 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             draw_key = "result.draw_title"
             dbl_winners = None   # 雙榮：[(seat, result, hand_str), …]，否則 None
 
+            # 本局立直者：須在 advance_*（會清除 riichi 旗標）之前統計
+            for p in gs.players:
+                if p.riichi:
+                    riichi_ct[p.user_id] += 1
+
             if outcome[0] == "tsumo":
                 _, wseat, result, hand_str = outcome
                 log = st.apply_tsumo(gs, wseat, result)
@@ -1200,10 +1205,6 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             for s, d in log.deltas.items():
                 if d > 0:
                     gain_pts[gs.players[s].user_id] += d
-            # 本局立直者（換局前 riichi 旗標仍在）
-            for p in gs.players:
-                if p.riichi:
-                    riichi_ct[p.user_id] += 1
 
             db.update_game_state(gid, "playing", gs.to_dict())
 
