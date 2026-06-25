@@ -198,8 +198,9 @@ def river_panel(gs: GameState, lang: str = DEFAULT) -> str:
             lines.append("─" * 20)
         cur    = "▶ " if p.seat == gs.current_seat else ""
         riichi = t("label.riichi_tag", lang) if p.riichi else ""
+        melds  = ("　" + t("panel.melds", lang) + "：" + "　".join(str(m) for m in p.melds)) if p.melds else ""
         disc = " ".join(str(tt) for tt in p.discards) if p.discards else "—"
-        lines.append(f"{cur}{_wind(p.seat, lang)}「{p.username}」{riichi}（{len(p.discards)}）")
+        lines.append(f"{cur}{_wind(p.seat, lang)}「{p.username}」{riichi}（{len(p.discards)}）{melds}")
         lines.append(f"# {disc}")
     return "\n".join(lines)
 
