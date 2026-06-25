@@ -687,6 +687,11 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
     async def render_board(key="", log=True, **kw):
         if log and key:
             _log_action(gid, key, **kw)   # 真人對局沒有牌桌，動作改記在私人面板上方
+            try:                          # 逐手牌譜落地（供日後重播；repair 只讀 settle）
+                db.log_action(gid, gs.turn, {"t": "move", "key": key,
+                                             "kw": {k: str(v) for k, v in kw.items()}})
+            except Exception:
+                pass
             await refresh_feeds()         # 每筆動作即時更新所有玩家面板的動態
         if board_msg is None:   # 真人對局沒有公開牌桌（資訊改用按鈕看）
             return
