@@ -13,6 +13,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """斜線指令：/mahjong 房間管理（start/join/end/status/watch/stats/help）與大廳 LobbyView。"""
 from __future__ import annotations
+import asyncio
 import uuid
 import discord
 from discord import app_commands
@@ -24,7 +25,7 @@ from . import rooms
 from .render import make_board_text
 from .ui import HelpButton, help_text
 from .views import RoomSettingsView
-from .flow import launch_game, _cleanup, _delete_threads
+from .flow import launch_game, _cleanup, _delete_threads, _delete_announce
 from .state import (
     _games, _channel_games, _waiting, _room_owners, _room_configs, _user_game,
     _game_tasks, _lobbies, _threads, _thread_game,
@@ -275,25 +276,67 @@ async def cmd_end(interaction: discord.Interaction) -> None:
     if not gid:
         await interaction.response.send_message(i18n.t("msg.no_game", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
+    lang = i18n.get_user_lang(interaction.user.id)
     if _room_owners.get(gid) != user_id:
-        await interaction.response.send_message(i18n.t("msg.only_host_end", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.only_host_end", lang), ephemeral=True)
         return
     # 找出主頻道 id（給 _cleanup 用）
     parent_cid = next((c for c, g in _channel_games.items() if g == gid), channel_id)
-    task = _game_tasks.get(gid)
-    th   = _threads.get(gid)
-    _cleanup(gid, parent_cid)
+    gs    = _games.get(gid)
+    task  = _game_tasks.get(gid)
+    th    = _threads.get(gid)
+    lobby = _lobbies.get(gid)
+    closed = i18n.t("msg.room_closed", lang)
+
+    # 先回覆房主（要在 3 秒內回應 interaction，避免後續 await 拖過時限）
+    await interaction.response.send_message(closed, ephemeral=True)
+
+    # 1) DB 標記為結束，避免機器人重啟時被當成「中斷的對局」要求回復
+    if gs is not None:
+        try:
+            db.finish_game(gid, gs.to_dict())
+        except Exception as e:
+            print(f"[end] finish_game 失敗：{e}")
+
+    # 2) 等人中的大廳訊息 → 關閉
+    if lobby is not None:
+        try:
+            lobby.stop()
+        except Exception:
+            pass
+        lm = getattr(lobby, "lobby_message", None)
+        if lm:
+            try:
+                await lm.edit(content=closed, view=None)
+            except Exception:
+                pass
+
+    # 3) 主頻道開局公告 → 刪除
+    if th:
+        await _delete_announce(th)
+
+    # 4) 停掉對局迴圈
     if task and not task.done():
         task.cancel()
-    lang = i18n.get_user_lang(interaction.user.id)
-    await interaction.response.send_message(i18n.t("msg.game_ended_forced", lang), ephemeral=True)
+
+    # 5) 每個討論串貼「房間已關閉」，稍候再刪除
     if th:
+        for t in [th.get("public")] + list(th.get("private", {}).values()):
+            if t is None:
+                continue
+            try:
+                await t.send(closed)
+            except Exception:
+                pass
+        await asyncio.sleep(3)
         failed = await _delete_threads(th)
         if failed:
             try:
                 await interaction.followup.send(i18n.t("msg.thread_delete_fail", lang), ephemeral=True)
             except Exception:
                 pass
+
+    _cleanup(gid, parent_cid)
 
 
 @mahjong.command(name="status", description="查看當前牌局狀態")
