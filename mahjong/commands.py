@@ -285,9 +285,15 @@ async def cmd_end(interaction: discord.Interaction) -> None:
     _cleanup(gid, parent_cid)
     if task and not task.done():
         task.cancel()
-    await interaction.response.send_message(i18n.t("msg.game_ended_forced", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+    lang = i18n.get_user_lang(interaction.user.id)
+    await interaction.response.send_message(i18n.t("msg.game_ended_forced", lang), ephemeral=True)
     if th:
-        await _delete_threads(th)
+        failed = await _delete_threads(th)
+        if failed:
+            try:
+                await interaction.followup.send(i18n.t("msg.thread_delete_fail", lang), ephemeral=True)
+            except Exception:
+                pass
 
 
 @mahjong.command(name="status", description="查看當前牌局狀態")

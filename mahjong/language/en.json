@@ -1,32 +1,26 @@
 {
   "_name": "English",
-
   "language.choose": "Choose your display language (current: {cur}):",
   "language.set": "✅ Language set to “{name}”.",
   "language.button_translate": "🌐 Translate",
-
   "lobby.title": "Mahjong room opened!",
   "lobby.info": "Mode: {mode}　Length: {length}　Bust: {tobi}　Think: {tt}s",
   "lobby.players": "Players ({cur}/{max}):",
   "lobby.join_hint": "Click to join, or the host can add AI to fill the seats!",
   "lobby.full": "✅ **Room full — the game is starting!**",
-
   "mode.yonma": "4-Player",
   "mode.sanma": "3-Player",
   "len.tonpuu": "Tonpuu (East)",
   "len.hanchan": "Hanchan",
-
   "wind.0": "East",
   "wind.1": "South",
   "wind.2": "West",
   "wind.3": "North",
-
   "board.round": "{wind} {num}",
   "board.summary": "Honba {honba}　Riichi sticks {sticks}　Wall {wall}",
   "board.honba_wall": "Honba {honba}　Wall {wall}",
   "board.dora": "Dora",
   "board.ura_dora": "Ura Dora",
-
   "action.tsumo": "Tsumo",
   "action.ron": "Ron",
   "action.riichi": "Riichi",
@@ -39,18 +33,15 @@
   "action.skip": "Skip",
   "action.tsumogiri": "Tsumogiri",
   "action.tegiri": "Tegiri",
-
   "term.tenpai": "Tenpai",
   "term.furiten": "Furiten",
   "term.noten": "Noten",
   "term.menzen": "Closed",
   "term.no_yaku": "No yaku",
   "term.ron_no_yaku": "No-yaku Ron",
-
   "label.riichi_tag": "【Riichi】",
   "label.riichi_done": "【Riichi】",
   "label.kita": "Kita×{n}",
-
   "feed.last_discard": "🀫 {wind} {who} discarded",
   "feed.tsumo": "🎉 {name} Tsumo!",
   "feed.kita": "{name} Kita ×{n}",
@@ -71,17 +62,14 @@
   "feed.word_timeout": "auto-discards (timeout)",
   "feed.word_discard": "discards",
   "feed.tenpai_note": "🀄 **Tenpai!** Waits: {waits}",
-
   "react.discarded": "## ⬇️ {who} discarded",
   "react.chi_combo": "# Chi {combo}",
   "react.chi_combo_n": "# Chi{circ} {combo}",
   "react.choose": "Please choose ({n}s left)",
   "react.chankan": "## 🀄 {name} declares Kakan\n# {tile}\nIf you can Ron this tile (Chankan), press now; {n}s left",
   "react.chankan_btn": "Chankan Ron",
-
   "status.no_game": "❌ No game in progress in this channel.",
   "status.waiting": "🕐 Waiting for players… ({cur}/{max})",
-
   "stats.title": "📊 {name}'s Stats",
   "stats.games": "Games",
   "stats.avg_rank": "Avg rank",
@@ -103,7 +91,6 @@
   "stats.avg_houju": "Avg deal-in",
   "stats.placement": "Placements",
   "stats.rates_note": "rates from {n} logged hands",
-
   "action.kyuushu": "🀫 Abort (Nine Terminals)",
   "feed.kyuushu": "🀫 {name} declared Nine Terminals abort",
   "result.kyuushu": "🀄 Abortive Draw (Nine Terminals)",
@@ -115,7 +102,6 @@
   "result.suukaikan": "🀄 Abortive Draw (Four Kans)",
   "feed.sanchahou": "🀫 Triple Ron — three players ron the same tile",
   "result.sanchahou": "🀄 Abortive Draw (Triple Ron)",
-
   "msg.not_your_turn": "❌ Not your turn",
   "msg.not_your_reaction": "❌ Not your reaction",
   "msg.game_ended": "❌ The game has ended.",
@@ -141,10 +127,9 @@
   "msg.no_game": "❌ No game in progress.",
   "msg.only_host_end": "❌ Only the host can end the game.",
   "msg.game_ended_forced": "✅ Game force-ended; the threads will close.",
+  "msg.thread_delete_fail": "⚠️ Couldn't delete some threads. Make sure the bot has the “Manage Threads” permission in this channel.",
   "msg.no_stats": "❌ You have no game records yet.",
-
   "help.text": "**🀄 How to play (type directly in your private thread)**\nOn your turn, type one of the following in your own private thread (the bot auto-deletes your message):\n\n**Discard**\n・Number tiles: `1m`~`9m` (man), `1p`~`9p` (pin), `1s`~`9s` (sou); case-insensitive\n・Red fives: `0m` / `0p` / `0s`\n・Honors: `e/s/w/n` = East/South/West/North, `r`=Chun, `wh`=Haku, `g`=Hatsu\n\n**Special actions**\n・Tsumo: `tsumo`\n・Riichi: `riichi 5m` (specify the tile to discard)\n・Ankan: `ankan 5m`\n・Kita (3-player): `!n`\n\n**Reacting to others' discards**\n・`ron`, `pon`, `chi 1` (pick by number), `kan`, `skip`",
-
   "result.tsumo": "{name}　Tsumo!",
   "result.ron": "{name}　Ron! (deal-in: {loser})",
   "result.draw_title": "🀄 Exhaustive Draw",
@@ -152,58 +137,45 @@
   "result.nobody": "none",
   "result.nagashi": "Nagashi Mangan! {names}",
   "result.all_last": "ALL LAST　Final Hand",
-
   "standings.title": "🏁 Final Standings",
   "standings.rank": "#{rank}",
   "standings.settle": "Net",
-
   "countdown.line": "⏳ {tail} in {n}s…",
   "countdown.next_hand": "next hand",
   "countdown.end": "end game",
-
   "btn.river": "🀫 River",
   "btn.score": "📊 Scores",
   "btn.meld": "🀜 Melds",
   "btn.log": "📜 Log",
   "btn.help": "❓ Help",
-
   "prompt.discard": "✍️ **Type** to discard; for other actions see “Help”",
   "prompt.remain": "({n}s left)",
   "prompt.riichi_locked": "🀄 **Riichi**: auto-tsumogiri; you may press “Tsumo”",
   "prompt.riichi_declared": "🀄 Riichi declared: **type** your declared discard (press “Riichi” again to cancel)",
   "prompt.riichi_auto": "🀄 **Riichi**: auto-tsumogiri (Tsumo available)",
-
   "tenpai.advice_title": "💡 **Tenpai options**:",
   "tenpai.line": "# Discard {d} → wait {waits}",
   "tenpai.expl_no_yaku": "“No yaku”: no yaku, can't win",
   "tenpai.expl_ron_only": "“No-yaku Ron”: can't Ron without Riichi; need **Riichi** or Tsumo",
   "tenpai.expl_furiten": "“Furiten”: Tsumo only, no Ron",
-
   "panel.your_hand": "Your hand",
   "panel.river": "River",
   "panel.melds": "Melds",
   "panel.none": "(none)",
   "panel.waiting_start": "(waiting to start)",
-
   "river.title": "🀫 All rivers",
   "river.none": "(none)",
   "river.snapshot": "＊Snapshot; close and press again for the latest.",
-
   "score.title": "📊 Scores / Standings",
   "score.point": "pts",
-
   "meld.title": "🀜 All melds",
   "meld.none": "(no melds yet)",
-
   "actionlog.title": "📜 Hand log",
   "actionlog.empty": "(nothing yet)",
-
   "win.points": "{n} pts",
   "win.han_fu": "{han} han {fu} fu",
-
   "toggle.on": "On",
   "toggle.off": "Off",
-
   "settings.prompt": "⚙️ Choose game settings, then press ✅ Confirm:",
   "settings.numbers": "⚙️ Values",
   "settings.numbers_title": "⚙️ Value Settings",
@@ -221,12 +193,10 @@
   "settings.points_ph": "4P default 25000, 3P default 35000",
   "settings.saved": "✅ Set: think {tt}s, start {pt}",
   "settings.default": "default",
-
   "err.seconds_num": "❌ Seconds must be a number",
   "err.seconds_range": "❌ Seconds must be between 5 and 300",
   "err.points_num": "❌ Start points must be a number",
   "err.points_range": "❌ Start points must be 0 – 1000000",
-
   "yaku.立直": "Riichi",
   "yaku.兩立直": "Double Riichi",
   "yaku.一發": "Ippatsu",
@@ -257,7 +227,6 @@
   "yaku.河底撈魚": "Houtei",
   "yaku.嶺上開花": "Rinshan Kaihou",
   "yaku.槍槓": "Chankan",
-
   "yaku.國士無雙十三面": "Thirteen Orphans (13-wait)",
   "yaku.國士無雙": "Thirteen Orphans",
   "yaku.天和": "Tenhou (Blessing of Heaven)",
@@ -273,12 +242,10 @@
   "yaku.四槓子": "Suukantsu",
   "yaku.純正九蓮寶燈": "Pure Nine Gates",
   "yaku.九蓮寶燈": "Nine Gates",
-
   "yaku.寶牌": "Dora",
   "yaku.赤寶牌": "Red Dora",
   "yaku.裏寶牌": "Ura Dora",
   "yaku.北寶牌": "Kita Dora",
-
   "yaku.滿貫": "Mangan",
   "yaku.跳滿": "Haneman",
   "yaku.倍滿": "Baiman",

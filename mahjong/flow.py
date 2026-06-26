@@ -197,17 +197,21 @@ async def _archive_threads(th: dict) -> None:
             pass
 
 
-async def _delete_threads(th: dict) -> None:
-    """刪除對局的所有討論串與開局公告（用於 /end 強制結束）。"""
+async def _delete_threads(th: dict) -> int:
+    """刪除對局的所有討論串與開局公告（用於 /end 強制結束）。回傳刪除失敗的數量。"""
     await _delete_announce(th)
     threads = [th.get("public")] + list(th.get("private", {}).values())
+    failed = 0
     for t in threads:
         if t is None:
             continue
         try:
             await t.delete()
-        except Exception:
-            pass
+        except Exception as e:
+            failed += 1
+            print(f"[threads] 刪除討論串失敗（{getattr(t, 'name', '?')}）：{e!r}"
+                  f"　← 多半是機器人缺『管理討論串』權限")
+    return failed
 
 
 async def _delete_threads_later(th: dict, delay: float = 60.0) -> None:

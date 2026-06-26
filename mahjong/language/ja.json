@@ -1,32 +1,26 @@
 {
   "_name": "日本語",
-
   "language.choose": "表示言語を選んでください（現在：{cur}）：",
   "language.set": "✅ 言語を「{name}」に設定しました。",
   "language.button_translate": "🌐 翻訳",
-
   "lobby.title": "麻雀ルーム開設！",
   "lobby.info": "モード：{mode}　戦長：{length}　飛び：{tobi}　思考：{tt}秒",
   "lobby.players": "プレイヤー（{cur}/{max}）：",
   "lobby.join_hint": "ボタンで参加、または房主が AI で空席を埋められます！",
   "lobby.full": "✅ **満員！まもなく開始します！**",
-
   "mode.yonma": "四人打ち",
   "mode.sanma": "三人打ち",
   "len.tonpuu": "東風戦",
   "len.hanchan": "半荘戦",
-
   "wind.0": "東",
   "wind.1": "南",
   "wind.2": "西",
   "wind.3": "北",
-
   "board.round": "{wind}{num}局",
   "board.summary": "{honba}本場　供託 {sticks}　残り {wall}",
   "board.honba_wall": "{honba}本場　残り {wall}",
   "board.dora": "ドラ",
   "board.ura_dora": "裏ドラ",
-
   "action.tsumo": "ツモ",
   "action.ron": "ロン",
   "action.riichi": "リーチ",
@@ -39,18 +33,15 @@
   "action.skip": "スキップ",
   "action.tsumogiri": "ツモ切り",
   "action.tegiri": "手切り",
-
   "term.tenpai": "テンパイ",
   "term.furiten": "フリテン",
   "term.noten": "ノーテン",
   "term.menzen": "門前",
   "term.no_yaku": "役なし",
   "term.ron_no_yaku": "ロン役なし",
-
   "label.riichi_tag": "【リーチ】",
   "label.riichi_done": "【リーチ済み】",
   "label.kita": "北抜き×{n}",
-
   "feed.last_discard": "🀫 {wind} {who} の捨て牌",
   "feed.tsumo": "🎉 {name} ツモ！",
   "feed.kita": "{name} 北抜き ×{n}",
@@ -71,17 +62,14 @@
   "feed.word_timeout": "時間切れ自動打牌",
   "feed.word_discard": "打牌",
   "feed.tenpai_note": "🀄 **テンパイ！** 待ち：{waits}",
-
   "react.discarded": "## ⬇️ {who} の打牌",
   "react.chi_combo": "# チー {combo}",
   "react.chi_combo_n": "# チー{circ} {combo}",
   "react.choose": "選んでください（残り {n} 秒）",
   "react.chankan": "## 🀄 {name} が加槓宣言\n# {tile}\nこの牌でロン（槍槓）できる人は押してください；残り {n} 秒",
   "react.chankan_btn": "槍槓ロン",
-
   "status.no_game": "❌ このチャンネルに進行中の対局はありません。",
   "status.waiting": "🕐 プレイヤー待ち…（{cur}/{max}）",
-
   "stats.title": "📊 {name} の成績",
   "stats.games": "対局数",
   "stats.avg_rank": "平均順位",
@@ -103,7 +91,6 @@
   "stats.avg_houju": "放銃平均失点",
   "stats.placement": "順位分布",
   "stats.rates_note": "比率は牌譜のある {n} 局から",
-
   "action.kyuushu": "🀫 流局（九種九牌）",
   "feed.kyuushu": "🀫 {name} が九種九牌で流局を宣言",
   "result.kyuushu": "🀄 流局（九種九牌）",
@@ -115,7 +102,6 @@
   "result.suukaikan": "🀄 流局（四槓散了）",
   "feed.sanchahou": "🀫 三家和 — 三人が同時に栄和",
   "result.sanchahou": "🀄 流局（三家和）",
-
   "msg.not_your_turn": "❌ あなたの番ではありません",
   "msg.not_your_reaction": "❌ あなたの反応ではありません",
   "msg.game_ended": "❌ 対局は終了しました。",
@@ -141,10 +127,9 @@
   "msg.no_game": "❌ 進行中の対局はありません。",
   "msg.only_host_end": "❌ 対局を終了できるのは房主のみです。",
   "msg.game_ended_forced": "✅ 対局を強制終了しました。スレッドを閉じます。",
+  "msg.thread_delete_fail": "⚠️ 一部のスレッドを削除できませんでした。Botに「スレッドの管理」権限があるか確認してください。",
   "msg.no_stats": "❌ まだ対局記録がありません。",
-
   "help.text": "**🀄 操作説明（自分の個人スレッドに直接入力）**\n自分の番になったら、個人スレッドに下記を入力してください（入力後 bot が自動で削除）：\n\n**打牌**\n・数牌：`1m`〜`9m`（萬）、`1p`〜`9p`（筒）、`1s`〜`9s`（索）、大文字小文字どちらでも\n・赤ドラ：`0m` / `0p` / `0s`\n・字牌：`東/南/西/北`（または `e/s/w/n`）、`中`(=`r`)、`白`(=`wh`)、`發`(=`g`)\n\n**特殊操作**\n・ツモ：`tsumo`\n・リーチ：`立直 5m`（切る牌を指定）\n・暗槓：`暗槓 5m`\n・北抜き（三人打ち）：`!n`\n\n**他家の打牌への反応**\n・`ron` ロン、`pon` ポン、`chi 1` チー（番号選択）、`kan` カン、`skip` スキップ",
-
   "result.tsumo": "{name}　ツモ！",
   "result.ron": "{name}　ロン！（放銃：{loser}）",
   "result.draw_title": "🀄 流局",
@@ -152,55 +137,43 @@
   "result.nobody": "なし",
   "result.nagashi": "流し満貫！{names}",
   "result.all_last": "オーラス（最終局）",
-
   "standings.title": "🏁 最終順位",
   "standings.rank": "{rank}位",
   "standings.settle": "精算",
-
   "countdown.line": "⏳ {n} 秒後に{tail}…",
   "countdown.next_hand": "次局へ",
   "countdown.end": "対局終了",
-
   "btn.river": "🀫 河を見る",
   "btn.score": "📊 点数",
   "btn.meld": "🀜 副露",
   "btn.log": "📜 ログ",
   "btn.help": "❓ ヘルプ",
-
   "prompt.discard": "✍️ **打字**で捨て牌；他の操作は「ヘルプ」へ",
   "prompt.remain": "（残り {n} 秒）",
   "prompt.riichi_locked": "🀄 **リーチ中**：自動ツモ切り、「ツモ」可",
   "prompt.riichi_declared": "🀄 リーチ宣言済み：**打字**で宣言牌を切ってください（「リーチ」をもう一度押すと取消）",
   "prompt.riichi_auto": "🀄 **リーチ済み**：自動ツモ切り（ツモ可）",
-
   "tenpai.advice_title": "💡 **テンパイ可能**：",
   "tenpai.line": "# {d} 切り → {waits} 待ち",
   "tenpai.expl_no_yaku": "「役なし」は役がつかず和了できません",
   "tenpai.expl_ron_only": "「ロン役なし」リーチしないとロンできません（ツモは可）",
   "tenpai.expl_furiten": "「フリテン」はツモのみ、ロン不可",
-
   "panel.your_hand": "あなたの手牌",
   "panel.river": "河",
   "panel.melds": "副露",
   "panel.none": "（なし）",
   "panel.waiting_start": "（開始待ち）",
-
   "river.title": "🀫 各家の河",
   "river.none": "（なし）",
   "river.snapshot": "＊現在のスナップショットです。閉じてもう一度押すと最新を表示します。",
-
   "score.title": "📊 点数 / 順位",
   "score.point": "点",
-
   "meld.title": "🀜 各家の副露",
   "meld.none": "（副露なし）",
-
   "actionlog.title": "📜 この局の動き",
   "actionlog.empty": "（まだありません）",
-
   "win.points": "{n}点",
   "win.han_fu": "{han}飜{fu}符",
-
   "yaku.立直": "立直",
   "yaku.兩立直": "両立直",
   "yaku.一發": "一発",
@@ -231,7 +204,6 @@
   "yaku.河底撈魚": "河底撈魚",
   "yaku.嶺上開花": "嶺上開花",
   "yaku.槍槓": "槍槓",
-
   "yaku.國士無雙十三面": "国士無双十三面",
   "yaku.國士無雙": "国士無双",
   "yaku.天和": "天和",
@@ -247,12 +219,10 @@
   "yaku.四槓子": "四槓子",
   "yaku.純正九蓮寶燈": "純正九蓮宝燈",
   "yaku.九蓮寶燈": "九蓮宝燈",
-
   "yaku.寶牌": "ドラ",
   "yaku.赤寶牌": "赤ドラ",
   "yaku.裏寶牌": "裏ドラ",
   "yaku.北寶牌": "北ドラ",
-
   "yaku.滿貫": "満貫",
   "yaku.跳滿": "跳満",
   "yaku.倍滿": "倍満",
@@ -260,10 +230,8 @@
   "yaku.役滿": "役満",
   "yaku.累計役滿": "数え役満",
   "yaku.流局滿貫": "流し満貫",
-
   "toggle.on": "オン",
   "toggle.off": "オフ",
-
   "settings.prompt": "⚙️ ゲーム設定を選び、完了したら ✅ 確定 を押してください：",
   "settings.numbers": "⚙️ 数値設定",
   "settings.numbers_title": "⚙️ 数値設定",
@@ -281,7 +249,6 @@
   "settings.points_ph": "四人 25000、三人 35000",
   "settings.saved": "✅ 設定：思考 {tt} 秒、持ち点 {pt}",
   "settings.default": "既定",
-
   "err.seconds_num": "❌ 秒数は数字で入力してください",
   "err.seconds_range": "❌ 秒数は 5〜300 の範囲です",
   "err.points_num": "❌ 持ち点は数字で入力してください",

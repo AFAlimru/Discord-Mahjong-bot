@@ -1,32 +1,26 @@
 {
   "_name": "繁體中文",
-
   "language.choose": "選擇你的顯示語言（目前：{cur}）：",
   "language.set": "✅ 已將你的語言設定為「{name}」。",
   "language.button_translate": "🌐 翻譯",
-
   "lobby.title": "麻將房間開啟！",
   "lobby.info": "模式：{mode}　戰長：{length}　擊飛：{tobi}　思考：{tt} 秒",
   "lobby.players": "玩家（{cur}/{max}）：",
   "lobby.join_hint": "點擊按鈕加入，或由房主加入 AI 填滿空位！",
   "lobby.full": "✅ **人數已滿，遊戲即將開始！**",
-
   "mode.yonma": "四麻",
   "mode.sanma": "三麻",
   "len.tonpuu": "東風戰",
   "len.hanchan": "半莊戰",
-
   "wind.0": "東",
   "wind.1": "南",
   "wind.2": "西",
   "wind.3": "北",
-
   "board.round": "{wind}{num}局",
   "board.summary": "本場 {honba}　立直棒 {sticks}　牌山 {wall}",
   "board.honba_wall": "本場 {honba}　牌山 {wall}",
   "board.dora": "寶牌",
   "board.ura_dora": "裏寶牌",
-
   "action.tsumo": "自摸",
   "action.ron": "榮和",
   "action.riichi": "立直",
@@ -39,18 +33,15 @@
   "action.skip": "跳過",
   "action.tsumogiri": "摸切",
   "action.tegiri": "手切",
-
   "term.tenpai": "聽牌",
   "term.furiten": "振聽",
   "term.noten": "未聽",
   "term.menzen": "門清",
   "term.no_yaku": "無役",
   "term.ron_no_yaku": "無役",
-
   "label.riichi_tag": "【立直】",
   "label.riichi_done": "【已立直】",
   "label.kita": "拔北×{n}",
-
   "feed.last_discard": "🀫 上家：{wind} {who} 打出",
   "feed.tsumo": "🎉 {name} 自摸！",
   "feed.kita": "{name} 拔北 ×{n}",
@@ -71,17 +62,14 @@
   "feed.word_timeout": "超時自動打出",
   "feed.word_discard": "出牌了",
   "feed.tenpai_note": "🀄 **聽牌！** 待牌：{waits}",
-
   "react.discarded": "## ⬇️ {who} 打出",
   "react.chi_combo": "# 吃 {combo}",
   "react.chi_combo_n": "# 吃{circ} {combo}",
   "react.choose": "請選擇（剩 {n} 秒）",
   "react.chankan": "## 🀄 {name} 宣告加槓\n# {tile}\n可榮和此牌（搶槓）的玩家請按；剩 {n} 秒",
   "react.chankan_btn": "搶槓榮和",
-
   "status.no_game": "❌ 此頻道沒有進行中的牌局。",
   "status.waiting": "🕐 等待玩家中…（{cur}/{max}）",
-
   "stats.title": "📊 {name} 的統計",
   "stats.games": "場次",
   "stats.avg_rank": "平均順位",
@@ -103,7 +91,6 @@
   "stats.avg_houju": "放銃平均失點",
   "stats.placement": "順位分布",
   "stats.rates_note": "比率取自有牌譜的 {n} 局",
-
   "action.kyuushu": "🀫 流局（九種九牌）",
   "feed.kyuushu": "🀫 {name} 宣告九種九牌流局",
   "result.kyuushu": "🀄 流局（九種九牌）",
@@ -115,7 +102,6 @@
   "result.suukaikan": "🀄 流局（四槓散了）",
   "feed.sanchahou": "🀫 三家和 — 三家同時榮和",
   "result.sanchahou": "🀄 流局（三家和）",
-
   "msg.not_your_turn": "❌ 不是你的回合",
   "msg.not_your_reaction": "❌ 不是你的回應",
   "msg.game_ended": "❌ 牌局已結束。",
@@ -141,10 +127,9 @@
   "msg.no_game": "❌ 沒有進行中的牌局。",
   "msg.only_host_end": "❌ 只有房主可以結束牌局。",
   "msg.game_ended_forced": "✅ 牌局已強制結束，討論串將關閉。",
+  "msg.thread_delete_fail": "⚠️ 有討論串刪不掉。請到此頻道的權限設定，確認機器人有「管理討論串」權限。",
   "msg.no_stats": "❌ 你還沒有遊戲記錄。",
-
   "help.text": "**🀄 操作說明（直接在你的私人討論串打字）**\n輪到你時，直接在自己的私人討論串輸入下列指令（打完 bot 會自動刪字）：\n\n**出牌**\n・數字牌：`1m`~`9m`（萬）、`1p`~`9p`（筒）、`1s`~`9s`（索），大小寫皆可\n・紅寶牌：`0m` / `0p` / `0s`\n・字牌：`東/南/西/北`（或 `e/s/w/n`）、`中`(=`r`)、`白`(=`wh`)、`發`(=`g`)\n\n**特殊行動**\n・自摸：`tsumo`\n・立直：`立直 5m`（指定要打出的牌）\n・暗槓：`暗槓 5m`\n・拔北（三麻）：`!n`\n\n**別人打牌時可回應**\n・`ron` 榮和、`pon` 碰、`chi 1` 吃（選編號）、`kan` 槓、`skip` 跳過",
-
   "result.tsumo": "{name}　自摸！",
   "result.ron": "{name}　榮和！（放銃：{loser}）",
   "result.draw_title": "🀄 流局",
@@ -152,58 +137,45 @@
   "result.nobody": "無人",
   "result.nagashi": "流局滿貫！{names}",
   "result.all_last": "ALL LAST　最終局",
-
   "standings.title": "🏁 最終順位",
   "standings.rank": "第 {rank} 位",
   "standings.settle": "精算",
-
   "countdown.line": "⏳ {n} 秒後{tail}…",
   "countdown.next_hand": "進入下一局",
   "countdown.end": "結束對局",
-
   "btn.river": "🀫 看牌河",
   "btn.score": "📊 看點數",
   "btn.meld": "🀜 看副露",
   "btn.log": "📜 看動態",
   "btn.help": "❓ 說明",
-
   "prompt.discard": "✍️ **打字**丟牌；其他行動請看「說明」",
   "prompt.remain": "（剩 {n} 秒）",
   "prompt.riichi_locked": "🀄 **已立直**：將自動摸切，可按「自摸」",
   "prompt.riichi_declared": "🀄 已宣告立直，請**打字**打出宣言牌（再按一次「立直」可取消）",
   "prompt.riichi_auto": "🀄 **已立直**：自動摸切（可自摸）",
-
   "tenpai.advice_title": "💡 **可進聽**：",
   "tenpai.line": "# 打 {d} → 聽 {waits}",
   "tenpai.expl_no_yaku": "「無役」湊不出役、不可和",
   "tenpai.expl_ron_only": "「無役」未立直不能榮和，需**立直**或自摸",
   "tenpai.expl_furiten": "「振聽」只能自摸、不能榮和",
-
   "panel.your_hand": "你的手牌",
   "panel.river": "牌河",
   "panel.melds": "副露",
   "panel.none": "（無）",
   "panel.waiting_start": "（等待開始）",
-
   "river.title": "🀫 各家牌河",
   "river.none": "（無）",
   "river.snapshot": "＊這是當下快照；關閉後再按一次可看最新。",
-
   "score.title": "📊 點數 / 順位",
   "score.point": "點",
-
   "meld.title": "🀜 各家副露",
   "meld.none": "（目前無人副露）",
-
   "actionlog.title": "📜 本局動態",
   "actionlog.empty": "（尚無動作）",
-
   "win.points": "{n} 點",
   "win.han_fu": "{han} 飜 {fu} 符",
-
   "toggle.on": "開啟",
   "toggle.off": "關閉",
-
   "settings.prompt": "⚙️ 請設定遊戲選項，完成後按 ✅ 確認：",
   "settings.numbers": "⚙️ 數值設定",
   "settings.numbers_title": "⚙️ 數值設定",
@@ -221,7 +193,6 @@
   "settings.points_ph": "四麻預設 25000、三麻預設 35000",
   "settings.saved": "✅ 已設定：思考 {tt} 秒、起始 {pt}",
   "settings.default": "預設",
-
   "err.seconds_num": "❌ 秒數應為數字",
   "err.seconds_range": "❌ 秒數應在 5-300 之間",
   "err.points_num": "❌ 起始點數應為數字",
