@@ -30,6 +30,8 @@ _user_game:     dict = {}
 _game_tasks:    dict = {}
 # game_id -> LobbyView（供 /join 更新大廳訊息）
 _lobbies:       dict = {}
+# 段位賽全域匹配佇列（跨伺服器）：mode -> [{"uid","name","user","lang","since"}]
+_rank_queue:    dict = {"yonma": [], "sanma": []}
 
 # ── 0.2 討論串 ──
 # game_id -> {"public","board_msg","private":{uid:Thread},"hand_msg":{uid:Message},"announce"}

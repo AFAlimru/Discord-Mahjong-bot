@@ -1128,7 +1128,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
     length       = config.get("length", "tonpuu")
     tobi         = config.get("tobi", True)
     players_info = _waiting.get(gid, [])
-    channel_id   = str(channel.id)
+    channel_id   = str(channel.id) if channel is not None else gid   # 段位賽 DM 無頻道
     th           = _threads[gid]
     public       = th["public"]
     tsumo_ct  = Counter()   # 自摸次數
@@ -1257,7 +1257,8 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             # 公開串用母本語言，各私人串用該玩家語言。每則 = (訊息, 完整文字, 語言)
             # 公開串訊息保留為紀錄、私人串訊息換局前刪除，故分開收集。
             private = th.get("private", {})
-            targets = [(public, i18n.DEFAULT)] + \
+            pub_count = 1 if public is not None else 0   # DM 段位賽無公開串
+            targets = ([(public, i18n.DEFAULT)] if public is not None else []) + \
                       [(private[uid], i18n.get_user_lang(uid)) for uid in private]
             pub_pairs, priv_pairs = [], []
 
@@ -1277,7 +1278,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 for idx, rl in enumerate(res_lists):
                     if isinstance(rl, Exception):
                         continue
-                    (pub_pairs if idx == 0 else priv_pairs).extend(rl)
+                    (pub_pairs if idx < pub_count else priv_pairs).extend(rl)
             elif result is not None:
                 cer = await asyncio.gather(
                     *[win_ceremony(ch, gs, header_key, header_kw, hand_str, result, log, lg)
@@ -1287,10 +1288,11 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 for idx, c in enumerate(cer):
                     if isinstance(c, Exception):
                         continue
-                    (pub_pairs if idx == 0 else priv_pairs).append(c)
+                    (pub_pairs if idx < pub_count else priv_pairs).append(c)
             else:
-                pub_text = result_body("", "", None, log, gs, tenpai, i18n.DEFAULT, draw_key)
-                pub_pairs.append((await public.send(pub_text), pub_text, i18n.DEFAULT))
+                if public is not None:
+                    pub_text = result_body("", "", None, log, gs, tenpai, i18n.DEFAULT, draw_key)
+                    pub_pairs.append((await public.send(pub_text), pub_text, i18n.DEFAULT))
                 for uid, pt in private.items():
                     lg = i18n.get_user_lang(uid)
                     txt = result_body("", "", None, log, gs, tenpai, lg, draw_key)
@@ -1399,7 +1401,36 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 )
             except Exception as e:
                 print(f"[stats] add_game_record 失敗：{e}")
-        if th.get("board_msg") is not None:
+
+        # 段位賽：更新段位／R，並把變化通知各玩家
+        if config.get("ranked"):
+            try:
+                from . import rating as _rt
+                results = [(p.user_id, rank_of[p.user_id]) for p in gs.players]
+                names   = {p.user_id: p.username for p in gs.players}
+                before  = {p.user_id: db.get_rating(p.user_id, mode)
+                           for p in gs.players if not p.is_bot}
+                updated = db.apply_ranked_game(mode, results, names)
+                for uid, v in updated.items():
+                    pt = th.get("private", {}).get(uid)
+                    if not pt:
+                        continue
+                    lg = i18n.get_user_lang(uid)
+                    b  = before.get(uid) or {}
+                    dr = v["rate"] - b.get("rate", _rt.START_RATE)
+                    try:
+                        await pt.send(i18n.t(
+                            "rank.result", lg, dan=_rt.dan_name(v["dan_idx"]),
+                            pt=v["dan_pt"], rate=v["rate"],
+                            dr=(f"+{dr:.1f}" if dr >= 0 else f"{dr:.1f}")))
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"[rank] 段位結算失敗：{e}")
+
+        if th.get("is_dm"):
+            pass   # 段位賽走 DM，不封存／刪除（DM 自然保留）
+        elif th.get("board_msg") is not None:
             # 觀戰：保留約一分鐘讓大家看結果，再刪除討論串
             await _delete_announce(th)
             _schedule_delete_threads(th, 60)
@@ -1562,6 +1593,77 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════
+#  段位賽（DM 制、跨伺服器匹配）
+# ═══════════════════════════════════════════════════════════════
+
+async def setup_dms(gid: str, gs: GameState, users: dict) -> None:
+    """段位賽：以每位玩家的 DM 作為私人手牌通道（無公開串）。users: {uid: discord.User}。"""
+    private: dict[str, discord.abc.Messageable] = {}
+    hand_msg: dict[str, discord.Message] = {}
+    for p in gs.players:
+        if p.is_bot:
+            continue
+        _lang = i18n.get_user_lang(p.user_id)
+        user  = users.get(p.user_id)
+        dm    = (user.dm_channel or await user.create_dm()) if user else None
+        if dm is None:
+            raise RuntimeError(f"無法建立 {p.username} 的 DM 頻道")
+        await dm.send(i18n.t("rank.matched", _lang))
+        hm = await dm.send(make_hand_panel(p, i18n.t("panel.waiting_start", _lang),
+                                           board_info=_board_info(gs, _lang),
+                                           river_info=river_panel(gs, _lang), lang=_lang),
+                           view=make_hand_view(gid, _lang))
+        private[p.user_id]  = dm
+        hand_msg[p.user_id] = hm
+    _threads[gid] = {"public": None, "board_msg": None, "is_dm": True,
+                     "private": private, "hand_msg": hand_msg, "result_msg": None}
+
+
+async def launch_ranked_game(players: list[dict], mode: str) -> None:
+    """配對成功 → 開一場段位賽（全真人、DM 制）。players: [{"uid","name","user","lang"}]。"""
+    import uuid
+    is_sanma = (mode == "sanma")
+    gid  = str(uuid.uuid4())[:8]
+    info = [{"user_id": p["uid"], "username": p["name"], "is_bot": False} for p in players]
+    _waiting[gid]      = info
+    _room_configs[gid] = {
+        "is_sanma": is_sanma, "thinking_time": 30, "max_players": len(players),
+        "length": "hanchan", "tobi": True, "ruleset": "tenhou", "start_points": None,
+        "lang": i18n.DEFAULT, "ranked": True, "open_hand": False,
+    }
+    gs = new_game(gid, info, is_sanma)
+    _games[gid] = gs
+    for p in gs.players:
+        _user_game[p.user_id] = gid
+    rooms.register(gid, "dm", "dm")
+    try:
+        db.create_game(gid, "dm", "dm", gs.wall_seed, room_no=rooms.room_no(gid))
+        db.update_game_state(gid, "playing", gs.to_dict())
+        db.set_room_config(gid, _room_configs[gid])
+        db.log_action(gid, 0, {
+            "t": "gamestart", "mode": mode, "start": 35000 if is_sanma else 25000,
+            "players": {p.user_id: {"seat": p.seat, "name": p.username, "bot": p.is_bot}
+                        for p in gs.players},
+        })
+    except Exception as e:
+        print(f"[rank] launch DB 失敗：{e}")
+    users = {p["uid"]: p["user"] for p in players}
+    try:
+        await setup_dms(gid, gs, users)
+    except Exception as e:
+        print(f"[rank] setup_dms 失敗：{e}")
+        for p in players:           # 失敗 → 通知並清掉狀態
+            try:
+                await p["user"].send(i18n.t("rank.dm_fail", p.get("lang", i18n.DEFAULT)))
+            except Exception:
+                pass
+        _cleanup(gid, gid)
+        return
+    rooms.set_status(gid, "playing")
+    _game_tasks[gid] = asyncio.create_task(match_loop_t(gid, None))
+
+
+# ═══════════════════════════════════════════════════════════════
 #  重連回復：機器人重啟後，把中斷的對局交給玩家決定繼續／結束
 # ═══════════════════════════════════════════════════════════════
 
@@ -1583,6 +1685,12 @@ async def recover_interrupted_games(bot) -> None:
     for g in games:
         gid = g["game_id"]
         if gid in _games:                      # 仍在記憶體中（短暫重連）→ 不算中斷
+            continue
+        if g.get("channel_id") == "dm":        # 段位賽 DM 局：跨伺服器無法重建 → 直接結束
+            try:
+                db.finish_game(gid, g["game_data"])
+            except Exception:
+                pass
             continue
         try:
             cid = int(g["channel_id"])

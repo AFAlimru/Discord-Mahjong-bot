@@ -197,5 +197,13 @@
   "err.seconds_num": "❌ 秒數應為數字",
   "err.seconds_range": "❌ 秒數應在 5-300 之間",
   "err.points_num": "❌ 起始點數應為數字",
-  "err.points_range": "❌ 起始點數需介於 0 ~ 1000000"
+  "err.points_range": "❌ 起始點數需介於 0 ~ 1000000",
+  "rank.in_game": "❌ 你正在一場對局中，無法排段位賽。",
+  "rank.queued": "🎴 已加入段位賽排隊（{cur}/{max}）…湊滿就自動開局。對局會在你和機器人的**私訊**進行，請確認你允許伺服器成員私訊你。",
+  "rank.already": "🎴 你已在段位賽排隊中（{cur}/{max}）。",
+  "rank.left": "🚪 已離開段位賽排隊。",
+  "rank.matched_you": "✅ 配對成功！請到與機器人的**私訊**開始段位賽。",
+  "rank.matched": "🎴 **段位賽配對成功！** 對局即將在此私訊開始，祝你好運！",
+  "rank.dm_fail": "❌ 段位賽無法開始：我無法私訊你。請到隱私設定允許「伺服器成員私訊」後再排一次。",
+  "rank.result": "🏅 段位賽結束：**{dan}**（{pt}pt）・R {rate}（{dr}）"
 }

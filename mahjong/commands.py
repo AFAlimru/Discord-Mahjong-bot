@@ -25,7 +25,8 @@ from . import rooms
 from .render import make_board_text
 from .ui import HelpButton, help_text
 from .views import RoomSettingsView
-from .flow import launch_game, _cleanup, _delete_threads, _delete_announce
+from .flow import launch_game, launch_ranked_game, _cleanup, _delete_threads, _delete_announce
+from . import matchmaking
 from .state import (
     _games, _channel_games, _waiting, _room_owners, _room_configs, _user_game,
     _game_tasks, _lobbies, _threads, _thread_game,
@@ -432,6 +433,11 @@ async def cmd_stats(interaction: discord.Interaction) -> None:
             (f"`{L('stats.top_rate')}` {pct(r[0], g)}　`{L('stats.rentai')}` {pct(r[0] + r[1], g)}"
              f"　`{L('stats.last_rate')}` {pct(last, g)}"),
         ]
+        dan = db.get_rating(uid, mode)
+        if dan and dan["games"]:
+            from . import rating as _rt
+            lines.insert(0, f"🏅 **{_rt.dan_name(dan['dan_idx'])}**（{dan['dan_pt']}pt）"
+                            f"　`R` {dan['rate']:.0f}　`{L('stats.games')}` {dan['games']}")
         rt = db.get_hand_rates(uid, mode)
         if rt["hands"]:
             h, ag = rt["hands"], rt["agari"]
@@ -450,6 +456,41 @@ async def cmd_stats(interaction: discord.Interaction) -> None:
         embed.add_field(name=i18n.t("mode.yonma" if is4 else "mode.sanma", lang),
                         value="\n".join(lines), inline=False)
     await interaction.response.send_message(embed=embed)   # 公開顯示（非 ephemeral）
+
+
+class RankQueueView(discord.ui.View):
+    """段位賽排隊中的「離開」按鈕。"""
+    def __init__(self, lang: str):
+        super().__init__(timeout=900)
+        self.lang = lang
+
+    @discord.ui.button(label="🚪 離開排隊", style=discord.ButtonStyle.danger)
+    async def leave_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        lang = i18n.get_user_lang(interaction.user.id)
+        matchmaking.leave(str(interaction.user.id))
+        for c in self.children:
+            c.disabled = True
+        await interaction.response.edit_message(content=i18n.t("rank.left", lang), view=self)
+        self.stop()
+
+
+@mahjong.command(name="rank", description="段位賽：加入全域匹配排隊（對局在你的私訊進行）")
+@app_commands.describe(sanma="改排三人麻將段位賽")
+async def cmd_rank(interaction: discord.Interaction, sanma: bool = False) -> None:
+    lang = i18n.get_user_lang(interaction.user.id)
+    res  = matchmaking.join(interaction.user, sanma)
+    kind = res[0]
+    if kind == "in_game":
+        await interaction.response.send_message(i18n.t("rank.in_game", lang), ephemeral=True)
+    elif kind in ("queued", "already"):
+        _, cur, mx = res
+        key = "rank.queued" if kind == "queued" else "rank.already"
+        await interaction.response.send_message(
+            i18n.t(key, lang, cur=cur, max=mx), ephemeral=True, view=RankQueueView(lang))
+    elif kind == "matched":
+        _, players, mode = res
+        await interaction.response.send_message(i18n.t("rank.matched_you", lang), ephemeral=True)
+        await launch_ranked_game(players, mode)
 
 
 @mahjong.command(name="repair", description="掃描並修復戰績資料（限管理員）")

@@ -253,5 +253,13 @@
   "yaku.三倍滿": "Sanbaiman",
   "yaku.役滿": "Yakuman",
   "yaku.累計役滿": "Counted Yakuman",
-  "yaku.流局滿貫": "Nagashi Mangan"
+  "yaku.流局滿貫": "Nagashi Mangan",
+  "rank.in_game": "❌ You're already in a game; can't queue for ranked.",
+  "rank.queued": "🎴 Joined the ranked queue ({cur}/{max})… auto-starts when full. The game runs in your DM with the bot — make sure you allow DMs from server members.",
+  "rank.already": "🎴 You're already in the ranked queue ({cur}/{max}).",
+  "rank.left": "🚪 Left the ranked queue.",
+  "rank.matched_you": "✅ Matched! Head to your DM with the bot to start the ranked game.",
+  "rank.matched": "🎴 **Ranked match found!** Your game is starting in this DM — good luck!",
+  "rank.dm_fail": "❌ Can't start ranked: I couldn't DM you. Allow DMs from server members in your privacy settings and queue again.",
+  "rank.result": "🏅 Ranked game over: **{dan}** ({pt}pt) · R {rate} ({dr})"
 }
