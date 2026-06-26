@@ -493,6 +493,39 @@ async def cmd_rank(interaction: discord.Interaction, sanma: bool = False) -> Non
         await launch_ranked_game(players, mode)
 
 
+@mahjong.command(name="rankinfo", description="段位／R 與段位賽說明")
+async def cmd_rankinfo(interaction: discord.Interaction) -> None:
+    from . import rating
+    lang   = i18n.get_user_lang(interaction.user.id)
+    ladder = "　→　".join(rating.DAN_NAMES)
+    await interaction.response.send_message(i18n.t("rank.info", lang, ladder=ladder), ephemeral=True)
+
+
+@mahjong.command(name="daily", description="每日簽到，獲得活躍度")
+async def cmd_daily(interaction: discord.Interaction) -> None:
+    lang = i18n.get_user_lang(interaction.user.id)
+    r = db.checkin(str(interaction.user.id), interaction.user.display_name)
+    key = "daily.already" if r["already"] else "daily.done"
+    await interaction.response.send_message(
+        i18n.t(key, lang, reward=r["reward"], streak=r["streak"], activity=r["activity"]),
+        ephemeral=True)
+
+
+@mahjong.command(name="tasks", description="查看每日任務與活躍度")
+async def cmd_tasks(interaction: discord.Interaction) -> None:
+    lang = i18n.get_user_lang(interaction.user.id)
+    s    = db.task_status(str(interaction.user.id))
+    mk   = lambda b: i18n.t("task.done" if b else "task.todo", lang)
+    embed = discord.Embed(title=i18n.t("task.title", lang), color=0x9ECE6A)
+    embed.description = (
+        f"{mk(s['checkin'])} {i18n.t('task.checkin', lang)}\n"
+        f"{mk(s['played'])} {i18n.t('task.play', lang)}\n\n"
+        f"{i18n.t('task.activity', lang)} **{s['activity']}**　"
+        f"{i18n.t('task.streak', lang)} **{s['streak']}**"
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 @mahjong.command(name="repair", description="掃描並修復戰績資料（限管理員）")
 async def cmd_repair(interaction: discord.Interaction) -> None:
     perms = getattr(interaction.user, "guild_permissions", None)

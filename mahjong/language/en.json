@@ -262,5 +262,15 @@
   "rank.matched": "🎴 **Ranked match found!** Your game is starting in this DM — good luck!",
   "rank.dm_fail": "❌ Can't start ranked: I couldn't DM you. Allow DMs from server members in your privacy settings and queue again.",
   "rank.result": "🏅 Ranked game over: **{dan}** ({pt}pt) · R {rate} ({dr})",
-  "rank.timeout": "⏳ No ranked match within 10 minutes — you've been removed from the queue. Run `/mahjong rank` to try again."
+  "rank.timeout": "⏳ No ranked match within 10 minutes — you've been removed from the queue. Run `/mahjong rank` to try again.",
+  "rank.info": "🏅 **Rank system**\n\n**Ladder** (low → high):\n{ladder}\n\n• Ranked games adjust your rank points by final **placement**; reach the threshold to promote. From **星雀** onward, hitting 0 points demotes you.\n• **R** is a separate skill rating (Tenhou-style), weighted by your placement and opponents' average R; the more games you play, the smaller each change.\n• **Ranked**: use `/mahjong rank` to join **global matchmaking** (cross-server). When 4 (or 3 for sanma) are queued it auto-starts; the game runs in your DM with the bot — all human, no AI.\n• Full leaderboard is on the website.",
+  "daily.done": "✅ Checked in! Activity **+{reward}** ({streak}-day streak). Total activity **{activity}**.",
+  "daily.already": "🕐 You already checked in today ({streak}-day streak). Total activity **{activity}**.",
+  "task.title": "📋 Daily Tasks",
+  "task.done": "✅",
+  "task.todo": "⬜",
+  "task.checkin": "Daily check-in (`/mahjong daily`)",
+  "task.play": "Play one game",
+  "task.activity": "Activity",
+  "task.streak": "Check-in streak"
 }

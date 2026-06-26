@@ -19,7 +19,7 @@ Stores game sessions, player stats, and game history.
 import sqlite3
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -113,6 +113,17 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS user_prefs (
                 user_id TEXT PRIMARY KEY,
                 lang    TEXT NOT NULL DEFAULT 'zh_tw'
+            );
+
+            -- 任務／活躍度（每日簽到、每日對局）
+            CREATE TABLE IF NOT EXISTS user_activity (
+                user_id      TEXT PRIMARY KEY,
+                username     TEXT,
+                activity     INTEGER NOT NULL DEFAULT 0,   -- 活躍度總點
+                streak       INTEGER NOT NULL DEFAULT 0,   -- 連續簽到天數
+                last_checkin TEXT,                         -- 最後簽到日 YYYY-MM-DD
+                last_play    TEXT,                         -- 最後領「對局獎勵」日 YYYY-MM-DD
+                updated_at   TEXT
             );
 
             -- 段位／R（段位賽用，分三麻 sanma / 四麻 yonma）
@@ -583,6 +594,82 @@ def get_leaderboard(mode: str, limit: int = 50) -> list[dict]:
             (mode, limit)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ─── 任務／活躍度 ─────────────────────────────────────────────────────────────
+
+CHECKIN_BASE   = 10        # 每日簽到基礎活躍度
+CHECKIN_STREAK = 2         # 每連續一天額外活躍度（上限見下）
+CHECKIN_MAXBONUS = 7       # 連續加成天數上限
+PLAY_REWARD    = 20        # 每日完成一場對局的活躍度
+
+
+def _today() -> str:
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def get_activity(user_id: str) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM user_activity WHERE user_id=?", (user_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def _save_activity(user_id: str, username, activity: int, streak: int,
+                   last_checkin, last_play) -> None:
+    now = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO user_activity (user_id,username,activity,streak,last_checkin,last_play,updated_at) "
+            "VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET "
+            "username=COALESCE(excluded.username, user_activity.username), "
+            "activity=excluded.activity, streak=excluded.streak, "
+            "last_checkin=excluded.last_checkin, last_play=excluded.last_play, "
+            "updated_at=excluded.updated_at",
+            (user_id, username, activity, streak, last_checkin, last_play, now)
+        )
+
+
+def checkin(user_id: str, username: str = None) -> dict:
+    """每日簽到。回傳 {already, reward, streak, activity}。"""
+    today = _today()
+    row = get_activity(user_id) or {"activity": 0, "streak": 0,
+                                    "last_checkin": None, "last_play": None}
+    if row["last_checkin"] == today:
+        return {"already": True, "reward": 0,
+                "streak": row["streak"], "activity": row["activity"]}
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    streak = row["streak"] + 1 if row["last_checkin"] == yesterday else 1
+    reward = CHECKIN_BASE + min(streak, CHECKIN_MAXBONUS) * CHECKIN_STREAK
+    activity = (row["activity"] or 0) + reward
+    _save_activity(user_id, username, activity, streak, today, row["last_play"])
+    return {"already": False, "reward": reward, "streak": streak, "activity": activity}
+
+
+def reward_play(user_id: str, username: str = None) -> int:
+    """每日第一場對局結束時呼叫；當天已領過回 0，否則回獎勵點數。"""
+    today = _today()
+    row = get_activity(user_id)
+    if row and row["last_play"] == today:
+        return 0
+    activity = ((row["activity"] if row else 0) or 0) + PLAY_REWARD
+    streak   = row["streak"] if row else 0
+    last_ci  = row["last_checkin"] if row else None
+    _save_activity(user_id, username, activity, streak, last_ci, today)
+    return PLAY_REWARD
+
+
+def task_status(user_id: str) -> dict:
+    """今日任務狀態：{checkin, played, activity, streak}。"""
+    today = _today()
+    row = get_activity(user_id)
+    if not row:
+        return {"checkin": False, "played": False, "activity": 0, "streak": 0}
+    return {"checkin": row["last_checkin"] == today,
+            "played":  row["last_play"] == today,
+            "activity": row["activity"] or 0, "streak": row["streak"] or 0}
 
 
 if __name__ == "__main__":

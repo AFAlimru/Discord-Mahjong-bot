@@ -206,5 +206,15 @@
   "rank.matched": "🎴 **段位賽配對成功！** 對局即將在此私訊開始，祝你好運！",
   "rank.dm_fail": "❌ 段位賽無法開始：我無法私訊你。請到隱私設定允許「伺服器成員私訊」後再排一次。",
   "rank.result": "🏅 段位賽結束：**{dan}**（{pt}pt）・R {rate}（{dr}）",
-  "rank.timeout": "⏳ 段位賽排隊超過 10 分鐘仍未湊滿，已自動把你移出排隊。想再排請重打 `/mahjong rank`。"
+  "rank.timeout": "⏳ 段位賽排隊超過 10 分鐘仍未湊滿，已自動把你移出排隊。想再排請重打 `/mahjong rank`。",
+  "rank.info": "🏅 **段位系統說明**\n\n**段位階梯**（低 → 高）：\n{ladder}\n\n• 段位賽依終局**順位**加減段位點，累積足夠即升階；**星雀**起若點數歸零會降一階。\n• **R 值**是另一套實力分（類天鳳 Rate），依你的順位與對手平均 R 加權，對局越多單場變動越小。\n• **段位賽**：用 `/mahjong rank` 加入**全域匹配**排隊（跨伺服器），湊滿 4（三麻 3）人自動開局；對局在你與機器人的**私訊**進行，全真人、不補 AI。\n• 完整排行榜可在網站查詢。",
+  "daily.done": "✅ 簽到成功！活躍度 **+{reward}**（連續 {streak} 天）。目前活躍度 **{activity}**。",
+  "daily.already": "🕐 今天已經簽到過了（連續 {streak} 天）。目前活躍度 **{activity}**。",
+  "task.title": "📋 每日任務",
+  "task.done": "✅",
+  "task.todo": "⬜",
+  "task.checkin": "每日簽到（`/mahjong daily`）",
+  "task.play": "完成一場對局",
+  "task.activity": "活躍度",
+  "task.streak": "連續簽到"
 }

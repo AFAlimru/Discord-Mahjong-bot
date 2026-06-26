@@ -1402,6 +1402,15 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             except Exception as e:
                 print(f"[stats] add_game_record 失敗：{e}")
 
+        # 任務：每日第一場對局 → 發活躍度
+        for p in gs.players:
+            if p.is_bot:
+                continue
+            try:
+                db.reward_play(p.user_id, p.username)
+            except Exception as e:
+                print(f"[task] reward_play 失敗：{e}")
+
         # 段位賽：更新段位／R，並把變化通知各玩家
         if config.get("ranked"):
             try:
