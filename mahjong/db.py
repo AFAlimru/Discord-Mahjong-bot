@@ -114,6 +114,19 @@ def init_db() -> None:
                 user_id TEXT PRIMARY KEY,
                 lang    TEXT NOT NULL DEFAULT 'zh_tw'
             );
+
+            -- 段位／R（段位賽用，分三麻 sanma / 四麻 yonma）
+            CREATE TABLE IF NOT EXISTS user_rating (
+                user_id    TEXT NOT NULL,
+                mode       TEXT NOT NULL,            -- 'sanma' | 'yonma'
+                dan_idx    INTEGER NOT NULL DEFAULT 0,
+                dan_pt     INTEGER NOT NULL DEFAULT 0,
+                rate       REAL    NOT NULL DEFAULT 1500,
+                games      INTEGER NOT NULL DEFAULT 0,
+                username   TEXT,
+                updated_at TEXT,
+                PRIMARY KEY (user_id, mode)
+            );
         """)
         # 舊資料庫補欄位（已存在則略過）
         try:
@@ -512,6 +525,64 @@ def repair_game_records() -> dict:
                         conn.execute(f"UPDATE game_records SET {k}=? WHERE id=?", (v, r["id"]))
                     rep["clamp_fixed"] += 1
     return rep
+
+
+# ─── 段位／R（段位賽）─────────────────────────────────────────────────────────
+
+def get_rating(user_id: str, mode: str) -> dict | None:
+    """某玩家在該模式的段位／R；無紀錄回 None。"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM user_rating WHERE user_id=? AND mode=?", (user_id, mode)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def save_rating(user_id: str, mode: str, dan_idx: int, dan_pt: int,
+                rate: float, games: int, username: str = None) -> None:
+    now = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO user_rating (user_id,mode,dan_idx,dan_pt,rate,games,username,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(user_id,mode) DO UPDATE SET "
+            "dan_idx=excluded.dan_idx, dan_pt=excluded.dan_pt, rate=excluded.rate, "
+            "games=excluded.games, username=COALESCE(excluded.username, user_rating.username), "
+            "updated_at=excluded.updated_at",
+            (user_id, mode, dan_idx, dan_pt, rate, games, username, now)
+        )
+
+
+def apply_ranked_game(mode: str, results: list[tuple[str, int]],
+                      names: dict[str, str] = None) -> dict[str, dict]:
+    """段位賽結束後，依各座位順位更新真人的段位／R。
+    results：[(user_id, rank), …]，含所有座位（bot 也要在，用以算對手平均）。
+    names：  {user_id: 顯示名}（可選，順便更新）。回傳已更新者的新數據。"""
+    from . import rating
+    names = names or {}
+    rows = {}
+    for uid, _ in results:
+        r = get_rating(uid, mode)
+        if r is not None:
+            rows[uid] = r
+        elif not uid.startswith("ai_"):    # 真人但還沒紀錄 → 以新手起算
+            rows[uid] = {"dan_idx": 0, "dan_pt": 0, "rate": rating.START_RATE, "games": 0}
+    updated = rating.apply_game(rows, results, mode == "sanma")
+    for uid, v in updated.items():
+        save_rating(uid, mode, v["dan_idx"], v["dan_pt"], v["rate"], v["games"],
+                    username=names.get(uid))
+    return updated
+
+
+def get_leaderboard(mode: str, limit: int = 50) -> list[dict]:
+    """段位排行榜：先比段位階級、再比段位點數、再比 R。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM user_rating WHERE mode=? AND games>0 "
+            "ORDER BY dan_idx DESC, dan_pt DESC, rate DESC LIMIT ?",
+            (mode, limit)
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 if __name__ == "__main__":
