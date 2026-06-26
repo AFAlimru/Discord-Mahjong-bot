@@ -80,6 +80,11 @@ async def on_ready() -> None:
         await recover_interrupted_games(bot)
     except Exception as e:
         print(f"⚠️ 對局回復檢查失敗: {e}")
+    try:                                      # 段位賽排隊逾時清掃器
+        from mahjong import matchmaking
+        matchmaking.start_sweeper()
+    except Exception as e:
+        print(f"⚠️ 排隊清掃器啟動失敗: {e}")
 
 
 def run() -> None:

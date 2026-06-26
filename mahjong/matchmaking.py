@@ -17,10 +17,13 @@
 flow.launch_ranked_game 開局。佇列為記憶體狀態，重啟即清空。
 """
 from __future__ import annotations
+import asyncio
 import time
 
 from .state import _rank_queue, _user_game
 from . import i18n
+
+TIMEOUT = 600     # 排隊逾時（秒）：等待逾 10 分鐘自動離開
 
 
 def need(is_sanma: bool) -> int:
@@ -79,3 +82,38 @@ def join(user, is_sanma: bool):
         del q[:n]
         return ("matched", players, m)
     return ("queued", len(q), n)
+
+
+def expire(now: float = None) -> list[dict]:
+    """移除等待逾 TIMEOUT 的排隊者，回傳被移除的項目（供通知）。"""
+    now = now or time.time()
+    expired = []
+    for m in ("yonma", "sanma"):
+        q = _rank_queue[m]
+        keep = []
+        for e in q:
+            (expired if now - e["since"] >= TIMEOUT else keep).append(e)
+        q[:] = keep
+    return expired
+
+
+_sweeper_started = False
+
+
+def start_sweeper(interval: float = 30.0) -> None:
+    """啟動背景清掃器（重複呼叫只會啟動一次）。由 on_ready 呼叫。"""
+    global _sweeper_started
+    if _sweeper_started:
+        return
+    _sweeper_started = True
+
+    async def _loop():
+        while True:
+            await asyncio.sleep(interval)
+            for e in expire():
+                try:
+                    await e["user"].send(i18n.t("rank.timeout", e.get("lang", i18n.DEFAULT)))
+                except Exception:
+                    pass
+
+    asyncio.create_task(_loop())

@@ -205,5 +205,6 @@
   "rank.matched_you": "✅ 配對成功！請到與機器人的**私訊**開始段位賽。",
   "rank.matched": "🎴 **段位賽配對成功！** 對局即將在此私訊開始，祝你好運！",
   "rank.dm_fail": "❌ 段位賽無法開始：我無法私訊你。請到隱私設定允許「伺服器成員私訊」後再排一次。",
-  "rank.result": "🏅 段位賽結束：**{dan}**（{pt}pt）・R {rate}（{dr}）"
+  "rank.result": "🏅 段位賽結束：**{dan}**（{pt}pt）・R {rate}（{dr}）",
+  "rank.timeout": "⏳ 段位賽排隊超過 10 分鐘仍未湊滿，已自動把你移出排隊。想再排請重打 `/mahjong rank`。"
 }

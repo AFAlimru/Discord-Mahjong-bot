@@ -261,5 +261,6 @@
   "rank.matched_you": "✅ Matched! Head to your DM with the bot to start the ranked game.",
   "rank.matched": "🎴 **Ranked match found!** Your game is starting in this DM — good luck!",
   "rank.dm_fail": "❌ Can't start ranked: I couldn't DM you. Allow DMs from server members in your privacy settings and queue again.",
-  "rank.result": "🏅 Ranked game over: **{dan}** ({pt}pt) · R {rate} ({dr})"
+  "rank.result": "🏅 Ranked game over: **{dan}** ({pt}pt) · R {rate} ({dr})",
+  "rank.timeout": "⏳ No ranked match within 10 minutes — you've been removed from the queue. Run `/mahjong rank` to try again."
 }
