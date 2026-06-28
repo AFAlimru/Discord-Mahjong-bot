@@ -661,6 +661,16 @@ def reward_play(user_id: str, username: str = None) -> int:
     return PLAY_REWARD
 
 
+def get_activity_leaderboard(limit: int = 100) -> list[dict]:
+    """活躍度排行榜：依活躍度、連續簽到由高到低。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM user_activity WHERE activity>0 "
+            "ORDER BY activity DESC, streak DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def task_status(user_id: str) -> dict:
     """今日任務狀態：{checkin, played, activity, streak}。"""
     today = _today()
