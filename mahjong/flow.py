@@ -1227,14 +1227,16 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 if outcome[0] == "dblron":
                     win_points = {gs.players[s].user_id: r.points for s, r, _ in dbl_winners}
                     win_names  = {gs.players[s].user_id: r.name for s, r, _ in dbl_winners}
+                    win_hands  = {gs.players[s].user_id: hs for s, _, hs in dbl_winners}
                 elif win_seats and result is not None:
                     win_points = {gs.players[s].user_id: result.points for s in win_seats}
                     win_names  = {gs.players[s].user_id: result.name for s in win_seats}
+                    win_hands  = {gs.players[s].user_id: hand_str for s in win_seats}
                 else:
-                    win_points, win_names = {}, {}
+                    win_points, win_names, win_hands = {}, {}, {}
                 for _uid, _pts in win_points.items():   # 累積本場最高和了
-                    if _pts > best_win.get(_uid, (0, ""))[0]:
-                        best_win[_uid] = (_pts, win_names.get(_uid, ""))
+                    if _pts > best_win.get(_uid, (0,))[0]:
+                        best_win[_uid] = (_pts, win_names.get(_uid, ""), win_hands.get(_uid, ""))
                 db.log_action(gid, gs.turn, {
                     "t": "settle",
                     "win": outcome[0],
@@ -1415,8 +1417,8 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             try:
                 db.reward_play(p.user_id, p.username)
                 if p.user_id in best_win:
-                    pts, nm = best_win[p.user_id]
-                    db.update_best_win(p.user_id, pts, nm, p.username)
+                    pts, nm, hand = best_win[p.user_id]
+                    db.update_best_win(p.user_id, pts, nm, hand, p.username)
             except Exception as e:
                 print(f"[task] reward/best_win 失敗：{e}")
 

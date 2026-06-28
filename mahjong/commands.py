@@ -561,8 +561,11 @@ async def cmd_profile(interaction: discord.Interaction) -> None:
 
     best = act.get("best_win", 0) or 0
     if best:
-        nm = act.get("best_win_name") or ""
+        nm   = act.get("best_win_name") or ""
+        hand = act.get("best_win_hand") or ""
         lines.append(f"{L('profile.best_win')}：**{(nm + ' ') if nm else ''}{best} {L('profile.points')}**")
+        if hand:
+            lines.append(hand)
     else:
         lines.append(f"{L('profile.best_win')}：{L('profile.none')}")
 

@@ -125,6 +125,7 @@ def init_db() -> None:
                 last_play    TEXT,                         -- 最後領「對局獎勵」日 YYYY-MM-DD
                 best_win      INTEGER NOT NULL DEFAULT 0,  -- 最高和了打點
                 best_win_name TEXT,                        -- 最高和了的等級名（滿貫/役滿…）
+                best_win_hand TEXT,                        -- 最高和了的牌型（Unicode 牌字串）
                 updated_at   TEXT
             );
 
@@ -160,6 +161,10 @@ def init_db() -> None:
             pass
         try:
             conn.execute("ALTER TABLE user_activity ADD COLUMN best_win_name TEXT")
+        except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE user_activity ADD COLUMN best_win_hand TEXT")
         except Exception:
             pass
     print(f"[DB] Database initialised at: {DATABASE_PATH}")
@@ -671,20 +676,23 @@ def reward_play(user_id: str, username: str = None) -> int:
     return PLAY_REWARD
 
 
-def update_best_win(user_id: str, points: int, name: str = "", username: str = None) -> None:
-    """更新玩家的最高和了打點（只在更大時覆寫）。"""
+def update_best_win(user_id: str, points: int, name: str = "", hand: str = "",
+                    username: str = None) -> None:
+    """更新玩家的最高和了（只在打點更大時覆寫，連牌型一起存）。"""
     now = datetime.utcnow().isoformat()
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO user_activity (user_id,username,best_win,best_win_name,updated_at) "
-            "VALUES (?,?,?,?,?) "
+            "INSERT INTO user_activity (user_id,username,best_win,best_win_name,best_win_hand,updated_at) "
+            "VALUES (?,?,?,?,?,?) "
             "ON CONFLICT(user_id) DO UPDATE SET "
             "username=COALESCE(excluded.username, user_activity.username), "
-            "best_win=MAX(user_activity.best_win, excluded.best_win), "
             "best_win_name=CASE WHEN excluded.best_win > user_activity.best_win "
             "THEN excluded.best_win_name ELSE user_activity.best_win_name END, "
+            "best_win_hand=CASE WHEN excluded.best_win > user_activity.best_win "
+            "THEN excluded.best_win_hand ELSE user_activity.best_win_hand END, "
+            "best_win=MAX(user_activity.best_win, excluded.best_win), "
             "updated_at=excluded.updated_at",
-            (user_id, username, points, name, now)
+            (user_id, username, points, name, hand, now)
         )
 
 
