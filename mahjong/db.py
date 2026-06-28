@@ -123,6 +123,8 @@ def init_db() -> None:
                 streak       INTEGER NOT NULL DEFAULT 0,   -- 連續簽到天數
                 last_checkin TEXT,                         -- 最後簽到日 YYYY-MM-DD
                 last_play    TEXT,                         -- 最後領「對局獎勵」日 YYYY-MM-DD
+                best_win      INTEGER NOT NULL DEFAULT 0,  -- 最高和了打點
+                best_win_name TEXT,                        -- 最高和了的等級名（滿貫/役滿…）
                 updated_at   TEXT
             );
 
@@ -150,6 +152,14 @@ def init_db() -> None:
             pass
         try:
             conn.execute("ALTER TABLE game_records ADD COLUMN gain_points INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE user_activity ADD COLUMN best_win INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE user_activity ADD COLUMN best_win_name TEXT")
         except Exception:
             pass
     print(f"[DB] Database initialised at: {DATABASE_PATH}")
@@ -659,6 +669,23 @@ def reward_play(user_id: str, username: str = None) -> int:
     last_ci  = row["last_checkin"] if row else None
     _save_activity(user_id, username, activity, streak, last_ci, today)
     return PLAY_REWARD
+
+
+def update_best_win(user_id: str, points: int, name: str = "", username: str = None) -> None:
+    """更新玩家的最高和了打點（只在更大時覆寫）。"""
+    now = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO user_activity (user_id,username,best_win,best_win_name,updated_at) "
+            "VALUES (?,?,?,?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET "
+            "username=COALESCE(excluded.username, user_activity.username), "
+            "best_win=MAX(user_activity.best_win, excluded.best_win), "
+            "best_win_name=CASE WHEN excluded.best_win > user_activity.best_win "
+            "THEN excluded.best_win_name ELSE user_activity.best_win_name END, "
+            "updated_at=excluded.updated_at",
+            (user_id, username, points, name, now)
+        )
 
 
 def get_activity_leaderboard(limit: int = 100) -> list[dict]:

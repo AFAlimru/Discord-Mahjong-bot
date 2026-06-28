@@ -526,6 +526,50 @@ async def cmd_tasks(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+@mahjong.command(name="profile", description="查看個人資訊卡")
+async def cmd_profile(interaction: discord.Interaction) -> None:
+    from . import rating as _rt
+    uid  = str(interaction.user.id)
+    lang = i18n.get_user_lang(uid)
+    u    = interaction.user
+    L    = lambda k: i18n.t(k, lang)
+    embed = discord.Embed(title=i18n.t("profile.title", lang, name=u.display_name), color=0x7AA2F7)
+    try:
+        embed.set_thumbnail(url=u.display_avatar.url)
+    except Exception:
+        pass
+    ts = int(u.created_at.timestamp())
+    lines = [f"{L('profile.id')}：`{uid}`",
+             f"{L('profile.created')}：<t:{ts}:D>（<t:{ts}:R>）"]
+
+    dans = []
+    for mode in ("yonma", "sanma"):
+        r = db.get_rating(uid, mode)
+        if r and r["games"]:
+            dans.append(f"{i18n.t('mode.' + mode, lang)} {_rt.dan_name(r['dan_idx'])}（R {r['rate']:.0f}）")
+    if dans:
+        lines.append(f"{L('profile.dan')}：" + "　/　".join(dans))
+
+    act = db.get_activity(uid) or {}
+    lines.append(f"{L('profile.activity')}：**{act.get('activity', 0)}**"
+                 f"　{L('profile.streak')}：{act.get('streak', 0)}")
+
+    y = db.get_mode_summary(uid, "yonma")
+    s = db.get_mode_summary(uid, "sanma")
+    total = (y["games"] if y else 0) + (s["games"] if s else 0)
+    lines.append(f"{L('profile.games')}：{total}")
+
+    best = act.get("best_win", 0) or 0
+    if best:
+        nm = act.get("best_win_name") or ""
+        lines.append(f"{L('profile.best_win')}：**{(nm + ' ') if nm else ''}{best} {L('profile.points')}**")
+    else:
+        lines.append(f"{L('profile.best_win')}：{L('profile.none')}")
+
+    embed.description = "\n".join(lines)
+    await interaction.response.send_message(embed=embed)
+
+
 @mahjong.command(name="repair", description="掃描並修復戰績資料（限管理員）")
 async def cmd_repair(interaction: discord.Interaction) -> None:
     perms = getattr(interaction.user, "guild_permissions", None)

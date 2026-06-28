@@ -272,5 +272,15 @@
   "task.checkin": "Daily check-in (`/mahjong daily`)",
   "task.play": "Play one game",
   "task.activity": "Activity",
-  "task.streak": "Check-in streak"
+  "task.streak": "Check-in streak",
+  "profile.title": "📇 {name}'s Profile",
+  "profile.id": "🆔 ID",
+  "profile.created": "🗓️ Created",
+  "profile.dan": "🏅 Rank",
+  "profile.activity": "🔥 Activity",
+  "profile.streak": "📅 Streak",
+  "profile.games": "🀄 Games",
+  "profile.best_win": "💥 Best win",
+  "profile.none": "—",
+  "profile.points": "pts"
 }

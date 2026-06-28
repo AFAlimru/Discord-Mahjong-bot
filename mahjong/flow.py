@@ -1137,6 +1137,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
     houju_ct  = Counter()   # 放銃次數
     houju_pts = Counter()   # 放銃失點
     gain_pts  = Counter()   # 累計獲得點數（每局正向點數變動之和）
+    best_win  = {}          # uid -> (打點, 等級名)：本場最高和了
     shown_all_last = False
     end_wind = 1 if length == "tonpuu" else 2   # 1=東風戰 2=半莊
 
@@ -1225,10 +1226,15 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             try:
                 if outcome[0] == "dblron":
                     win_points = {gs.players[s].user_id: r.points for s, r, _ in dbl_winners}
+                    win_names  = {gs.players[s].user_id: r.name for s, r, _ in dbl_winners}
                 elif win_seats and result is not None:
                     win_points = {gs.players[s].user_id: result.points for s in win_seats}
+                    win_names  = {gs.players[s].user_id: result.name for s in win_seats}
                 else:
-                    win_points = {}
+                    win_points, win_names = {}, {}
+                for _uid, _pts in win_points.items():   # 累積本場最高和了
+                    if _pts > best_win.get(_uid, (0, ""))[0]:
+                        best_win[_uid] = (_pts, win_names.get(_uid, ""))
                 db.log_action(gid, gs.turn, {
                     "t": "settle",
                     "win": outcome[0],
@@ -1402,14 +1408,17 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             except Exception as e:
                 print(f"[stats] add_game_record 失敗：{e}")
 
-        # 任務：每日第一場對局 → 發活躍度
+        # 任務：每日第一場對局 → 發活躍度；並更新最高和了
         for p in gs.players:
             if p.is_bot:
                 continue
             try:
                 db.reward_play(p.user_id, p.username)
+                if p.user_id in best_win:
+                    pts, nm = best_win[p.user_id]
+                    db.update_best_win(p.user_id, pts, nm, p.username)
             except Exception as e:
-                print(f"[task] reward_play 失敗：{e}")
+                print(f"[task] reward/best_win 失敗：{e}")
 
         # 段位賽：更新段位／R，並把變化通知各玩家
         if config.get("ranked"):

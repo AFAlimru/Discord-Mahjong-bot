@@ -272,5 +272,15 @@
   "task.checkin": "デイリーチェックイン（`/mahjong daily`）",
   "task.play": "1局プレイする",
   "task.activity": "活躍度",
-  "task.streak": "連続チェックイン"
+  "task.streak": "連続チェックイン",
+  "profile.title": "📇 {name} のプロフィール",
+  "profile.id": "🆔 ID",
+  "profile.created": "🗓️ 作成日",
+  "profile.dan": "🏅 段位",
+  "profile.activity": "🔥 活躍度",
+  "profile.streak": "📅 連続チェックイン",
+  "profile.games": "🀄 対局数",
+  "profile.best_win": "💥 最高和了",
+  "profile.none": "—",
+  "profile.points": "点"
 }
