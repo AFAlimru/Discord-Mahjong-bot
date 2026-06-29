@@ -1245,6 +1245,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     "riichi": riichi_uids,
                     "furo": [p.user_id for p in gs.players if p.melds],   # 本局有副露者
                     "wp": win_points,                                    # 和了打點（贏家）
+                    "wh": win_hands,                                     # 和了牌型（贏家，供回放顯示）
                     "deltas": {gs.players[s].user_id: int(d) for s, d in log.deltas.items()},
                 })
             except Exception as e:
@@ -1350,6 +1351,11 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
 
             new_gs = deal_next_hand(gid, players_info, gs)
             _games[gid] = new_gs
+            try:                                          # 每局牌山落地（供日後完整重現手牌）
+                db.log_action(gid, new_gs.turn,
+                              {"t": "handstart", "wall": new_gs.wall_seed})
+            except Exception:
+                pass
             if th.get("board_msg"):
                 try:
                     await th["board_msg"].edit(
@@ -1587,6 +1593,7 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
             "start": config.get("start_points") or (35000 if is_sanma else 25000),
             "players": {p.user_id: {"seat": p.seat, "name": p.username, "bot": p.is_bot}
                         for p in gs.players},
+            "wall": gs.wall_seed,                         # 第一局牌山（供日後完整重現手牌）
         })
     except Exception as e:
         print(f"[gamelog] gamestart 記錄失敗：{e}")
@@ -1664,6 +1671,7 @@ async def launch_ranked_game(players: list[dict], mode: str) -> None:
             "t": "gamestart", "mode": mode, "start": 35000 if is_sanma else 25000,
             "players": {p.user_id: {"seat": p.seat, "name": p.username, "bot": p.is_bot}
                         for p in gs.players},
+            "wall": gs.wall_seed,
         })
     except Exception as e:
         print(f"[rank] launch DB 失敗：{e}")

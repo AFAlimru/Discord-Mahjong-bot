@@ -103,6 +103,10 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
                 res = "🀄 " + i18n.t("result.tsumo", lang, name=winners or "?")
             else:
                 res = i18n.t("result.draw_title", lang)
+            wh = e.get("wh", {}) or {}                     # 和了牌型（贏家）
+            for u, hd in wh.items():
+                if hd:
+                    res += f"\n　{uid2name.get(u, u)}：{hd}"
             turn = -1
             snap(f"**{res}**", _delay(e.get("_ts"), 1.8, 8.0, 2.4))
             hand += 1
