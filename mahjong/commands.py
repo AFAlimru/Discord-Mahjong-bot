@@ -641,32 +641,6 @@ async def cmd_history(interaction: discord.Interaction,
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
-class ReplayView(discord.ui.View):
-    """回放導覽：步／巡／局，前後各一。"""
-    def __init__(self, frames, seats, lang):
-        super().__init__(timeout=1800)
-        self.frames, self.seats, self.lang, self.idx = frames, seats, lang, 0
-
-    async def _go(self, interaction, what, direction):
-        from . import replay
-        self.idx = replay.nav(self.frames, self.idx, what, direction)
-        await interaction.response.edit_message(
-            content=replay.render_frame(self.frames, self.idx, self.seats, self.lang), view=self)
-
-    @discord.ui.button(label="◀局", style=discord.ButtonStyle.secondary, row=0)
-    async def ph(self, i, b): await self._go(i, "hand", -1)
-    @discord.ui.button(label="◀巡", style=discord.ButtonStyle.secondary, row=0)
-    async def pt(self, i, b): await self._go(i, "turn", -1)
-    @discord.ui.button(label="◀步", style=discord.ButtonStyle.primary, row=0)
-    async def ps(self, i, b): await self._go(i, "step", -1)
-    @discord.ui.button(label="步▶", style=discord.ButtonStyle.primary, row=1)
-    async def ns(self, i, b): await self._go(i, "step", +1)
-    @discord.ui.button(label="巡▶", style=discord.ButtonStyle.secondary, row=1)
-    async def nt(self, i, b): await self._go(i, "turn", +1)
-    @discord.ui.button(label="局▶", style=discord.ButtonStyle.secondary, row=1)
-    async def nh(self, i, b): await self._go(i, "hand", +1)
-
-
 @mahjong.command(name="replay", description="輸入房號回放該場對局")
 @app_commands.describe(room="房號（例：1 代表 房間#0001）")
 async def cmd_replay(interaction: discord.Interaction, room: int) -> None:
@@ -676,22 +650,27 @@ async def cmd_replay(interaction: discord.Interaction, room: int) -> None:
     if not g:
         await interaction.response.send_message(i18n.t("replay.not_found", lang, room=room), ephemeral=True)
         return
-    frames, seats, n = replay.build_frames(db.get_game_logs(g["game_id"]), lang)
-    if not frames or not seats:
+    msgs = replay.build_transcript(db.get_game_logs(g["game_id"]), lang)
+    if not msgs:
         await interaction.response.send_message(i18n.t("replay.no_log", lang, room=room), ephemeral=True)
         return
-    content = replay.render_frame(frames, 0, seats, lang)
-    view = ReplayView(frames, seats, lang)
-    # 復刻在討論串：開一個公開討論串播放（失敗則直接貼在頻道）
+    await interaction.response.defer(ephemeral=True)
+    # 復刻在討論串：開公開討論串，把整場逐則貼出來（失敗則貼在頻道）
+    target = None
     try:
-        th = await interaction.channel.create_thread(
+        target = await interaction.channel.create_thread(
             name=i18n.t("replay.title", lang, room=room),
             type=discord.ChannelType.public_thread)
-        await th.send(content, view=view)
-        await interaction.response.send_message(
-            i18n.t("replay.opened", lang, thread=th.mention), ephemeral=True)
     except Exception:
-        await interaction.response.send_message(content, view=view)
+        target = interaction.channel
+    for m in msgs[:40]:
+        try:
+            await target.send(m)
+            await asyncio.sleep(0.35)
+        except Exception:
+            break
+    where = target.mention if hasattr(target, "mention") else "此頻道"
+    await interaction.followup.send(i18n.t("replay.opened", lang, thread=where), ephemeral=True)
 
 
 @mahjong.command(name="repair", description="掃描並修復戰績資料（限管理員）")
