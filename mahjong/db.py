@@ -433,6 +433,21 @@ def get_game_by_room_no(room_no: int) -> dict | None:
     return dict(row) if row else None
 
 
+def get_game_logs(game_id: str) -> list[dict]:
+    """某對局的所有牌譜事件（gamestart / move / settle），依序。"""
+    out = []
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT action FROM game_log WHERE game_id=? ORDER BY id", (game_id,)
+        ).fetchall()
+    for r in rows:
+        try:
+            out.append(json.loads(r["action"]))
+        except Exception:
+            pass
+    return out
+
+
 def get_settle_logs(game_id: str) -> list[dict]:
     """某對局的每局結算事件（牌譜中 t=='settle' 者，依序）。"""
     out = []

@@ -229,5 +229,12 @@
   "profile.points": "點",
   "history.title": "📜 {mode} 牌譜",
   "history.empty": "（尚無對局）",
-  "history.page": "第 {page}/{total} 頁　・　/mahjong replay <房號> 可回放"
+  "history.page": "第 {page}/{total} 頁　・　/mahjong replay <房號> 可回放",
+  "replay.hand": "第 {n} 局",
+  "replay.turn": "第 {n} 巡",
+  "replay.step": "第 {i}/{total} 步",
+  "replay.title": "🎞️ 回放 房間#{room:04d}",
+  "replay.not_found": "❌ 找不到房號 #{room:04d} 的對局。",
+  "replay.no_log": "❌ 房號 #{room:04d} 沒有可回放的牌譜（可能是 0.4.3 之前的舊對局）。",
+  "replay.opened": "🎞️ 回放已開在討論串 {thread}"
 }

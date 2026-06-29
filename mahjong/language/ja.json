@@ -285,5 +285,12 @@
   "profile.points": "点",
   "history.title": "📜 {mode} 牌譜",
   "history.empty": "（対局なし）",
-  "history.page": "{page}/{total} ページ　・　/mahjong replay <部屋番号> で再生"
+  "history.page": "{page}/{total} ページ　・　/mahjong replay <部屋番号> で再生",
+  "replay.hand": "第 {n} 局",
+  "replay.turn": "第 {n} 巡",
+  "replay.step": "{i}/{total} ステップ",
+  "replay.title": "🎞️ リプレイ 部屋#{room:04d}",
+  "replay.not_found": "❌ 部屋番号 #{room:04d} の対局が見つかりません。",
+  "replay.no_log": "❌ 部屋#{room:04d} に再生できる牌譜がありません（0.4.3 以前の対局かも）。",
+  "replay.opened": "🎞️ リプレイをスレッド {thread} で開きました"
 }

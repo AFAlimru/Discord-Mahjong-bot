@@ -285,5 +285,12 @@
   "profile.points": "pts",
   "history.title": "📜 {mode} Game Log",
   "history.empty": "(no games yet)",
-  "history.page": "Page {page}/{total}　・　/mahjong replay <room#> to watch"
+  "history.page": "Page {page}/{total}　・　/mahjong replay <room#> to watch",
+  "replay.hand": "Hand {n}",
+  "replay.turn": "Turn {n}",
+  "replay.step": "Step {i}/{total}",
+  "replay.title": "🎞️ Replay Room #{room:04d}",
+  "replay.not_found": "❌ No game found for room #{room:04d}.",
+  "replay.no_log": "❌ Room #{room:04d} has no replayable log (likely a game before 0.4.3).",
+  "replay.opened": "🎞️ Replay opened in thread {thread}"
 }
