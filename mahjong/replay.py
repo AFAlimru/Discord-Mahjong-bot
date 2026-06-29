@@ -11,36 +11,26 @@
 # FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
 # details.  You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-"""replay.py — 由牌譜（game_log）重建整場對局的完整文字稿，用於回放討論串。
+"""replay.py — 由牌譜（game_log）重建逐步畫格，供「像對局中」的重播。
 
 牌譜記錄公開動作（摸打／吃碰槓／立直／和牌）與每局結算，沒有每位玩家每巡的完整手牌；
-因此回放還原的是逐局／逐巡的「動作敘述 ＋ 各家牌河 ＋ 和牌結果」。
+因此重播還原的是逐步演進的牌桌：各家牌河、副露、當下動作，依原順序一格一格播放。
 
-build_transcript(events) → 一串可直接逐則貼進討論串的訊息（每則 ≤ ~1900 字）。
+build_frames(events) → (frames, seats, n)
+  frame: {"hand", "turn"(-1=結算), "rivers":{seat:[牌]}, "melds":{seat:[標記]}, "action"}
+render_frame(frames, idx, seats, lang) → 該格的牌桌文字（重播時逐格 edit 同一則訊息）。
 """
 from __future__ import annotations
 
 from . import i18n
 
 DISCARD_KEYS = {"feed.discard", "feed.riichi_tsumogiri"}
-CALL_TAKE    = {"feed.pon", "feed.chi", "feed.kan"}   # 從捨牌者牌河取走一張
+CALL_TAKE    = {"feed.pon", "feed.chi", "feed.kan"}                 # 從捨牌者牌河取走
+CALL_TAG     = {"feed.pon": "碰", "feed.chi": "吃", "feed.kan": "槓",
+                "feed.ankan": "暗槓", "feed.kakan": "加槓"}
 
 
-def _chunk(lines: list[str], limit: int = 1900) -> list[str]:
-    msgs, buf = [], ""
-    for ln in lines:
-        ln = ln[:limit]
-        if buf and len(buf) + len(ln) + 1 > limit:
-            msgs.append(buf)
-            buf = ln
-        else:
-            buf = (buf + "\n" + ln) if buf else ln
-    if buf:
-        msgs.append(buf)
-    return msgs
-
-
-def build_transcript(events: list[dict], lang: str = i18n.DEFAULT) -> list[str]:
+def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
     from .render import feed_text
 
     name2seat, seats, uid2name, n = {}, {}, {}, 4
@@ -54,21 +44,21 @@ def build_transcript(events: list[dict], lang: str = i18n.DEFAULT) -> list[str]:
             n = len(pl) or 4
             break
     if not seats:
-        return []
+        return [], {}, 4
 
-    roster = "　".join(f"{i18n.t('wind.%d' % s, lang)} {seats[s]}" for s in sorted(seats))
-    lines = [f"# 🎞️ {i18n.t('replay.head', lang)}", roster, ""]
-
+    frames = []
     hand, dcount, turn = 0, 0, 0
     rivers = {s: [] for s in seats}
-    need_header = True
+    melds  = {s: [] for s in seats}
+
+    def snap(action):
+        frames.append({"hand": hand, "turn": turn, "action": action,
+                       "rivers": {s: list(v) for s, v in rivers.items()},
+                       "melds":  {s: list(v) for s, v in melds.items()}})
 
     for e in events:
         t = e.get("t")
         if t == "move":
-            if need_header:
-                lines.append(f"## 🀄 {i18n.t('replay.hand', lang, n=hand + 1)}")
-                need_header = False
             key = e.get("key", "")
             kw  = e.get("kw", {}) or {}
             if key in DISCARD_KEYS:
@@ -76,19 +66,20 @@ def build_transcript(events: list[dict], lang: str = i18n.DEFAULT) -> list[str]:
                 if s is not None:
                     rivers.setdefault(s, []).append(kw.get("tile", "🀫"))
                     dcount += 1
-                    nt = (dcount - 1) // max(1, n)
-                    if nt > turn:
-                        turn = nt
-                        lines.append(f"　— {i18n.t('replay.turn', lang, n=turn + 1)} —")
+                    turn = (dcount - 1) // max(1, n)
             elif key in CALL_TAKE:
                 s = name2seat.get(kw.get("loser"))
                 if s is not None and rivers.get(s):
                     rivers[s].pop()
+            if key in CALL_TAG:
+                cs = name2seat.get(kw.get("name"))
+                if cs is not None:
+                    melds.setdefault(cs, []).append(f"{CALL_TAG[key]}{kw.get('tile', '')}")
             try:
                 action = feed_text(key, lang, **kw)
             except Exception:
                 action = key
-            lines.append(f"> {action}")
+            snap(action)
         elif t == "settle":
             win = e.get("win", "")
             winners = "、".join(uid2name.get(u, u) for u in (e.get("winners") or []))
@@ -98,15 +89,28 @@ def build_transcript(events: list[dict], lang: str = i18n.DEFAULT) -> list[str]:
             elif win in ("tsumo", "nagashi"):
                 res = "🀄 " + i18n.t("result.tsumo", lang, name=winners or "?")
             else:
-                res = i18n.t("result.draw_title", lang)   # 本身已含 🀄
-            lines.append(f"**{res}**")
-            for s in sorted(seats):                    # 本局終了牌河
-                lines.append(f"{seats[s]}　{i18n.t('panel.river', lang)}："
-                             + (" ".join(rivers[s]) or "—"))
-            lines.append("")
+                res = i18n.t("result.draw_title", lang)
+            turn = -1
+            snap(f"**{res}**")
             hand += 1
             dcount, turn = 0, 0
             rivers = {s: [] for s in seats}
-            need_header = True
+            melds  = {s: [] for s in seats}
 
-    return _chunk(lines)
+    return frames, seats, n
+
+
+def render_frame(frames: list[dict], idx: int, seats: dict, lang: str = i18n.DEFAULT) -> str:
+    f = frames[idx]
+    head = i18n.t("replay.hand", lang, n=f["hand"] + 1)
+    if f["turn"] >= 0:
+        head += "　" + i18n.t("replay.turn", lang, n=f["turn"] + 1)
+    lines = [f"## 🎞️ {head}", ""]
+    for s in sorted(seats):
+        meld = ("　" + "　".join(f["melds"].get(s, []))) if f["melds"].get(s) else ""
+        lines.append(f"**{i18n.t('wind.%d' % s, lang)} {seats[s]}**{meld}")
+        lines.append(" ".join(f["rivers"].get(s, [])) or "—")
+    lines.append("")
+    lines.append(f"> {f['action']}")
+    lines.append(f"`{i18n.t('replay.step', lang, i=idx + 1, total=len(frames))}`")
+    return "\n".join(lines)

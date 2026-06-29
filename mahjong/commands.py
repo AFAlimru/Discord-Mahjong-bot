@@ -29,7 +29,7 @@ from .flow import launch_game, launch_ranked_game, _cleanup, _delete_threads, _d
 from . import matchmaking
 from .state import (
     _games, _channel_games, _waiting, _room_owners, _room_configs, _user_game,
-    _game_tasks, _lobbies, _threads, _thread_game,
+    _game_tasks, _lobbies, _threads, _thread_game, _bg_tasks,
 )
 
 
@@ -637,8 +637,11 @@ async def cmd_history(interaction: discord.Interaction,
     lang = i18n.get_user_lang(uid)
     m    = mode.value if mode is not None else "yonma"
     embed, page, pages = _history_embed(uid, m, 0, lang)
-    view = HistoryView(uid, m, page, pages, lang) if pages > 1 else None
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    if pages > 1:
+        await interaction.response.send_message(
+            embed=embed, view=HistoryView(uid, m, page, pages, lang), ephemeral=True)
+    else:
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @mahjong.command(name="replay", description="輸入房號回放該場對局")
@@ -650,27 +653,32 @@ async def cmd_replay(interaction: discord.Interaction, room: int) -> None:
     if not g:
         await interaction.response.send_message(i18n.t("replay.not_found", lang, room=room), ephemeral=True)
         return
-    msgs = replay.build_transcript(db.get_game_logs(g["game_id"]), lang)
-    if not msgs:
+    frames, seats, n = replay.build_frames(db.get_game_logs(g["game_id"]), lang)
+    if not frames or not seats:
         await interaction.response.send_message(i18n.t("replay.no_log", lang, room=room), ephemeral=True)
         return
     await interaction.response.defer(ephemeral=True)
-    # 復刻在討論串：開公開討論串，把整場逐則貼出來（失敗則貼在頻道）
-    target = None
+    # 復刻在討論串：開公開討論串，逐格「播放」（像對局中那樣更新同一則牌桌訊息）
     try:
         target = await interaction.channel.create_thread(
             name=i18n.t("replay.title", lang, room=room),
             type=discord.ChannelType.public_thread)
     except Exception:
         target = interaction.channel
-    for m in msgs[:40]:
-        try:
-            await target.send(m)
-            await asyncio.sleep(0.35)
-        except Exception:
-            break
+    msg = await target.send(replay.render_frame(frames, 0, seats, lang))
     where = target.mention if hasattr(target, "mention") else "此頻道"
     await interaction.followup.send(i18n.t("replay.opened", lang, thread=where), ephemeral=True)
+
+    async def _play():
+        for i in range(1, len(frames)):
+            await asyncio.sleep(2.4 if frames[i]["turn"] < 0 else 1.1)   # 結算停久一點
+            try:
+                await msg.edit(content=replay.render_frame(frames, i, seats, lang))
+            except Exception:
+                break
+    task = asyncio.create_task(_play())
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
 
 
 @mahjong.command(name="repair", description="掃描並修復戰績資料（限管理員）")
