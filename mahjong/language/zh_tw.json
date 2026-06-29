@@ -237,5 +237,7 @@
   "replay.not_found": "❌ 找不到房號 #{room:04d} 的對局。",
   "replay.no_log": "❌ 房號 #{room:04d} 沒有可回放的牌譜（可能是 0.4.3 之前的舊對局）。",
   "replay.opened": "🎞️ 回放已開在討論串 {thread}",
-  "replay.head": "對局回放"
+  "replay.head": "對局回放",
+  "replay.pause": "⏸ 暫停",
+  "replay.resume": "▶ 繼續"
 }

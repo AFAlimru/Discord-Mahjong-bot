@@ -293,5 +293,7 @@
   "replay.not_found": "❌ No game found for room #{room:04d}.",
   "replay.no_log": "❌ Room #{room:04d} has no replayable log (likely a game before 0.4.3).",
   "replay.opened": "🎞️ Replay opened in thread {thread}",
-  "replay.head": "Game Replay"
+  "replay.head": "Game Replay",
+  "replay.pause": "⏸ Pause",
+  "replay.resume": "▶ Resume"
 }

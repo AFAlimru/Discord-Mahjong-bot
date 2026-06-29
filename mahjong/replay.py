@@ -21,6 +21,7 @@ build_frames(events) → (frames, seats, n)
 render_frame(frames, idx, seats, lang) → 該格的牌桌文字（重播時逐格 edit 同一則訊息）。
 """
 from __future__ import annotations
+from datetime import datetime
 
 from . import i18n
 
@@ -50,9 +51,21 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
     hand, dcount, turn = 0, 0, 0
     rivers = {s: [] for s in seats}
     melds  = {s: [] for s in seats}
+    prev_ts = [None]
 
-    def snap(action):
-        frames.append({"hand": hand, "turn": turn, "action": action,
+    def _delay(cur_ts, lo, hi, default):
+        if not prev_ts[0] or not cur_ts:
+            d = default
+        else:
+            try:
+                d = (datetime.fromisoformat(cur_ts) - datetime.fromisoformat(prev_ts[0])).total_seconds()
+            except Exception:
+                d = default
+        prev_ts[0] = cur_ts or prev_ts[0]
+        return round(max(lo, min(hi, d)), 2)
+
+    def snap(action, delay):
+        frames.append({"hand": hand, "turn": turn, "action": action, "delay": delay,
                        "rivers": {s: list(v) for s, v in rivers.items()},
                        "melds":  {s: list(v) for s, v in melds.items()}})
 
@@ -79,7 +92,7 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
                 action = feed_text(key, lang, **kw)
             except Exception:
                 action = key
-            snap(action)
+            snap(action, _delay(e.get("_ts"), 0.4, 8.0, 1.1))   # 依實際出牌間隔
         elif t == "settle":
             win = e.get("win", "")
             winners = "、".join(uid2name.get(u, u) for u in (e.get("winners") or []))
@@ -91,7 +104,7 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
             else:
                 res = i18n.t("result.draw_title", lang)
             turn = -1
-            snap(f"**{res}**")
+            snap(f"**{res}**", _delay(e.get("_ts"), 1.8, 8.0, 2.4))
             hand += 1
             dcount, turn = 0, 0
             rivers = {s: [] for s in seats}

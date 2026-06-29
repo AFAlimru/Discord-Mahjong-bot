@@ -644,6 +644,25 @@ async def cmd_history(interaction: discord.Interaction,
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+class ReplayControl(discord.ui.View):
+    """回放暫停／繼續。"""
+    def __init__(self, ev, lang):
+        super().__init__(timeout=3600)
+        self.ev, self.lang = ev, lang
+
+    @discord.ui.button(label="⏸", style=discord.ButtonStyle.secondary)
+    async def toggle(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.ev.is_set():
+            self.ev.clear()
+            button.label = i18n.t("replay.resume", self.lang)
+            button.style = discord.ButtonStyle.success
+        else:
+            self.ev.set()
+            button.label = i18n.t("replay.pause", self.lang)
+            button.style = discord.ButtonStyle.secondary
+        await interaction.response.edit_message(view=self)
+
+
 @mahjong.command(name="replay", description="輸入房號回放該場對局")
 @app_commands.describe(room="房號（例：1 代表 房間#0001）")
 async def cmd_replay(interaction: discord.Interaction, room: int) -> None:
@@ -665,17 +684,28 @@ async def cmd_replay(interaction: discord.Interaction, room: int) -> None:
             type=discord.ChannelType.public_thread)
     except Exception:
         target = interaction.channel
-    msg = await target.send(replay.render_frame(frames, 0, seats, lang))
+    ev = asyncio.Event()
+    ev.set()
+    ctrl = ReplayControl(ev, lang)
+    ctrl.toggle.label = i18n.t("replay.pause", lang)
+    msg = await target.send(replay.render_frame(frames, 0, seats, lang), view=ctrl)
     where = target.mention if hasattr(target, "mention") else "此頻道"
     await interaction.followup.send(i18n.t("replay.opened", lang, thread=where), ephemeral=True)
 
     async def _play():
         for i in range(1, len(frames)):
-            await asyncio.sleep(2.4 if frames[i]["turn"] < 0 else 1.1)   # 結算停久一點
+            await ev.wait()                              # 暫停時卡住
+            await asyncio.sleep(frames[i].get("delay", 1.1))   # 依當時實際出牌間隔
             try:
                 await msg.edit(content=replay.render_frame(frames, i, seats, lang))
             except Exception:
                 break
+        for c in ctrl.children:                          # 播完停用按鈕
+            c.disabled = True
+        try:
+            await msg.edit(view=ctrl)
+        except Exception:
+            pass
     task = asyncio.create_task(_play())
     _bg_tasks.add(task)
     task.add_done_callback(_bg_tasks.discard)

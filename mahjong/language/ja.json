@@ -293,5 +293,7 @@
   "replay.not_found": "❌ 部屋番号 #{room:04d} の対局が見つかりません。",
   "replay.no_log": "❌ 部屋#{room:04d} に再生できる牌譜がありません（0.4.3 以前の対局かも）。",
   "replay.opened": "🎞️ リプレイをスレッド {thread} で開きました",
-  "replay.head": "対局リプレイ"
+  "replay.head": "対局リプレイ",
+  "replay.pause": "⏸ 一時停止",
+  "replay.resume": "▶ 再生"
 }

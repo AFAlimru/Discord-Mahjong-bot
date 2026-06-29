@@ -434,15 +434,17 @@ def get_game_by_room_no(room_no: int) -> dict | None:
 
 
 def get_game_logs(game_id: str) -> list[dict]:
-    """某對局的所有牌譜事件（gamestart / move / settle），依序。"""
+    """某對局的所有牌譜事件（gamestart / move / settle），依序；每筆附 _ts 時間戳。"""
     out = []
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT action FROM game_log WHERE game_id=? ORDER BY id", (game_id,)
+            "SELECT action, timestamp FROM game_log WHERE game_id=? ORDER BY id", (game_id,)
         ).fetchall()
     for r in rows:
         try:
-            out.append(json.loads(r["action"]))
+            a = json.loads(r["action"])
+            a["_ts"] = r["timestamp"]
+            out.append(a)
         except Exception:
             pass
     return out
