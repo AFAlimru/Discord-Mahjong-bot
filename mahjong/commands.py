@@ -513,8 +513,7 @@ async def cmd_daily(interaction: discord.Interaction) -> None:
     r = db.checkin(str(interaction.user.id), interaction.user.display_name)
     key = "daily.already" if r["already"] else "daily.done"
     await interaction.response.send_message(
-        i18n.t(key, lang, reward=r["reward"], streak=r["streak"], activity=r["activity"]),
-        ephemeral=True)
+        i18n.t(key, lang, reward=r["reward"], streak=r["streak"], activity=r["activity"]))
 
 
 @mahjong.command(name="tasks", description="查看每日任務與活躍度")
