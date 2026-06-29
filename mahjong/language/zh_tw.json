@@ -226,5 +226,8 @@
   "profile.games": "🀄 對局場次",
   "profile.best_win": "💥 最高和了",
   "profile.none": "—",
-  "profile.points": "點"
+  "profile.points": "點",
+  "history.title": "📜 {mode} 牌譜",
+  "history.empty": "（尚無對局）",
+  "history.page": "第 {page}/{total} 頁　・　/mahjong replay <房號> 可回放"
 }

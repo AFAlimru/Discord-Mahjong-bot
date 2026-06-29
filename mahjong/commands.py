@@ -475,10 +475,16 @@ class RankQueueView(discord.ui.View):
 
 
 @mahjong.command(name="rank", description="段位賽：加入全域匹配排隊（對局在你的私訊進行）")
-@app_commands.describe(sanma="改排三人麻將段位賽")
-async def cmd_rank(interaction: discord.Interaction, sanma: bool = False) -> None:
-    lang = i18n.get_user_lang(interaction.user.id)
-    res  = matchmaking.join(interaction.user, sanma)
+@app_commands.describe(mode="選擇人數模式（不選＝四人）")
+@app_commands.choices(mode=[
+    app_commands.Choice(name="四人麻將", value="yonma"),
+    app_commands.Choice(name="三人麻將", value="sanma"),
+])
+async def cmd_rank(interaction: discord.Interaction,
+                   mode: app_commands.Choice[str] = None) -> None:
+    sanma = (mode is not None and mode.value == "sanma")
+    lang  = i18n.get_user_lang(interaction.user.id)
+    res   = matchmaking.join(interaction.user, sanma)
     kind = res[0]
     if kind == "in_game":
         await interaction.response.send_message(i18n.t("rank.in_game", lang), ephemeral=True)
@@ -571,6 +577,69 @@ async def cmd_profile(interaction: discord.Interaction) -> None:
 
     embed.description = "\n".join(lines)
     await interaction.response.send_message(embed=embed)
+
+
+_HIST_PAGE = 10
+_MEDALS = ["🥇", "🥈", "🥉", "4️⃣"]
+
+
+def _history_embed(uid: str, mode: str, page: int, lang: str):
+    total = db.count_records(uid, mode)
+    pages = max(1, (total + _HIST_PAGE - 1) // _HIST_PAGE)
+    page  = max(0, min(page, pages - 1))
+    rows  = db.get_recent_records(uid, mode, _HIST_PAGE, offset=page * _HIST_PAGE)
+    lines = []
+    for r in rows:
+        room = f"`#{r['room_no']:04d}`" if r.get("room_no") else "`  —  `"
+        day  = (r["created_at"] or "")[:10]
+        sd   = r["score_delta"] or 0
+        lines.append(f"{room}　{_MEDALS[r['rank'] - 1]}　{r['score']}（{'+' if sd >= 0 else ''}{sd}）　{day}")
+    embed = discord.Embed(
+        title=i18n.t("history.title", lang, mode=i18n.t("mode." + mode, lang)), color=0x7AA2F7)
+    embed.description = "\n".join(lines) or i18n.t("history.empty", lang)
+    embed.set_footer(text=i18n.t("history.page", lang, page=page + 1, total=pages))
+    return embed, page, pages
+
+
+class HistoryView(discord.ui.View):
+    def __init__(self, uid: str, mode: str, page: int, pages: int, lang: str):
+        super().__init__(timeout=300)
+        self.uid, self.mode, self.page, self.pages, self.lang = uid, mode, page, pages, lang
+        self._sync()
+
+    def _sync(self):
+        self.prev.disabled = self.page <= 0
+        self.nxt.disabled  = self.page >= self.pages - 1
+
+    async def _edit(self, interaction, delta):
+        self.page += delta
+        embed, self.page, self.pages = _history_embed(self.uid, self.mode, self.page, self.lang)
+        self._sync()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
+    async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._edit(interaction, -1)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
+    async def nxt(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._edit(interaction, +1)
+
+
+@mahjong.command(name="history", description="查看自己的牌譜（分頁）")
+@app_commands.describe(mode="選擇人數模式（不選＝四人）")
+@app_commands.choices(mode=[
+    app_commands.Choice(name="四人麻將", value="yonma"),
+    app_commands.Choice(name="三人麻將", value="sanma"),
+])
+async def cmd_history(interaction: discord.Interaction,
+                      mode: app_commands.Choice[str] = None) -> None:
+    uid  = str(interaction.user.id)
+    lang = i18n.get_user_lang(uid)
+    m    = mode.value if mode is not None else "yonma"
+    embed, page, pages = _history_embed(uid, m, 0, lang)
+    view = HistoryView(uid, m, page, pages, lang) if pages > 1 else None
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 @mahjong.command(name="repair", description="掃描並修復戰績資料（限管理員）")

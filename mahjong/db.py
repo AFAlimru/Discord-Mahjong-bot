@@ -404,13 +404,33 @@ def get_total_games(user_id: str) -> int:
     return (row["c"] or 0) if row else 0
 
 
-def get_recent_records(user_id: str, mode: str, limit: int = 20) -> list[dict]:
+def get_recent_records(user_id: str, mode: str, limit: int = 20, offset: int = 0) -> list[dict]:
+    """近期戰績（含房號 room_no）。支援 offset 供分頁。"""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT * FROM game_records WHERE user_id=? AND mode=? ORDER BY id DESC LIMIT ?",
-            (user_id, mode, limit)
+            "SELECT gr.*, g.room_no FROM game_records gr "
+            "LEFT JOIN games g ON gr.game_id = g.game_id "
+            "WHERE gr.user_id=? AND gr.mode=? ORDER BY gr.id DESC LIMIT ? OFFSET ?",
+            (user_id, mode, limit, offset)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def count_records(user_id: str, mode: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS c FROM game_records WHERE user_id=? AND mode=?",
+            (user_id, mode)).fetchone()
+    return (row["c"] or 0) if row else 0
+
+
+def get_game_by_room_no(room_no: int) -> dict | None:
+    """以房號找對局（取最新一筆同號）。"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM games WHERE room_no=? ORDER BY rowid DESC LIMIT 1", (room_no,)
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def get_settle_logs(game_id: str) -> list[dict]:

@@ -282,5 +282,8 @@
   "profile.games": "🀄 Games",
   "profile.best_win": "💥 Best win",
   "profile.none": "—",
-  "profile.points": "pts"
+  "profile.points": "pts",
+  "history.title": "📜 {mode} Game Log",
+  "history.empty": "(no games yet)",
+  "history.page": "Page {page}/{total}　・　/mahjong replay <room#> to watch"
 }

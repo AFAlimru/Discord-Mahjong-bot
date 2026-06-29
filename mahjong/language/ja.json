@@ -282,5 +282,8 @@
   "profile.games": "🀄 対局数",
   "profile.best_win": "💥 最高和了",
   "profile.none": "—",
-  "profile.points": "点"
+  "profile.points": "点",
+  "history.title": "📜 {mode} 牌譜",
+  "history.empty": "（対局なし）",
+  "history.page": "{page}/{total} ページ　・　/mahjong replay <部屋番号> で再生"
 }
