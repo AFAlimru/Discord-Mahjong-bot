@@ -657,25 +657,25 @@ class ReplayControl(discord.ui.View):
         self.msg = None
         self.thread = None
         self.toggle.label = i18n.t("replay.pause", lang)
-        self.view.label = f"👁 {seats.get(self.focus, '')}"
+        self.pov.label = f"👁 {seats.get(self.focus, '')}"
         self.quit.label = "✖ " + i18n.t("replay.quit", lang)
 
     def render(self):
         from . import replay
         return replay.render_frame(self.frames, self.idx, self.seats, self.lang, self.focus)
 
-    async def _refresh(self, interaction):
+    async def _redraw(self, interaction):
         self.toggle.label = i18n.t("replay.pause" if self.play.is_set() else "replay.resume", self.lang)
         self.toggle.style = (discord.ButtonStyle.secondary if self.play.is_set()
                              else discord.ButtonStyle.success)
-        self.view.label = f"👁 {self.seats.get(self.focus, '')}"
+        self.pov.label = f"👁 {self.seats.get(self.focus, '')}"
         await interaction.response.edit_message(content=self.render(), view=self)
 
     async def _jump(self, interaction, what, direction):
         from . import replay
         self.play.clear()                                # 手動操作 → 暫停自動播放
         self.idx = replay.nav(self.frames, self.idx, what, direction)
-        await self._refresh(interaction)
+        await self._redraw(interaction)
 
     @discord.ui.button(label="◀局", style=discord.ButtonStyle.secondary, row=0)
     async def ph(self, i, b): await self._jump(i, "hand", -1)
@@ -696,13 +696,13 @@ class ReplayControl(discord.ui.View):
             self.play.clear()
         else:
             self.play.set()
-        await self._refresh(interaction)
+        await self._redraw(interaction)
 
     @discord.ui.button(label="👁", style=discord.ButtonStyle.secondary, row=1)
-    async def view(self, interaction, button):     # 切換視角（換看哪家手牌）
+    async def pov(self, interaction, button):      # 切換視角（換看哪家手牌）
         if self.order:
             self.focus = self.order[(self.order.index(self.focus) + 1) % len(self.order)]
-        await self._refresh(interaction)
+        await self._redraw(interaction)
 
     @discord.ui.button(label="✖", style=discord.ButtonStyle.danger, row=1)
     async def quit(self, interaction, button):     # 退出 → 刪掉回放討論串
