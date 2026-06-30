@@ -295,5 +295,6 @@
   "replay.opened": "🎞️ Replay opened in thread {thread}",
   "replay.head": "Game Replay",
   "replay.pause": "⏸ Pause",
-  "replay.resume": "▶ Resume"
+  "replay.resume": "▶ Resume",
+  "replay.quit": "Exit"
 }

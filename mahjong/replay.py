@@ -164,19 +164,28 @@ def nav(frames: list[dict], idx: int, what: str, direction: int) -> int:
     return 0
 
 
-def render_frame(frames: list[dict], idx: int, seats: dict, lang: str = i18n.DEFAULT) -> str:
+def render_frame(frames: list[dict], idx: int, seats: dict,
+                 lang: str = i18n.DEFAULT, focus: int = None) -> str:
     f = frames[idx]
+    order = sorted(seats)
+    if focus is None or focus not in seats:
+        focus = order[0]
     head = i18n.t("replay.hand", lang, n=f["hand"] + 1)
     if f["turn"] >= 0:
         head += "　" + i18n.t("replay.turn", lang, n=f["turn"] + 1)
-    lines = [f"## 🎞️ {head}", ""]
-    for s in sorted(seats):
+    lines = [f"## 🎞️ {head}"]
+    for j, s in enumerate(order):
+        if j:
+            lines.append("─" * 18)
+        mark = "▶ " if s == focus else "　"
         meld = ("　" + "　".join(f["melds"].get(s, []))) if f["melds"].get(s) else ""
-        lines.append(f"**{i18n.t('wind.%d' % s, lang)} {seats[s]}**{meld}")
-        hd = f.get("hands", {}).get(s, [])
-        if hd:
-            lines.append(_sort_hand(hd))
-        lines.append(f"{i18n.t('panel.river', lang)}：" + (" ".join(f["rivers"].get(s, [])) or "—"))
+        lines.append(f"## {mark}{i18n.t('wind.%d' % s, lang)}「{seats[s]}」{meld}")
+        lines.append(" ".join(f["rivers"].get(s, [])) or "—")
+    # 視角玩家的手牌（像遊玩中只看自己那副）
+    hd = f.get("hands", {}).get(focus, [])
+    lines.append("=" * 22)
+    lines.append(f"👁 {seats[focus]}　{i18n.t('panel.your_hand', lang)}")
+    lines.append(("# " + _sort_hand(hd)) if hd else i18n.t("panel.none", lang))
     lines.append("")
     lines.append(f"> {f['action']}")
     lines.append(f"`{i18n.t('replay.step', lang, i=idx + 1, total=len(frames))}`")

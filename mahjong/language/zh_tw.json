@@ -239,5 +239,6 @@
   "replay.opened": "🎞️ 回放已開在討論串 {thread}",
   "replay.head": "對局回放",
   "replay.pause": "⏸ 暫停",
-  "replay.resume": "▶ 繼續"
+  "replay.resume": "▶ 繼續",
+  "replay.quit": "退出"
 }
