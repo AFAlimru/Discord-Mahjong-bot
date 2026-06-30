@@ -31,6 +31,39 @@ CALL_TAG     = {"feed.pon": "碰", "feed.chi": "吃", "feed.kan": "槓",
                 "feed.ankan": "暗槓", "feed.kakan": "加槓"}
 
 
+def _ceremony(snap, win, e, wd, wh, uid2name, lang, d0):
+    """和牌儀式：逐項揭曉役種，最後公布等級與點數（每位贏家一輪）。"""
+    dora  = e.get("dora", []) or []
+    ura   = e.get("ura", []) or []
+    loser = uid2name.get(e.get("loser"), "?")
+    for u, det in wd.items():
+        name = uid2name.get(u, u)
+        title = (i18n.t("result.ron", lang, name=name, loser=loser)
+                 if win in ("ron", "dblron") else i18n.t("result.tsumo", lang, name=name))
+        head = [f"🎉 {title}"]
+        dline = "[" + i18n.t("board.dora", lang) + "：" + (" ".join(dora) or "—")
+        if ura:
+            dline += "　" + i18n.t("board.ura_dora", lang) + "：" + " ".join(ura)
+        head.append(dline + "]")
+        if wh.get(u):
+            head.append(wh[u])
+        snap("\n".join(head), d0)                                  # ① 標題＋寶牌＋手牌
+        ym, yk = det.get("yakuman", []), det.get("yaku", [])
+        items = [(n, None) for n in ym] if ym else [(n, h) for n, h in yk]
+        shown = []
+        for n, h in items:
+            disp = i18n.yaku(n, lang)
+            shown.append(f"・{disp}" if h is None else f"・{disp}　{h}飜")
+            snap("\n".join(head + shown), 0.9)                    # ② 逐項揭曉
+        pts = i18n.t("win.points", lang, n=det.get("points", 0))
+        if ym:
+            score = f"✨ {i18n.yaku(det.get('name', ''), lang)}　{pts}"
+        else:
+            nm = f"　{i18n.yaku(det.get('name', ''), lang)}" if det.get("name") else ""
+            score = f"{i18n.t('win.han_fu', lang, han=det.get('han', 0), fu=det.get('fu', 0))}{nm}　{pts}"
+        snap("\n".join(head + shown + ["", score]), 1.4)          # ③ 等級與點數
+
+
 def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
     from .render import feed_text
 
@@ -100,19 +133,24 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
         elif t == "settle":
             win = e.get("win", "")
             winners = "、".join(uid2name.get(u, u) for u in (e.get("winners") or []))
-            if win in ("ron", "dblron"):
-                res = "🀄 " + i18n.t("result.ron", lang, name=winners or "?",
-                                     loser=uid2name.get(e.get("loser"), "?"))
-            elif win in ("tsumo", "nagashi"):
-                res = "🀄 " + i18n.t("result.tsumo", lang, name=winners or "?")
-            else:
-                res = i18n.t("result.draw_title", lang)
-            wh = e.get("wh", {}) or {}                     # 和了牌型（贏家）
-            for u, hd in wh.items():
-                if hd:
-                    res += f"\n　{uid2name.get(u, u)}：{hd}"
+            wd = e.get("wd", {}) or {}
+            wh = e.get("wh", {}) or {}
             turn = -1
-            snap(f"**{res}**", _delay(e.get("_ts"), 1.8, 8.0, 2.4))
+            d0 = _delay(e.get("_ts"), 1.6, 8.0, 2.0)
+            if wd and win in ("ron", "dblron", "tsumo"):
+                _ceremony(snap, win, e, wd, wh, uid2name, lang, d0)   # 和牌儀式（逐項揭曉）
+            else:
+                if win in ("ron", "dblron"):
+                    res = "🀄 " + i18n.t("result.ron", lang, name=winners or "?",
+                                         loser=uid2name.get(e.get("loser"), "?"))
+                elif win in ("tsumo", "nagashi"):
+                    res = "🀄 " + i18n.t("result.tsumo", lang, name=winners or "?")
+                else:
+                    res = i18n.t("result.draw_title", lang)
+                for u, hd in wh.items():
+                    if hd:
+                        res += f"\n　{uid2name.get(u, u)}：{hd}"
+                snap(f"**{res}**", d0)
             hand += 1
             dcount, turn = 0, 0
             rivers = {s: [] for s in seats}

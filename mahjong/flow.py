@@ -1226,19 +1226,26 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
 
             # 牌譜：每局結算事件（以 user_id 記錄，供 /mahjong repair 重算戰績與進階數據）
             try:
+                def _detail(r):                          # 和了詳情（供回放和牌儀式）
+                    return {"yaku": [[n, h] for n, h in (r.yaku or [])],
+                            "yakuman": [n for n, *_ in (r.yakuman or [])],
+                            "han": r.han, "fu": r.fu, "points": r.points, "name": r.name}
                 if outcome[0] == "dblron":
                     win_points = {gs.players[s].user_id: r.points for s, r, _ in dbl_winners}
                     win_names  = {gs.players[s].user_id: r.name for s, r, _ in dbl_winners}
                     win_hands  = {gs.players[s].user_id: hs for s, _, hs in dbl_winners}
-                elif win_seats and result is not None:
+                    win_detail = {gs.players[s].user_id: _detail(r) for s, r, _ in dbl_winners}
+                elif win_seats and result is not None and outcome[0] in ("tsumo", "ron"):
                     win_points = {gs.players[s].user_id: result.points for s in win_seats}
                     win_names  = {gs.players[s].user_id: result.name for s in win_seats}
                     win_hands  = {gs.players[s].user_id: hand_str for s in win_seats}
+                    win_detail = {gs.players[s].user_id: _detail(result) for s in win_seats}
                 else:
-                    win_points, win_names, win_hands = {}, {}, {}
+                    win_points, win_names, win_hands, win_detail = {}, {}, {}, {}
                 for _uid, _pts in win_points.items():   # 累積本場最高和了
                     if _pts > best_win.get(_uid, (0,))[0]:
                         best_win[_uid] = (_pts, win_names.get(_uid, ""), win_hands.get(_uid, ""))
+                _is_riichi = any(u in riichi_uids for u in win_detail)
                 db.log_action(gid, gs.turn, {
                     "t": "settle",
                     "win": outcome[0],
@@ -1247,7 +1254,10 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     "riichi": riichi_uids,
                     "furo": [p.user_id for p in gs.players if p.melds],   # 本局有副露者
                     "wp": win_points,                                    # 和了打點（贏家）
-                    "wh": win_hands,                                     # 和了牌型（贏家，供回放顯示）
+                    "wh": win_hands,                                     # 和了牌型（贏家）
+                    "wd": win_detail,                                    # 和了詳情（役/飜符/點，供回放儀式）
+                    "dora": [str(t) for t in gs.dora_indicators[:gs.revealed_dora]],
+                    "ura": ([str(t) for t in gs.ura_indicators[:gs.revealed_dora]] if _is_riichi else []),
                     "deltas": {gs.players[s].user_id: int(d) for s, d in log.deltas.items()},
                 })
             except Exception as e:
