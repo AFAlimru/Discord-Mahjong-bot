@@ -747,10 +747,14 @@ async def cmd_replay(interaction: discord.Interaction, room: int) -> None:
     await interaction.followup.send(i18n.t("replay.opened", lang, thread=where), ephemeral=True)
 
     async def _autoplay():
-        while ctrl.idx < len(ctrl.frames) - 1:
+        while True:
             await ctrl.play.wait()                       # 暫停時卡住
-            await asyncio.sleep(ctrl.frames[ctrl.idx + 1].get("delay", 1.1))
-            if not ctrl.play.is_set():                   # 期間被暫停 → 不前進
+            nxt = ctrl.idx + 1
+            if nxt >= len(ctrl.frames):                  # 已到最後一格
+                break
+            await asyncio.sleep(ctrl.frames[nxt].get("delay", 1.1))
+            # 期間可能被暫停或手動跳轉 → 重新檢查
+            if not ctrl.play.is_set() or ctrl.idx + 1 >= len(ctrl.frames):
                 continue
             ctrl.idx += 1
             try:

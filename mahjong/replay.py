@@ -85,6 +85,8 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
     rivers = {s: [] for s in seats}
     melds  = {s: [] for s in seats}
     hands  = {s: [] for s in seats}        # 各家當下手牌（由牌譜直接記錄）
+    wall   = [0]                            # 牌山剩餘
+    dora   = [[]]                           # 寶牌指示牌
     prev_ts = [None]
 
     def _delay(cur_ts, lo, hi, default):
@@ -100,6 +102,7 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
 
     def snap(action, delay):
         frames.append({"hand": hand, "turn": turn, "action": action, "delay": delay,
+                       "wall": wall[0], "dora": list(dora[0]),
                        "rivers": {s: list(v) for s, v in rivers.items()},
                        "melds":  {s: list(v) for s, v in melds.items()},
                        "hands":  {s: list(v) for s, v in hands.items()}})
@@ -125,6 +128,10 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
                     melds.setdefault(cs, []).append(f"{CALL_TAG[key]}{kw.get('tile', '')}")
             for k, v in (e.get("hands") or {}).items():   # 各家當下手牌
                 hands[int(k)] = list(v)
+            if "wall" in e:
+                wall[0] = e["wall"]
+            if e.get("dora"):
+                dora[0] = e["dora"]
             try:
                 action = feed_text(key, lang, **kw)
             except Exception:
@@ -156,6 +163,7 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
             rivers = {s: [] for s in seats}
             melds  = {s: [] for s in seats}
             hands  = {s: [] for s in seats}
+            dora[0] = []
 
     return frames, seats, n
 
@@ -211,7 +219,11 @@ def render_frame(frames: list[dict], idx: int, seats: dict,
     head = i18n.t("replay.hand", lang, n=f["hand"] + 1)
     if f["turn"] >= 0:
         head += "　" + i18n.t("replay.turn", lang, n=f["turn"] + 1)
+    if f.get("wall"):
+        head += "　" + i18n.t("replay.wall", lang, n=f["wall"])
     lines = [f"## 🎞️ {head}"]
+    if f.get("dora"):
+        lines.append(f"{i18n.t('board.dora', lang)}：" + " ".join(f["dora"]))
     for j, s in enumerate(order):
         if j:
             lines.append("─" * 18)

@@ -240,5 +240,6 @@
   "replay.head": "對局回放",
   "replay.pause": "⏸ 暫停",
   "replay.resume": "▶ 繼續",
-  "replay.quit": "退出"
+  "replay.quit": "退出",
+  "replay.wall": "牌山 {n}"
 }

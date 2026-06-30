@@ -296,5 +296,6 @@
   "replay.head": "対局リプレイ",
   "replay.pause": "⏸ 一時停止",
   "replay.resume": "▶ 再生",
-  "replay.quit": "終了"
+  "replay.quit": "終了",
+  "replay.wall": "残り {n}"
 }

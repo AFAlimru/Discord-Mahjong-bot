@@ -691,11 +691,13 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
     async def render_board(key="", log=True, **kw):
         if log and key:
             _log_action(gid, key, **kw)   # 真人對局沒有牌桌，動作改記在私人面板上方
-            try:                          # 逐手牌譜落地（供回放：含各家當下手牌）
+            try:                          # 逐手牌譜落地（供回放：含各家手牌、牌山、寶牌）
                 db.log_action(gid, gs.turn, {
                     "t": "move", "key": key,
                     "kw": {k: str(v) for k, v in kw.items()},
-                    "hands": {p.seat: [str(t) for t in p.hand] for p in gs.players}})
+                    "hands": {p.seat: [str(t) for t in p.hand] for p in gs.players},
+                    "wall": gs.tiles_left,
+                    "dora": [str(t) for t in gs.dora_indicators[:gs.revealed_dora]]})
             except Exception:
                 pass
             await refresh_feeds()         # 每筆動作即時更新所有玩家面板的動態

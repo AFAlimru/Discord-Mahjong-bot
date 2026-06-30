@@ -296,5 +296,6 @@
   "replay.head": "Game Replay",
   "replay.pause": "⏸ Pause",
   "replay.resume": "▶ Resume",
-  "replay.quit": "Exit"
+  "replay.quit": "Exit",
+  "replay.wall": "Wall {n}"
 }
