@@ -645,22 +645,52 @@ async def cmd_history(interaction: discord.Interaction,
 
 
 class ReplayControl(discord.ui.View):
-    """回放暫停／繼續。"""
-    def __init__(self, ev, lang):
+    """回放控制：自動播放＋步／巡／局導覽＋暫停／繼續。"""
+    def __init__(self, frames, seats, lang):
         super().__init__(timeout=3600)
-        self.ev, self.lang = ev, lang
+        self.frames, self.seats, self.lang = frames, seats, lang
+        self.idx = 0
+        self.play = asyncio.Event()
+        self.play.set()
+        self.msg = None
+        self.toggle.label = i18n.t("replay.pause", lang)
 
-    @discord.ui.button(label="⏸", style=discord.ButtonStyle.secondary)
-    async def toggle(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.ev.is_set():
-            self.ev.clear()
-            button.label = i18n.t("replay.resume", self.lang)
-            button.style = discord.ButtonStyle.success
+    def render(self):
+        from . import replay
+        return replay.render_frame(self.frames, self.idx, self.seats, self.lang)
+
+    async def _refresh(self, interaction):
+        self.toggle.label = i18n.t("replay.pause" if self.play.is_set() else "replay.resume", self.lang)
+        self.toggle.style = (discord.ButtonStyle.secondary if self.play.is_set()
+                             else discord.ButtonStyle.success)
+        await interaction.response.edit_message(content=self.render(), view=self)
+
+    async def _jump(self, interaction, what, direction):
+        from . import replay
+        self.play.clear()                                # 手動操作 → 暫停自動播放
+        self.idx = replay.nav(self.frames, self.idx, what, direction)
+        await self._refresh(interaction)
+
+    @discord.ui.button(label="◀局", style=discord.ButtonStyle.secondary, row=0)
+    async def ph(self, i, b): await self._jump(i, "hand", -1)
+    @discord.ui.button(label="◀巡", style=discord.ButtonStyle.secondary, row=0)
+    async def pt(self, i, b): await self._jump(i, "turn", -1)
+    @discord.ui.button(label="◀步", style=discord.ButtonStyle.secondary, row=0)
+    async def ps(self, i, b): await self._jump(i, "step", -1)
+    @discord.ui.button(label="步▶", style=discord.ButtonStyle.secondary, row=0)
+    async def ns(self, i, b): await self._jump(i, "step", +1)
+    @discord.ui.button(label="巡▶", style=discord.ButtonStyle.secondary, row=0)
+    async def nt(self, i, b): await self._jump(i, "turn", +1)
+    @discord.ui.button(label="局▶", style=discord.ButtonStyle.secondary, row=1)
+    async def nh(self, i, b): await self._jump(i, "hand", +1)
+
+    @discord.ui.button(label="⏸", style=discord.ButtonStyle.primary, row=1)
+    async def toggle(self, interaction, button):
+        if self.play.is_set():
+            self.play.clear()
         else:
-            self.ev.set()
-            button.label = i18n.t("replay.pause", self.lang)
-            button.style = discord.ButtonStyle.secondary
-        await interaction.response.edit_message(view=self)
+            self.play.set()
+        await self._refresh(interaction)
 
 
 @mahjong.command(name="replay", description="輸入房號回放該場對局")
@@ -677,36 +707,29 @@ async def cmd_replay(interaction: discord.Interaction, room: int) -> None:
         await interaction.response.send_message(i18n.t("replay.no_log", lang, room=room), ephemeral=True)
         return
     await interaction.response.defer(ephemeral=True)
-    # 復刻在討論串：開公開討論串，逐格「播放」（像對局中那樣更新同一則牌桌訊息）
     try:
         target = await interaction.channel.create_thread(
             name=i18n.t("replay.title", lang, room=room),
             type=discord.ChannelType.public_thread)
     except Exception:
         target = interaction.channel
-    ev = asyncio.Event()
-    ev.set()
-    ctrl = ReplayControl(ev, lang)
-    ctrl.toggle.label = i18n.t("replay.pause", lang)
-    msg = await target.send(replay.render_frame(frames, 0, seats, lang), view=ctrl)
+    ctrl = ReplayControl(frames, seats, lang)
+    ctrl.msg = await target.send(ctrl.render(), view=ctrl)
     where = target.mention if hasattr(target, "mention") else "此頻道"
     await interaction.followup.send(i18n.t("replay.opened", lang, thread=where), ephemeral=True)
 
-    async def _play():
-        for i in range(1, len(frames)):
-            await ev.wait()                              # 暫停時卡住
-            await asyncio.sleep(frames[i].get("delay", 1.1))   # 依當時實際出牌間隔
+    async def _autoplay():
+        while ctrl.idx < len(ctrl.frames) - 1:
+            await ctrl.play.wait()                       # 暫停時卡住
+            await asyncio.sleep(ctrl.frames[ctrl.idx + 1].get("delay", 1.1))
+            if not ctrl.play.is_set():                   # 期間被暫停 → 不前進
+                continue
+            ctrl.idx += 1
             try:
-                await msg.edit(content=replay.render_frame(frames, i, seats, lang))
+                await ctrl.msg.edit(content=ctrl.render(), view=ctrl)
             except Exception:
                 break
-        for c in ctrl.children:                          # 播完停用按鈕
-            c.disabled = True
-        try:
-            await msg.edit(view=ctrl)
-        except Exception:
-            pass
-    task = asyncio.create_task(_play())
+    task = asyncio.create_task(_autoplay())
     _bg_tasks.add(task)
     task.add_done_callback(_bg_tasks.discard)
 

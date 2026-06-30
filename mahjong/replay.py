@@ -51,6 +51,7 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
     hand, dcount, turn = 0, 0, 0
     rivers = {s: [] for s in seats}
     melds  = {s: [] for s in seats}
+    hands  = {s: [] for s in seats}        # 各家當下手牌（由牌譜直接記錄）
     prev_ts = [None]
 
     def _delay(cur_ts, lo, hi, default):
@@ -67,7 +68,8 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
     def snap(action, delay):
         frames.append({"hand": hand, "turn": turn, "action": action, "delay": delay,
                        "rivers": {s: list(v) for s, v in rivers.items()},
-                       "melds":  {s: list(v) for s, v in melds.items()}})
+                       "melds":  {s: list(v) for s, v in melds.items()},
+                       "hands":  {s: list(v) for s, v in hands.items()}})
 
     for e in events:
         t = e.get("t")
@@ -88,6 +90,8 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
                 cs = name2seat.get(kw.get("name"))
                 if cs is not None:
                     melds.setdefault(cs, []).append(f"{CALL_TAG[key]}{kw.get('tile', '')}")
+            for k, v in (e.get("hands") or {}).items():   # 各家當下手牌
+                hands[int(k)] = list(v)
             try:
                 action = feed_text(key, lang, **kw)
             except Exception:
@@ -113,8 +117,51 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
             dcount, turn = 0, 0
             rivers = {s: [] for s in seats}
             melds  = {s: [] for s in seats}
+            hands  = {s: [] for s in seats}
 
     return frames, seats, n
+
+
+def _sort_hand(tiles: list[str]) -> str:
+    return " ".join(sorted(tiles, key=lambda t: t.replace("🔴", "")))
+
+
+def _key(f):
+    return (f["hand"], f["turn"] if f["turn"] >= 0 else 1 << 30)
+
+
+def nav(frames: list[dict], idx: int, what: str, direction: int) -> int:
+    """what: 'step' | 'turn' | 'hand'；direction: +1 / -1。回傳目標索引。"""
+    n = len(frames)
+    if what == "step":
+        return max(0, min(n - 1, idx + direction))
+    cur = frames[idx]
+    if what == "hand":
+        if direction > 0:
+            for j in range(idx + 1, n):
+                if frames[j]["hand"] > cur["hand"]:
+                    return j
+            return n - 1
+        for j in range(idx - 1, -1, -1):
+            if frames[j]["hand"] < cur["hand"]:
+                target = frames[j]["hand"]
+                while j > 0 and frames[j - 1]["hand"] == target:
+                    j -= 1
+                return j
+        return 0
+    ck = _key(cur)                                   # turn（巡）
+    if direction > 0:
+        for j in range(idx + 1, n):
+            if _key(frames[j]) > ck:
+                return j
+        return n - 1
+    for j in range(idx - 1, -1, -1):
+        if _key(frames[j]) < ck:
+            tk = _key(frames[j])
+            while j > 0 and _key(frames[j - 1]) == tk:
+                j -= 1
+            return j
+    return 0
 
 
 def render_frame(frames: list[dict], idx: int, seats: dict, lang: str = i18n.DEFAULT) -> str:
@@ -126,7 +173,10 @@ def render_frame(frames: list[dict], idx: int, seats: dict, lang: str = i18n.DEF
     for s in sorted(seats):
         meld = ("　" + "　".join(f["melds"].get(s, []))) if f["melds"].get(s) else ""
         lines.append(f"**{i18n.t('wind.%d' % s, lang)} {seats[s]}**{meld}")
-        lines.append(" ".join(f["rivers"].get(s, [])) or "—")
+        hd = f.get("hands", {}).get(s, [])
+        if hd:
+            lines.append(_sort_hand(hd))
+        lines.append(f"{i18n.t('panel.river', lang)}：" + (" ".join(f["rivers"].get(s, [])) or "—"))
     lines.append("")
     lines.append(f"> {f['action']}")
     lines.append(f"`{i18n.t('replay.step', lang, i=idx + 1, total=len(frames))}`")
