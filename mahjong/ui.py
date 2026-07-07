@@ -102,9 +102,8 @@ def make_board_view(gid: str, default_lang: str = i18n.DEFAULT) -> discord.ui.Vi
 
 
 def make_hand_view(gid: str, lang: str = i18n.DEFAULT) -> discord.ui.View:
-    """手牌面板常駐按鈕：看牌河 / 看點數 / 看副露 / 看動態，說明放最右（依玩家語言）。"""
+    """手牌面板常駐按鈕：看點數 / 看副露 / 看動態，說明放最右（牌河已獨立成訊息）。"""
     v = discord.ui.View(timeout=None)
-    v.add_item(RiverButton(gid, lang))
     v.add_item(ScoreButton(gid, lang))
     v.add_item(MeldButton(gid, lang))
     v.add_item(ActionLogButton(gid, lang))

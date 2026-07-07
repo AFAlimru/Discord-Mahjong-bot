@@ -23,22 +23,23 @@
 """
 from __future__ import annotations
 
-# ─── 段位階梯（月／星主題）──────────────────────────────────────────────────
-# (顯示名, 升段所需點數)；最後一階為頂點，無升段門檻。
+# ─── 段位階梯（月蝕主題）──────────────────────────────────────────────────
+# (顯示名, 升段所需點數)；最後一階為頂點，無升段門檻。資料庫存的是索引，改名不影響舊資料。
 DAN_LADDER: list[tuple[str, int | None]] = [
     ("新人",    30),
-    ("新星",   100),
-    ("星群",   200),
-    ("星雀",   400),
-    ("星月",   600),
-    ("上弦月",  800),
-    ("下弦月", 1000),
-    ("月魂",   None),
+    ("新月",   100),
+    ("殘月",   200),
+    ("上弦月", 400),
+    ("下弦月", 600),
+    ("月偏食", 800),
+    ("日全食", 1000),
+    ("血月",   None),
 ]
 DAN_NAMES = [n for n, _ in DAN_LADDER]
 DAN_NEED  = [need for _, need in DAN_LADDER]
 TOP_IDX   = len(DAN_LADDER) - 1
-DEMOTABLE_FROM = 3         # idx>=3（星雀）起，點數歸零會降階；新人～星群不降
+DEMOTABLE_FROM = 3         # idx>=3（上弦月）起，點數歸零會降階；新人～殘月不降
+BLACK_SKIN_IDX = DAN_NAMES.index("日全食")   # 達「日全食」解鎖黑色牌風
 
 START_RATE = 1500.0        # R 初始值
 
@@ -59,7 +60,7 @@ def dan_place_pt(rank: int, dan_idx: int, is_sanma: bool) -> int:
     if rank == 2:
         return 45
     if rank == 3:
-        return 0 if dan_idx < 5 else -15       # 上弦月起三位也微扣
+        return 0 if dan_idx < 5 else -15       # 月偏食起三位也微扣
     return -penalty
 
 

@@ -217,10 +217,14 @@ class RoomSettingsView(View):
         self.hanchan = False   # False=東風戰, True=半莊戰
         self.tobi = True       # 擊飛：點數為負即結束（預設開啟）
         self.ruleset = "mixed"  # "mixed"=混合式 / "tenhou"=完全天鳳式
-        # 依語言設定按鈕標籤（children 依宣告順序：數值/三麻/戰長/擊飛/規則/確認）
+        self.kuikae = False        # 食替：預設禁止（False=禁止）
+        self.open_riichi = False   # 開立直：預設關閉
+        # 依語言設定按鈕標籤（children 依宣告順序：數值/三麻/戰長/擊飛/規則/食替/開立直/確認）
         for child, key in zip(self.children, ("settings.numbers", "settings.sanma",
                                               "settings.length_tonpuu", "settings.tobi_on",
-                                              "settings.rule_default", "settings.confirm")):
+                                              "settings.rule_default",
+                                              "settings.kuikae_off", "settings.openriichi_off",
+                                              "settings.confirm")):
             child.label = i18n.t(key, lang)
 
     @button(label="⚙️ 數值設定", style=discord.ButtonStyle.primary)
@@ -251,6 +255,18 @@ class RoomSettingsView(View):
     async def toggle_ruleset(self, interaction: discord.Interaction, button: Button):
         self.ruleset = "tenhou" if self.ruleset == "mixed" else "mixed"
         button.label = i18n.t("settings.rule_tenhou" if self.ruleset == "tenhou" else "settings.rule_default", self.lang)
+        await interaction.response.edit_message(view=self)
+
+    @button(label="🚫 食替：禁止", style=discord.ButtonStyle.secondary)
+    async def toggle_kuikae(self, interaction: discord.Interaction, button: Button):
+        self.kuikae = not self.kuikae
+        button.label = i18n.t("settings.kuikae_on" if self.kuikae else "settings.kuikae_off", self.lang)
+        await interaction.response.edit_message(view=self)
+
+    @button(label="👁 開立直：關閉", style=discord.ButtonStyle.secondary)
+    async def toggle_open_riichi(self, interaction: discord.Interaction, button: Button):
+        self.open_riichi = not self.open_riichi
+        button.label = i18n.t("settings.openriichi_on" if self.open_riichi else "settings.openriichi_off", self.lang)
         await interaction.response.edit_message(view=self)
 
     @button(label="✅ 確認", style=discord.ButtonStyle.success)

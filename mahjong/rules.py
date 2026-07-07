@@ -22,6 +22,7 @@ from .engine import (
 from .scoring import score_hand, WinContext
 from .state import _room_configs
 from . import i18n
+from . import tiles as T
 
 # ═══════════════════════════════════════════════════════════════
 #  Tile helpers
@@ -162,7 +163,8 @@ def get_ura_tiles(gs: GameState) -> list[Tile]:
 def build_ctx(gs: GameState, player: PlayerState, win_tile: Tile, is_tsumo: bool,
               is_rinshan: bool = False, is_chankan: bool = False,
               is_ippatsu: bool = False, is_double_riichi: bool = False,
-              is_tenhou: bool = False, is_chiihou: bool = False) -> WinContext:
+              is_tenhou: bool = False, is_chiihou: bool = False,
+              open_ron_yakuman: bool = False) -> WinContext:
     n = len(gs.players)
     seat_wind = ((player.seat - gs.dealer_seat) % n) + 1
     last_tile = (gs.tiles_left == 0)
@@ -171,6 +173,8 @@ def build_ctx(gs: GameState, player: PlayerState, win_tile: Tile, is_tsumo: bool
         is_tsumo=is_tsumo,
         is_riichi=player.riichi,
         is_double_riichi=is_double_riichi,
+        is_open_riichi=getattr(player, "open_riichi", False),
+        open_ron_yakuman=open_ron_yakuman,
         is_ippatsu=is_ippatsu,
         round_wind=gs.round_wind,
         seat_wind=seat_wind,
@@ -302,7 +306,7 @@ def tenpai_note_text(gs: GameState, player: PlayerState, adv: list,
             tags.append(i18n.t("term.furiten", lang))
         suffix = f"　（{'・'.join(tags)}）" if tags else ""
         lines.append(i18n.t("tenpai.line", lang, d=d,
-                            waits=' '.join(str(w) for w in waits)) + suffix)
+                            waits=T.render(waits)) + suffix)
     note = i18n.t("tenpai.advice_title", lang) + "\n" + "\n".join(lines)
     extra = []
     if any_no_yaku:
@@ -314,6 +318,19 @@ def tenpai_note_text(gs: GameState, player: PlayerState, adv: list,
     if extra:
         note += "\n（" + "；".join(extra) + "）"
     return note
+
+
+def wait_status(gs: GameState, player: PlayerState, perm: dict, temp: dict) -> tuple:
+    """目前聽牌手（13 張、已捨牌狀態）的提醒標記，回傳 (無役, 振聽, 榮和無役)。
+    未聽牌一律 False。立直有役，故立直後不會誤標無役。"""
+    ws = hand_waits(player)
+    if not ws:
+        return False, False, False
+    waits = [Tile(Suit(s), v) for s, v in ws]
+    furiten  = is_furiten(player, perm, temp)
+    ron_no   = all(evaluate_win(gs, player, w, is_tsumo=False) is None for w in waits)
+    tsumo_no = all(evaluate_win(gs, player, w, is_tsumo=True) is None for w in waits)
+    return (ron_no and tsumo_no), furiten, ron_no
 
 
 def is_furiten(player: PlayerState, perm: dict, temp: dict) -> bool:

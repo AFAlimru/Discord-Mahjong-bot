@@ -271,6 +271,8 @@ class WinContext:
     is_tsumo: bool = False
     is_riichi: bool = False
     is_double_riichi: bool = False
+    is_open_riichi: bool = False
+    open_ron_yakuman: bool = False   # 房規：對開立直放銃＝役滿（由 flow 判定後傳入）
     is_ippatsu: bool = False
     is_rinshan: bool = False       # 嶺上開花
     is_chankan: bool = False       # 槍槓
@@ -321,6 +323,8 @@ def score_hand(
             r.yakuman.append(("國士無雙十三面", 2))
         else:
             r.yakuman.append(("國士無雙", 1))
+        if ctx.open_ron_yakuman:
+            r.yakuman.append(("開立直", 1))
         _finalize_yakuman(r, ctx)
         candidates.append(r)
 
@@ -364,6 +368,10 @@ def _score_chiitoitsu(all14, win_tile, ctx: WinContext, menzen: bool) -> Optiona
 
     if ctx.is_double_riichi:
         yaku.append(("兩立直", 2)); han += 2
+        if ctx.is_open_riichi:
+            yaku.append(("開立直", 1)); han += 1   # 兩立直＋開＝共 3 飜
+    elif ctx.is_open_riichi:
+        yaku.append(("開立直", 2)); han += 2       # 開立直＝2 飜（取代立直）
     elif ctx.is_riichi:
         yaku.append(("立直", 1)); han += 1
     if ctx.is_ippatsu:
@@ -383,6 +391,8 @@ def _score_chiitoitsu(all14, win_tile, ctx: WinContext, menzen: bool) -> Optiona
     if all(is_terminal_or_honor(t) for t in all14):
         if all(is_honor(t) for t in all14):
             r.yakuman.append(("字一色", 1))
+            if ctx.open_ron_yakuman:
+                r.yakuman.append(("開立直", 1))
             _finalize_yakuman(r, ctx)
             return r
         yaku.append(("混老頭", 2)); han += 2
@@ -503,6 +513,10 @@ def _score_standard(concealed, melds, win_tile, ctx: WinContext,
     # ── 一般役 ──
     if ctx.is_double_riichi:
         yaku.append(("兩立直", 2)); han += 2
+        if ctx.is_open_riichi:
+            yaku.append(("開立直", 1)); han += 1   # 兩立直＋開＝共 3 飜
+    elif ctx.is_open_riichi:
+        yaku.append(("開立直", 2)); han += 2       # 開立直＝2 飜（取代立直）
     elif ctx.is_riichi:
         yaku.append(("立直", 1)); han += 1
     if ctx.is_ippatsu:
@@ -605,6 +619,9 @@ def _score_standard(concealed, melds, win_tile, ctx: WinContext,
 # ─── 役滿判定（標準型）──────────────────────────────────────────────────────
 
 def _check_yakuman_standard(all_groups, groups, pair, ctx, ankou, kans, yakuman):
+    # 房規：對開立直放銃＝役滿
+    if ctx.open_ron_yakuman:
+        yakuman.append(("開立直", 1))
     # 天和/地和
     if ctx.is_tenhou:
         yakuman.append(("天和", 1))

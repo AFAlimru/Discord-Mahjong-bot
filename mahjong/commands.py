@@ -11,7 +11,7 @@
 # FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
 # details.  You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-"""斜線指令：/mahjong 房間管理（start/join/end/status/watch/stats/help）與大廳 LobbyView。"""
+"""斜線指令：/mahjong 房間管理（start/join/end/status/stats/help）與大廳 LobbyView。"""
 from __future__ import annotations
 import asyncio
 import uuid
@@ -23,9 +23,10 @@ from . import db
 from . import i18n
 from . import rooms
 from .render import make_board_text
+from . import tiles as T
 from .ui import HelpButton, help_text
 from .views import RoomSettingsView
-from .flow import launch_game, launch_ranked_game, _cleanup, _delete_threads, _delete_announce
+from .flow import launch_game, launch_ranked_game, launch_dm_game, _cleanup, _delete_threads, _delete_announce
 from . import matchmaking
 from .state import (
     _games, _channel_games, _waiting, _room_owners, _room_configs, _user_game,
@@ -191,7 +192,14 @@ async def cmd_start(interaction: discord.Interaction) -> None:
     channel_id = str(interaction.channel_id)
     user_id    = str(interaction.user.id)
 
-    if channel_id in _channel_games:
+    if interaction.guild_id is None:
+        # DM：可以開「跟電腦打」的休閒局（不列段位）；一人同時只能一場
+        other = _user_game.get(user_id)
+        if other and other in _games:
+            await interaction.response.send_message(
+                i18n.t("msg.channel_has_game", i18n.get_user_lang(user_id)), ephemeral=True)
+            return
+    elif channel_id in _channel_games:
         await interaction.response.send_message(i18n.t("msg.channel_has_game", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
 
@@ -212,12 +220,22 @@ async def cmd_start(interaction: discord.Interaction) -> None:
     gid = str(uuid.uuid4())[:8]
     _waiting[gid]            = [{"user_id": user_id, "username": interaction.user.display_name, "is_bot": False}]
     _room_owners[gid]        = user_id
-    _channel_games[channel_id] = gid
     _room_configs[gid]       = {
         "is_sanma": is_sanma, "thinking_time": thinking_time, "max_players": max_players,
         "length": length, "tobi": tobi, "ruleset": ruleset, "start_points": start_points,
+        "kuikae": sv.kuikae, "open_riichi": sv.open_riichi,
         "lang": i18n.get_user_lang(user_id),   # 房間顯示語言＝房主語言（公開內容/翻譯按鈕用）
     }
+
+    if interaction.guild_id is None:
+        # DM：AI 補滿直接開打（跟電腦打，不列段位、不開討論串）
+        _waiting[gid].extend(
+            {"user_id": f"ai_{gid}_{i}", "username": AI_NAMES[i % len(AI_NAMES)], "is_bot": True}
+            for i in range(max_players - 1))
+        await launch_dm_game(gid, interaction.user)
+        return
+
+    _channel_games[channel_id] = gid
     rooms.register(gid, interaction.guild_id, channel_id)
 
     lobby = LobbyView(gid, interaction.channel)
@@ -272,8 +290,9 @@ async def cmd_join(interaction: discord.Interaction, host: discord.Member = None
 async def cmd_end(interaction: discord.Interaction) -> None:
     channel_id = str(interaction.channel_id)
     user_id    = str(interaction.user.id)
-    # 可在主頻道或任一遊戲討論串內使用
-    gid = _channel_games.get(channel_id) or _thread_game.get(int(channel_id))
+    # 可在主頻道或任一遊戲討論串內使用；DM 對局（跟電腦打）用玩家對照找
+    gid = (_channel_games.get(channel_id) or _thread_game.get(int(channel_id))
+           or (_user_game.get(user_id) if interaction.guild_id is None else None))
     if not gid:
         await interaction.response.send_message(i18n.t("msg.no_game", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
@@ -321,6 +340,7 @@ async def cmd_end(interaction: discord.Interaction) -> None:
         task.cancel()
 
     # 5) 每個討論串貼「房間已關閉」，稍候再刪除
+    #    DM 對局沒有討論串（private 是 DM 頻道，不能刪也不用刪），跳過刪除與權限警告
     if th:
         for t in [th.get("public")] + list(th.get("private", {}).values()):
             if t is None:
@@ -329,13 +349,14 @@ async def cmd_end(interaction: discord.Interaction) -> None:
                 await t.send(closed)
             except Exception:
                 pass
-        await asyncio.sleep(3)
-        failed = await _delete_threads(th)
-        if failed:
-            try:
-                await interaction.followup.send(i18n.t("msg.thread_delete_fail", lang), ephemeral=True)
-            except Exception:
-                pass
+        if not th.get("is_dm"):
+            await asyncio.sleep(3)
+            failed = await _delete_threads(th)
+            if failed:
+                try:
+                    await interaction.followup.send(i18n.t("msg.thread_delete_fail", lang), ephemeral=True)
+                except Exception:
+                    pass
 
     _cleanup(gid, parent_cid)
 
@@ -360,41 +381,6 @@ async def cmd_status(interaction: discord.Interaction) -> None:
     open_hand = _room_configs.get(gid, {}).get("open_hand", False)
     await interaction.response.send_message(
         content=make_board_text(gs, "", open_hand, lang), ephemeral=True)
-
-
-@mahjong.command(name="watch", description="觀戰模式：全部 AI 自動對局（公開手牌）")
-@app_commands.describe(half="是否打半莊（預設東風戰）", sanma="是否三麻（預設四麻）")
-async def cmd_watch(interaction: discord.Interaction, half: bool = False, sanma: bool = False) -> None:
-    channel_id = str(interaction.channel_id)
-    if channel_id in _channel_games:
-        await interaction.response.send_message(i18n.t("msg.channel_has_game", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
-        return
-
-    n_players = 3 if sanma else 4
-    gid = str(uuid.uuid4())[:8]
-    players_info = [
-        {"user_id": f"ai_{gid}_{i}", "username": AI_NAMES[i % len(AI_NAMES)], "is_bot": True}
-        for i in range(n_players)
-    ]
-    _waiting[gid]              = players_info
-    _room_owners[gid]         = str(interaction.user.id)
-    _channel_games[channel_id] = gid
-    _room_configs[gid]        = {
-        "is_sanma": sanma, "thinking_time": 25, "max_players": n_players,
-        "length": "hanchan" if half else "tonpuu", "tobi": True,
-        "open_hand": True,   # 觀戰模式預設公開手牌
-        "ruleset": "mixed",
-        "start_points": 35000 if sanma else 25000,
-        "lang": i18n.get_user_lang(interaction.user.id),   # 觀戰牌桌顯示語言＝開局者語言
-    }
-    rooms.register(gid, interaction.guild_id, channel_id)
-
-    mode_label = "三麻" if sanma else "四麻"
-    len_label  = "半莊戰" if half else "東風戰"
-    await interaction.response.send_message(
-        f"🀄 **{rooms.label(gid)}・觀戰模式**啟動！全部 AI 自動對局（{mode_label}・{len_label}・公開手牌）"
-    )
-    await launch_game(gid, interaction.channel)
 
 
 @mahjong.command(name="stats", description="查看個人統計")
@@ -507,6 +493,40 @@ async def cmd_rankinfo(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(i18n.t("rank.info", lang, ladder=ladder), ephemeral=True)
 
 
+@mahjong.command(name="skin", description="切換牌面風格（黑色牌風＝達到「日全食」段位解鎖）")
+@app_commands.describe(style="要使用的牌風")
+@app_commands.choices(style=[
+    app_commands.Choice(name="預設（白）", value="default"),
+    app_commands.Choice(name="黑色（日全食解鎖）", value="black"),
+])
+async def cmd_skin(interaction: discord.Interaction, style: app_commands.Choice[str]) -> None:
+    from . import rating as _rt
+    from . import tiles as _tiles
+    from .flow import _skin_cache
+    uid  = str(interaction.user.id)
+    lang = i18n.get_user_lang(uid)
+    val  = style.value
+    if val != "default":
+        if val not in _tiles.available_skins():
+            await interaction.response.send_message(i18n.t("skin.na", lang), ephemeral=True)
+            return
+        # 解鎖條件：任一模式段位達「日全食」；機器人擁有者直接可用（測試）
+        unlocked = any((db.get_rating(uid, m) or {}).get("dan_idx", 0) >= _rt.BLACK_SKIN_IDX
+                       for m in ("yonma", "sanma"))
+        if not unlocked:
+            try:
+                unlocked = await interaction.client.is_owner(interaction.user)
+            except Exception:
+                unlocked = False
+        if not unlocked:
+            await interaction.response.send_message(
+                i18n.t("skin.locked", lang, dan=_rt.DAN_NAMES[_rt.BLACK_SKIN_IDX]), ephemeral=True)
+            return
+    db.set_user_skin(uid, None if val == "default" else val)
+    _skin_cache.pop(uid, None)   # 對局中的快取立即失效，下一次渲染就換
+    await interaction.response.send_message(i18n.t("skin.set", lang, name=style.name), ephemeral=True)
+
+
 @mahjong.command(name="daily", description="每日簽到，獲得活躍度")
 async def cmd_daily(interaction: discord.Interaction) -> None:
     lang = i18n.get_user_lang(interaction.user.id)
@@ -570,7 +590,7 @@ async def cmd_profile(interaction: discord.Interaction) -> None:
         hand = act.get("best_win_hand") or ""
         lines.append(f"{L('profile.best_win')}：**{(nm + ' ') if nm else ''}{best} {L('profile.points')}**")
         if hand:
-            lines.append(hand)
+            lines.append(T.emojify(hand))
     else:
         lines.append(f"{L('profile.best_win')}：{L('profile.none')}")
 

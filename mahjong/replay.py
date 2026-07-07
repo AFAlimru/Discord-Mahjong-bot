@@ -24,8 +24,9 @@ from __future__ import annotations
 from datetime import datetime
 
 from . import i18n
+from . import tiles as T
 
-DISCARD_KEYS = {"feed.discard", "feed.riichi_tsumogiri"}
+DISCARD_KEYS = {"feed.discard", "feed.riichi_tsumogiri", "feed.call_discard"}
 CALL_TAKE    = {"feed.pon", "feed.chi", "feed.kan"}                 # 從捨牌者牌河取走
 CALL_TAG     = {"feed.pon": "碰", "feed.chi": "吃", "feed.kan": "槓",
                 "feed.ankan": "暗槓", "feed.kakan": "加槓"}
@@ -41,12 +42,12 @@ def _ceremony(snap, win, e, wd, wh, uid2name, lang, d0):
         title = (i18n.t("result.ron", lang, name=name, loser=loser)
                  if win in ("ron", "dblron") else i18n.t("result.tsumo", lang, name=name))
         head = [f"🎉 {title}"]
-        dline = "[" + i18n.t("board.dora", lang) + "：" + (" ".join(dora) or "—")
+        dline = "[" + (T.render(dora) or "—") + "]"   # 寶牌（不標字樣）
         if ura:
-            dline += "　" + i18n.t("board.ura_dora", lang) + "：" + " ".join(ura)
-        head.append(dline + "]")
+            dline += "　[" + T.render(ura) + "]"       # 裏寶牌
+        head.append(dline)
         if wh.get(u):
-            head.append(wh[u])
+            head.append(T.emojify(wh[u]))
         snap("\n".join(head), d0)                                  # ① 標題＋寶牌＋手牌
         ym, yk = det.get("yakuman", []), det.get("yaku", [])
         items = [(n, None) for n in ym] if ym else [(n, h) for n, h in yk]
@@ -100,9 +101,9 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
         prev_ts[0] = cur_ts or prev_ts[0]
         return round(max(lo, min(hi, d)), 2)
 
-    def snap(action, delay):
+    def snap(action, delay, clear=False):
         frames.append({"hand": hand, "turn": turn, "action": action, "delay": delay,
-                       "wall": wall[0], "dora": list(dora[0]),
+                       "wall": wall[0], "dora": list(dora[0]), "clear": clear,
                        "rivers": {s: list(v) for s, v in rivers.items()},
                        "melds":  {s: list(v) for s, v in melds.items()},
                        "hands":  {s: list(v) for s, v in hands.items()}})
@@ -125,7 +126,7 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
             if key in CALL_TAG:
                 cs = name2seat.get(kw.get("name"))
                 if cs is not None:
-                    melds.setdefault(cs, []).append(f"{CALL_TAG[key]}{kw.get('tile', '')}")
+                    melds.setdefault(cs, []).append(f"[{kw.get('tile', '')}]")
             for k, v in (e.get("hands") or {}).items():   # 各家當下手牌
                 hands[int(k)] = list(v)
             if "wall" in e:
@@ -145,7 +146,8 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
             turn = -1
             d0 = _delay(e.get("_ts"), 1.6, 8.0, 2.0)
             if wd and win in ("ron", "dblron", "tsumo"):
-                _ceremony(snap, win, e, wd, wh, uid2name, lang, d0)   # 和牌儀式（逐項揭曉）
+                # 和牌儀式（逐項揭曉）：清空牌桌只顯示儀式
+                _ceremony(lambda a, d: snap(a, d, clear=True), win, e, wd, wh, uid2name, lang, d0)
             else:
                 if win in ("ron", "dblron"):
                     res = "🀄 " + i18n.t("result.ron", lang, name=winners or "?",
@@ -156,8 +158,8 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
                     res = i18n.t("result.draw_title", lang)
                 for u, hd in wh.items():
                     if hd:
-                        res += f"\n　{uid2name.get(u, u)}：{hd}"
-                snap(f"**{res}**", d0)
+                        res += f"\n　{uid2name.get(u, u)}：{T.emojify(hd)}"
+                snap(f"**{res}**", d0, clear=True)
             hand += 1
             dcount, turn = 0, 0
             rivers = {s: [] for s in seats}
@@ -221,21 +223,27 @@ def render_frame(frames: list[dict], idx: int, seats: dict,
         head += "　" + i18n.t("replay.turn", lang, n=f["turn"] + 1)
     if f.get("wall"):
         head += "　" + i18n.t("replay.wall", lang, n=f["wall"])
+    if f.get("clear"):   # 結算／和牌儀式：清掉牌桌（手牌、牌河），只顯示儀式內容
+        return "\n".join([
+            f"## 🎞️ {head}", "", f["action"], "",
+            f"`{i18n.t('replay.step', lang, i=idx + 1, total=len(frames))}`",
+        ])
     lines = [f"## 🎞️ {head}"]
     if f.get("dora"):
-        lines.append(f"{i18n.t('board.dora', lang)}：" + " ".join(f["dora"]))
+        lines.append(f"{i18n.t('board.dora', lang)}：" + T.render(f["dora"]))
     for j, s in enumerate(order):
         if j:
             lines.append("─" * 18)
         mark = "▶ " if s == focus else "　"
-        meld = ("　" + "　".join(f["melds"].get(s, []))) if f["melds"].get(s) else ""
+        meld = ("　" + "　".join(T.emojify(m) for m in f["melds"].get(s, []))) if f["melds"].get(s) else ""
         lines.append(f"## {mark}{i18n.t('wind.%d' % s, lang)}「{seats[s]}」{meld}")
-        lines.append(" ".join(f["rivers"].get(s, [])) or "—")
+        rv = f["rivers"].get(s, [])
+        lines.append((("…" if len(rv) > 12 else "") + T.render(rv[-12:])) or "—")
     # 視角玩家的手牌（像遊玩中只看自己那副）
     hd = f.get("hands", {}).get(focus, [])
     lines.append("=" * 22)
     lines.append(f"👁 {seats[focus]}　{i18n.t('panel.your_hand', lang)}")
-    lines.append(("# " + _sort_hand(hd)) if hd else i18n.t("panel.none", lang))
+    lines.append(("# " + T.emojify(_sort_hand(hd))) if hd else i18n.t("panel.none", lang))
     lines.append("")
     lines.append(f"> {f['action']}")
     lines.append(f"`{i18n.t('replay.step', lang, i=idx + 1, total=len(frames))}`")

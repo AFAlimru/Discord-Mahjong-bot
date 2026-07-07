@@ -9,8 +9,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 .venv/
+.toolvenv/
 venv/
 env/
+
+# 表情上傳工具的 SVG 快取
+tools/.tile_cache/
 
 # SQLite 資料庫與 WAL 檔
 *.db

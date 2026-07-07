@@ -167,6 +167,10 @@ def init_db() -> None:
             conn.execute("ALTER TABLE user_activity ADD COLUMN best_win_hand TEXT")
         except Exception:
             pass
+        try:
+            conn.execute("ALTER TABLE user_prefs ADD COLUMN skin TEXT")
+        except Exception:
+            pass
     print(f"[DB] Database initialised at: {DATABASE_PATH}")
 
 
@@ -392,6 +396,22 @@ def set_user_lang(user_id: str, lang: str) -> None:
             "INSERT INTO user_prefs (user_id, lang) VALUES (?, ?) "
             "ON CONFLICT(user_id) DO UPDATE SET lang=excluded.lang",
             (user_id, lang)
+        )
+
+
+def get_user_skin(user_id: str) -> str | None:
+    """玩家選用的牌風（None＝預設）。"""
+    with get_connection() as conn:
+        row = conn.execute("SELECT skin FROM user_prefs WHERE user_id=?", (user_id,)).fetchone()
+    return row["skin"] if row else None
+
+
+def set_user_skin(user_id: str, skin: str | None) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO user_prefs (user_id, skin) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET skin=excluded.skin",
+            (user_id, skin)
         )
 
 

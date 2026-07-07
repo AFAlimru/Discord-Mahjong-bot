@@ -76,6 +76,8 @@ def t(key: str, lang: str | None = None, **kw) -> str:
     if s is None:
         s = _cache.get(DEFAULT, {}).get(key, key)
     if kw:
+        from . import tiles as _tiles   # 延後匯入避免套件初始化順序問題
+        kw = {k: (_tiles.of(v) if isinstance(v, _tiles.Tile) else v) for k, v in kw.items()}
         try:
             s = s.format(**kw)
         except Exception:
