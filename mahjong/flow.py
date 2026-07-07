@@ -706,11 +706,8 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     if riichi_locked and player.drawn_tile is not None:
         add_btn(i18n.t("action.tsumogiri", lang), discord.ButtonStyle.secondary,
                 ("discard", player.drawn_tile), row=action_row)
-    kita_btn = None
-    if kita_ok:
-        state["kita_rem"] = min(10, int(thinking_time))
-        kita_btn = add_btn(f"🀀 {i18n.t('action.kita', lang)}（{state['kita_rem']}）",
-                           discord.ButtonStyle.success, ("kita", None), row=action_row)
+    if kita_ok:   # 拔北：常駐整回合（回合本身有倒數），可直接打牌不理它
+        add_btn(f"🀀 {i18n.t('action.kita', lang)}", discord.ButtonStyle.success, ("kita", None), row=action_row)
     if ankan_opts:
         add_btn(i18n.t("action.ankan", lang), discord.ButtonStyle.secondary, ("ankan", ankan_opts[0]), row=action_row)
     if kakan_opts:
@@ -743,16 +740,6 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
             await asyncio.sleep(1)
             rem -= 1
             state["rem"] = rem
-            if kita_btn is not None and state.get("kita_rem") is not None:
-                state["kita_rem"] -= 1
-                if state["kita_rem"] <= 0:   # 逾時＝跳過拔北（按鈕消失，出牌照常）
-                    try:
-                        view.remove_item(kita_btn)
-                    except Exception:
-                        pass
-                    state["kita_rem"] = None
-                else:
-                    kita_btn.label = f"🀀 {i18n.t('action.kita', lang)}（{state['kita_rem']}）"
             if not state["riichi"]:
                 await refresh(rem)
 
