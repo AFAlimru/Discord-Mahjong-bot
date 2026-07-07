@@ -336,6 +336,7 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
             return None
         uid = p.user_id
         lang_p = i18n.get_user_lang(uid)
+        _apply_skin(uid)   # 提示的牌面依觀看者牌風
         fut = asyncio.get_event_loop().create_future()
         view = discord.ui.View(timeout=thinking_time + 5)
 
@@ -357,7 +358,7 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
         chi_combos = []
         for t1, t2 in chi_opts:
             srt = sorted([t1, t2, discard_tile], key=lambda t: (t.suit, t.value))
-            chi_combos.append(" ".join(str(t) for t in srt))
+            chi_combos.append(T.render(srt))
 
         # 順序：吃、碰、槓、榮和、跳過（依玩家語言）
         _chi = i18n.t("action.chi", lang_p)
@@ -374,7 +375,8 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
         add_btn(i18n.t("action.skip", lang_p), discord.ButtonStyle.secondary, "skip", None)   # 灰
 
         def prompt_text(rem):
-            lines = [i18n.t("react.discarded", lang_p, who=from_name), f"# {discard_tile}"]
+            _apply_skin(uid)   # 倒數/按鈕回呼可能在別的 context
+            lines = [i18n.t("react.discarded", lang_p, who=from_name), f"# {T.of(discard_tile)}"]
             if len(chi_combos) == 1:
                 lines.append(i18n.t("react.chi_combo", lang_p, combo=chi_combos[0]))
             else:
@@ -462,6 +464,7 @@ async def collect_chankan_t(gs, gid, kan_tile, kan_seat, thinking_time,
             return None
         uid = p.user_id
         lang_p = i18n.get_user_lang(uid)
+        _apply_skin(uid)
         fut = asyncio.get_event_loop().create_future()
         view = discord.ui.View(timeout=thinking_time + 5)
 
@@ -974,6 +977,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             player.hand.remove(discard_tile)
             player.discards.append(discard_tile)
             kuikae_ban = set()
+            gs.pending_discard   = discard_tile
+            gs.pending_from_seat = player.seat
             giri = "action.tsumogiri" if (drawn is not None and discard_tile == drawn) else "action.tegiri"
             nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)])
             if last_call:   # 鳴牌後的打出：合併成「碰了…打出…」一句
@@ -1182,6 +1187,9 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 player.hand.remove(discard_tile)
             player.discards.append(discard_tile)
             kuikae_ban = set()
+            # 先更新「上家打出」再發動態，反應窗口期間面板才會顯示這一張（而非上一張）
+            gs.pending_discard   = discard_tile
+            gs.pending_from_seat = player.seat
             if ipp_start:
                 ippatsu[player.seat] = False
 
