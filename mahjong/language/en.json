@@ -310,7 +310,6 @@
   "skin.na": "❌ Emojis for this skin haven't been uploaded yet",
   "msg.guild_only": "❌ Use this command in a server channel (in DMs you can /mahjong start to play vs AI)",
   "dm.start": "🀄 Game start! This DM is your table — rivers above, hand panel below (vs AI, unranked).",
-  "prompt.kita_ask": "🀀 Extract **North** (kita)? (draws a replacement; auto-skip in 10s)",
   "settings.kuikae_off": "🚫 Kuikae: forbidden",
   "settings.kuikae_on": "🍴 Kuikae: allowed",
   "settings.openriichi_off": "👁 Open Riichi: off",

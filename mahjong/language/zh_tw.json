@@ -254,7 +254,6 @@
   "skin.na": "❌ 該牌風尚未上傳表情，請先執行上傳工具",
   "msg.guild_only": "❌ 這個指令要在伺服器頻道使用（想在 DM 玩可用 /mahjong start 跟電腦打）",
   "dm.start": "🀄 對局開始！這裡就是你的牌桌——上面是牌河、下面是手牌面板（跟電腦打，不列入段位）。",
-  "prompt.kita_ask": "🀀 要**拔北**嗎？（拔北後補摸一張；10 秒未選視同跳過）",
   "settings.kuikae_off": "🚫 食替：禁止",
   "settings.kuikae_on": "🍴 食替：允許",
   "settings.openriichi_off": "👁 開立直：關閉",

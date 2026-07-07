@@ -310,7 +310,6 @@
   "skin.na": "❌ このスキンの絵文字が未アップロードです",
   "msg.guild_only": "❌ このコマンドはサーバーのチャンネルで使ってください（DMでは /mahjong start でCPU戦ができます）",
   "dm.start": "🀄 対局開始！ここがあなたの卓です——上が河、下が手牌パネル（CPU戦、段位対象外）。",
-  "prompt.kita_ask": "🀀 **北抜き**しますか？（抜いた後に一枚ツモ；10秒でスキップ扱い）",
   "settings.kuikae_off": "🚫 喰い替え：禁止",
   "settings.kuikae_on": "🍴 喰い替え：あり",
   "settings.openriichi_off": "👁 オープンリーチ：なし",

@@ -540,43 +540,6 @@ async def _ping_turn(thread, uid: str) -> None:
         pass
 
 
-async def _ask_kita(gid, player, pt, hand_msg, timeout: float = 10.0) -> bool:
-    """拔北詢問（像碰/吃）：面板顯示【拔北／跳過】，逾時視同跳過。回傳是否拔北。"""
-    uid  = player.user_id
-    lang = i18n.get_user_lang(uid)
-    _apply_skin(uid)
-    fut  = asyncio.get_event_loop().create_future()
-    view = discord.ui.View(timeout=timeout + 5)
-
-    def add(label, style, val):
-        b = discord.ui.Button(label=label, style=style)
-        async def cb(inter):
-            if str(inter.user.id) != uid:
-                await inter.response.send_message(
-                    i18n.t("msg.not_your_turn", i18n.get_user_lang(inter.user.id)), ephemeral=True)
-                return
-            await inter.response.defer()
-            if not fut.done():
-                fut.set_result(val)
-        b.callback = cb
-        view.add_item(b)
-
-    add("🀀 " + i18n.t("action.kita", lang), discord.ButtonStyle.success, True)
-    add(i18n.t("action.skip", lang), discord.ButtonStyle.secondary, False)
-    try:
-        await hand_msg.edit(content=make_hand_panel(
-            player, i18n.t("prompt.kita_ask", lang), "",
-            _action_feed(gid, _games[gid], lang), lang=lang), view=view)
-    except Exception:
-        pass
-    try:
-        return await asyncio.wait_for(fut, timeout=timeout)
-    except asyncio.TimeoutError:
-        return False
-    finally:
-        view.stop()
-
-
 async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
                            can_tsumo, can_riichi, kita_ok, ankan_opts,
                            prompt_base, tenpai_note, last_info="", board_info="",
@@ -667,6 +630,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
         view.add_item(b)
         if kind not in ("riichi", "riichi_open"):
             action_btns.append(b)
+        return b
 
     def add_tile_btn(tile, row, primary=False):
         """每張手牌一顆出牌鈕；立直宣言中則改為選擇立直宣言牌（需維持聽牌）。"""
@@ -739,8 +703,11 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     if riichi_locked and player.drawn_tile is not None:
         add_btn(i18n.t("action.tsumogiri", lang), discord.ButtonStyle.secondary,
                 ("discard", player.drawn_tile), row=action_row)
+    kita_btn = None
     if kita_ok:
-        add_btn(i18n.t("action.kita", lang), discord.ButtonStyle.secondary, ("kita", None), row=action_row)
+        state["kita_rem"] = min(10, int(thinking_time))
+        kita_btn = add_btn(f"🀀 {i18n.t('action.kita', lang)}（{state['kita_rem']}）",
+                           discord.ButtonStyle.success, ("kita", None), row=action_row)
     if ankan_opts:
         add_btn(i18n.t("action.ankan", lang), discord.ButtonStyle.secondary, ("ankan", ankan_opts[0]), row=action_row)
     if kakan_opts:
@@ -773,6 +740,16 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
             await asyncio.sleep(1)
             rem -= 1
             state["rem"] = rem
+            if kita_btn is not None and state.get("kita_rem") is not None:
+                state["kita_rem"] -= 1
+                if state["kita_rem"] <= 0:   # 逾時＝跳過拔北（按鈕消失，出牌照常）
+                    try:
+                        view.remove_item(kita_btn)
+                    except Exception:
+                        pass
+                    state["kita_rem"] = None
+                else:
+                    kita_btn.label = f"🀀 {i18n.t('action.kita', lang)}（{state['kita_rem']}）"
             if not state["riichi"]:
                 await refresh(rem)
 
@@ -1056,12 +1033,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 except Exception:
                     pass
             result = None
-            if pt and hm and kita_ok:
-                # 拔北改成像碰/吃的詢問：先問要不要拔，跳過（或逾時）就進正常出牌
-                if await _ask_kita(gid, player, pt, hm):
-                    result = ("kita", None)
-                kita_ok = False   # 不再放拔北鈕（詢問已處理）
-            if result is None and pt and hm:
+            if pt and hm:
                 result = await wait_turn_action(
                     gid, player, pt, hm, turn_time,
                     can_tsumo, can_riichi, kita_ok, ankan_opts,
@@ -1069,7 +1041,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     riichi_locked=already_riichi, kakan_opts=kakan_opts, kyuushu_ok=kyuushu_ok,
                     banned=kuikae_ban,
                 )
-            elif result is None:
+            else:
                 await render_hand(player, prompt_base, tenpai_note)
             if ping_msg:   # 出完牌（行動結束）才刪掉提醒
                 try:
