@@ -262,5 +262,13 @@
   "action.riichi_open": "開立直",
   "feed.word_riichi_open": "宣告開立直！亮出手牌，打出",
   "label.open_riichi_tag": "【開立直】",
-  "label.open_hand": "👁 亮牌"
+  "label.open_hand": "👁 亮牌",
+  "term.part_no_yaku": "部分無役",
+  "label.part_noyaku_tag": "⚠️ 部分待牌無役（有些牌和不了）",
+  "yakulist.title": "🀄 役種一覽",
+  "yakulist.han": "{n} 飜",
+  "yakulist.yakuman": "役滿",
+  "yakulist.yakuman2": "雙倍役滿",
+  "yakulist.bonus": "懸賞（不算役，只加飜）",
+  "yakulist.notes": "※＝副露減 1 飜。役牌＝白/發/中/場風/自風。裏寶牌限立直。拔北為三麻、每張 +1 飜。房規：開立直 2 飜（房間開啟時），對開立直放銃＝役滿（放銃者已立直除外）。"
 }

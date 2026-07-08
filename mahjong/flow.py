@@ -895,11 +895,13 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
     kan_seats    = set()      # 宣告過槓的座位（同一人四槓＝四槓子，不流局）
 
     def _update_warn(p):
-        """更新聽牌警示標籤（振聽／無役），面板上像【已立直】一樣顯眼（只有本人看得到）。"""
-        no_yaku, furiten, ron_no = wait_status(gs, p, furiten_perm, temp_furiten)
+        """更新聽牌警示標籤（振聽／無役／部分無役），面板上像【已立直】一樣顯眼（只有本人看得到）。"""
+        no_yaku, furiten, ron_no, part_no = wait_status(gs, p, furiten_perm, temp_furiten)
         tags = []
         if no_yaku:
             tags.append("label.noyaku_tag")
+        elif part_no:
+            tags.append("label.part_noyaku_tag")
         elif ron_no:
             tags.append("label.ron_noyaku_tag")
         if furiten:
@@ -963,6 +965,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     discard_tile = ai_choose_discard(_alt) or _alt[0]
             player.hand.remove(discard_tile)
             player.discards.append(discard_tile)
+            getattr(player, "discards_all", None) or setattr(player, "discards_all", [])
+            player.discards_all.append(discard_tile)
             kuikae_ban = set()
             gs.pending_discard   = discard_tile
             gs.pending_from_seat = player.seat
@@ -1173,6 +1177,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             if discard_tile in player.hand:
                 player.hand.remove(discard_tile)
             player.discards.append(discard_tile)
+            getattr(player, "discards_all", None) or setattr(player, "discards_all", [])
+            player.discards_all.append(discard_tile)
             kuikae_ban = set()
             # 先更新「上家打出」再發動態，反應窗口期間面板才會顯示這一張（而非上一張）
             gs.pending_discard   = discard_tile

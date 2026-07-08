@@ -260,12 +260,18 @@ def is_kyuushu_kyuuhai(tiles: list) -> bool:
     return len(yaochuu) >= 9
 
 
+def all_discards(player: PlayerState) -> list:
+    """完整捨牌史（含被碰/吃/槓走、已從牌河移除的）——振聽判定要用這份，不能用牌河。"""
+    return getattr(player, "discards_all", None) or player.discards
+
+
 def _wait_flags(gs: GameState, player: PlayerState, discard: Tile, waits: list) -> tuple:
-    """某個進聽打法的提醒標記，回傳 (無役, 振聽, 榮和無役)。
-    振聽：待牌曾在自己牌河（含正要打出的這張）。
-    無役：對所有待牌，榮和與自摸皆無役 → 完全不可和（多半是副露手）。
-    榮和無役：對所有待牌榮和皆無役（但自摸有役，如門清自摸）→ 未立直不能榮和。"""
-    river = {(int(t.suit), t.value) for t in player.discards}
+    """某個進聽打法的提醒標記，回傳 (無役, 振聽, 榮和無役, 部分無役)。
+    振聽：待牌曾出現在自己的完整捨牌史（含被鳴走的、含正要打出的這張）。
+    無役：對「所有」待牌，榮和與自摸皆無役 → 完全不可和（多半是副露手）。
+    榮和無役：對所有待牌榮和皆無役（但自摸有役，如門清自摸）→ 未立直不能榮和。
+    部分無役：「部分」待牌完全無役（另一些有役）→ 只能和有役的那幾張。"""
+    river = {(int(t.suit), t.value) for t in all_discards(player)}
     river.add((int(discard.suit), discard.value))
     furiten = any((int(w.suit), w.value) in river for w in waits)
 
@@ -276,12 +282,15 @@ def _wait_flags(gs: GameState, player: PlayerState, discard: Tile, waits: list) 
     saved = player.hand
     player.hand = post
     try:
+        dead = [w for w in waits          # 這張待牌榮和、自摸都無役 → 完全和不了
+                if evaluate_win(gs, player, w, is_tsumo=False) is None
+                and evaluate_win(gs, player, w, is_tsumo=True) is None]
         ron_no_yaku = all(evaluate_win(gs, player, w, is_tsumo=False) is None for w in waits)
-        tsumo_no_yaku = all(evaluate_win(gs, player, w, is_tsumo=True) is None for w in waits)
     finally:
         player.hand = saved
-    no_yaku = ron_no_yaku and tsumo_no_yaku
-    return no_yaku, furiten, ron_no_yaku
+    no_yaku  = (len(dead) == len(waits))
+    part_no  = (0 < len(dead) < len(waits))
+    return no_yaku, furiten, (ron_no_yaku and not no_yaku), part_no
 
 
 def tenpai_note_text(gs: GameState, player: PlayerState, adv: list,
@@ -292,14 +301,16 @@ def tenpai_note_text(gs: GameState, player: PlayerState, adv: list,
     lines = []
     any_no_yaku = any_furiten = any_ron_only = False
     for d, waits in adv:
-        no_yaku, furiten, ron_no_yaku = _wait_flags(gs, player, d, waits)
-        ron_only = menzen_no_riichi and ron_no_yaku and not no_yaku  # 自摸有役、榮和無役
+        no_yaku, furiten, ron_no_yaku, part_no = _wait_flags(gs, player, d, waits)
+        ron_only = menzen_no_riichi and ron_no_yaku  # 自摸有役、榮和無役
         any_no_yaku |= no_yaku
         any_furiten |= furiten
         any_ron_only |= ron_only
         tags = []
         if no_yaku:
             tags.append(i18n.t("term.no_yaku", lang))
+        if part_no:
+            tags.append(i18n.t("term.part_no_yaku", lang))
         if ron_only:
             tags.append(i18n.t("term.ron_no_yaku", lang))
         if furiten:
@@ -321,16 +332,20 @@ def tenpai_note_text(gs: GameState, player: PlayerState, adv: list,
 
 
 def wait_status(gs: GameState, player: PlayerState, perm: dict, temp: dict) -> tuple:
-    """目前聽牌手（13 張、已捨牌狀態）的提醒標記，回傳 (無役, 振聽, 榮和無役)。
+    """目前聽牌手（13 張、已捨牌狀態）的提醒標記，回傳 (無役, 振聽, 榮和無役, 部分無役)。
     未聽牌一律 False。立直有役，故立直後不會誤標無役。"""
     ws = hand_waits(player)
     if not ws:
-        return False, False, False
+        return False, False, False, False
     waits = [Tile(Suit(s), v) for s, v in ws]
-    furiten  = is_furiten(player, perm, temp)
-    ron_no   = all(evaluate_win(gs, player, w, is_tsumo=False) is None for w in waits)
-    tsumo_no = all(evaluate_win(gs, player, w, is_tsumo=True) is None for w in waits)
-    return (ron_no and tsumo_no), furiten, ron_no
+    furiten = is_furiten(player, perm, temp)
+    dead = [w for w in waits
+            if evaluate_win(gs, player, w, is_tsumo=False) is None
+            and evaluate_win(gs, player, w, is_tsumo=True) is None]
+    ron_no  = all(evaluate_win(gs, player, w, is_tsumo=False) is None for w in waits)
+    no_yaku = (len(dead) == len(waits))
+    part_no = (0 < len(dead) < len(waits))
+    return no_yaku, furiten, (ron_no and not no_yaku), part_no
 
 
 def is_furiten(player: PlayerState, perm: dict, temp: dict) -> bool:
@@ -340,7 +355,7 @@ def is_furiten(player: PlayerState, perm: dict, temp: dict) -> bool:
     waits = hand_waits(player)
     if not waits:
         return False
-    discarded = {(int(t.suit), t.value) for t in player.discards}
+    discarded = {(int(t.suit), t.value) for t in all_discards(player)}
     return bool(waits & discarded)
 
 

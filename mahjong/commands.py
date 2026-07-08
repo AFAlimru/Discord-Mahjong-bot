@@ -493,6 +493,40 @@ async def cmd_rankinfo(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(i18n.t("rank.info", lang, ladder=ladder), ephemeral=True)
 
 
+# 役種一覽（與 scoring.py 實作一致）；※＝副露減 1 飜
+_YAKU_CHART = [
+    (1, ["立直", "一發", "門前清自摸和", "平和", "斷么九", "一盃口", "役牌",
+         "嶺上開花", "槍槓", "海底摸月", "河底撈魚"]),
+    (2, ["兩立直", "開立直", "七對子", "對對和", "三暗刻", "三槓子", "三色同刻",
+         "小三元", "混老頭", "三色同順", "一氣通貫", "混全帶么九"]),
+    (3, ["二盃口", "純全帶么九", "混一色"]),
+    (6, ["清一色"]),
+]
+_YAKU_FURO_MINUS = {"三色同順", "一氣通貫", "混全帶么九", "純全帶么九", "混一色", "清一色"}
+_YAKUMAN  = ["天和", "地和", "國士無雙", "四暗刻", "大三元", "字一色", "綠一色",
+             "清老頭", "九蓮寶燈", "四槓子", "小四喜"]
+_YAKUMAN2 = ["國士無雙十三面", "四暗刻單騎", "純正九蓮寶燈", "大四喜"]
+_BONUS    = ["寶牌", "裏寶牌", "赤寶牌", "拔北"]
+
+
+@mahjong.command(name="yaku", description="役種一覽（飜數表）")
+async def cmd_yaku(interaction: discord.Interaction) -> None:
+    lang = i18n.get_user_lang(interaction.user.id)
+    Y = lambda n: i18n.yaku(n, lang) + ("※" if n in _YAKU_FURO_MINUS else "")
+    embed = discord.Embed(title=i18n.t("yakulist.title", lang), color=0xE0AF68)
+    for han, names in _YAKU_CHART:
+        embed.add_field(name=i18n.t("yakulist.han", lang, n=han),
+                        value="、".join(Y(n) for n in names), inline=False)
+    embed.add_field(name=i18n.t("yakulist.yakuman", lang),
+                    value="、".join(i18n.yaku(n, lang) for n in _YAKUMAN), inline=False)
+    embed.add_field(name=i18n.t("yakulist.yakuman2", lang),
+                    value="、".join(i18n.yaku(n, lang) for n in _YAKUMAN2), inline=False)
+    embed.add_field(name=i18n.t("yakulist.bonus", lang),
+                    value="、".join(i18n.yaku(n, lang) for n in _BONUS), inline=False)
+    embed.set_footer(text=i18n.t("yakulist.notes", lang))
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 @mahjong.command(name="skin", description="切換牌面風格（黑色牌風＝達到「日全食」段位解鎖）")
 @app_commands.describe(style="要使用的牌風")
 @app_commands.choices(style=[
