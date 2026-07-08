@@ -260,7 +260,16 @@ def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = ""
         lines.append(f"# {t('label.riichi_done', lang)}")
     warn = getattr(player, "warn_tags", None)   # 振聽／無役警示（同【已立直】的顯眼標註）
     if warn:
-        lines.append("# " + "　".join(t(k, lang) for k in warn))
+        rendered = []
+        for w in warn:
+            if isinstance(w, (tuple, list)):   # (key, kw)：參數若是牌字串就轉表情
+                k, kw = w
+                kw2 = {a: (T.emojify(b) if isinstance(b, str) and T.is_tiles(b) else b)
+                       for a, b in kw.items()}
+                rendered.append(t(k, lang, **kw2))
+            else:
+                rendered.append(t(w, lang))
+        lines.append("# " + "　".join(rendered))
     # 手牌 ｜ 剛摸到的牌（| 右邊為剛摸到）
     if player.drawn_tile:
         dt = T.of(player.drawn_tile)

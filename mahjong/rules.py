@@ -289,8 +289,8 @@ def _wait_flags(gs: GameState, player: PlayerState, discard: Tile, waits: list) 
     finally:
         player.hand = saved
     no_yaku  = (len(dead) == len(waits))
-    part_no  = (0 < len(dead) < len(waits))
-    return no_yaku, furiten, (ron_no_yaku and not no_yaku), part_no
+    part = dead if 0 < len(dead) < len(waits) else []
+    return no_yaku, furiten, (ron_no_yaku and not no_yaku), part
 
 
 def tenpai_note_text(gs: GameState, player: PlayerState, adv: list,
@@ -301,7 +301,7 @@ def tenpai_note_text(gs: GameState, player: PlayerState, adv: list,
     lines = []
     any_no_yaku = any_furiten = any_ron_only = False
     for d, waits in adv:
-        no_yaku, furiten, ron_no_yaku, part_no = _wait_flags(gs, player, d, waits)
+        no_yaku, furiten, ron_no_yaku, part_dead = _wait_flags(gs, player, d, waits)
         ron_only = menzen_no_riichi and ron_no_yaku  # 自摸有役、榮和無役
         any_no_yaku |= no_yaku
         any_furiten |= furiten
@@ -309,8 +309,8 @@ def tenpai_note_text(gs: GameState, player: PlayerState, adv: list,
         tags = []
         if no_yaku:
             tags.append(i18n.t("term.no_yaku", lang))
-        if part_no:
-            tags.append(i18n.t("term.part_no_yaku", lang))
+        if part_dead:
+            tags.append(i18n.t("term.part_no_yaku_tiles", lang, tiles=T.render(part_dead)))
         if ron_only:
             tags.append(i18n.t("term.ron_no_yaku", lang))
         if furiten:
@@ -336,16 +336,17 @@ def wait_status(gs: GameState, player: PlayerState, perm: dict, temp: dict) -> t
     未聽牌一律 False。立直有役，故立直後不會誤標無役。"""
     ws = hand_waits(player)
     if not ws:
-        return False, False, False, False
-    waits = [Tile(Suit(s), v) for s, v in ws]
+        return False, False, False, []
+    waits = [Tile(Suit(s), v) for s, v in sorted(ws)]
     furiten = is_furiten(player, perm, temp)
     dead = [w for w in waits
             if evaluate_win(gs, player, w, is_tsumo=False) is None
             and evaluate_win(gs, player, w, is_tsumo=True) is None]
     ron_no  = all(evaluate_win(gs, player, w, is_tsumo=False) is None for w in waits)
     no_yaku = (len(dead) == len(waits))
-    part_no = (0 < len(dead) < len(waits))
-    return no_yaku, furiten, (ron_no and not no_yaku), part_no
+    if no_yaku:
+        dead = []   # 全無役走 no_yaku 標籤，不重複點名
+    return no_yaku, furiten, (ron_no and not no_yaku), dead
 
 
 def is_furiten(player: PlayerState, perm: dict, temp: dict) -> bool:

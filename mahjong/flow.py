@@ -896,12 +896,13 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
 
     def _update_warn(p):
         """更新聽牌警示標籤（振聽／無役／部分無役），面板上像【已立直】一樣顯眼（只有本人看得到）。"""
-        no_yaku, furiten, ron_no, part_no = wait_status(gs, p, furiten_perm, temp_furiten)
+        no_yaku, furiten, ron_no, dead = wait_status(gs, p, furiten_perm, temp_furiten)
         tags = []
         if no_yaku:
             tags.append("label.noyaku_tag")
-        elif part_no:
-            tags.append("label.part_noyaku_tag")
+        elif dead:   # 部分待牌無役：點名是哪幾張
+            tags.append(("label.part_noyaku_tag",
+                         {"tiles": "".join(str(t) for t in dead)}))
         elif ron_no:
             tags.append("label.ron_noyaku_tag")
         if furiten:
@@ -1379,6 +1380,15 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             if outcome is None:
                 return
             gs = _games[gid]
+            # 一局結束：先刪這局的牌河訊息與手牌面板（結算畫面不殘留舊牌桌），下一局會重發
+            for _om in list(th.get("river_msg", {}).values()) + list(th.get("hand_msg", {}).values()):
+                if _om:
+                    try:
+                        await _om.delete()
+                    except Exception:
+                        pass
+            th.get("river_msg", {}).clear()
+            th.get("hand_msg", {}).clear()
             tenpai = None
             header_key, header_kw = "", {}
             hand_str = ""

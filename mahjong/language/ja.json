@@ -320,8 +320,7 @@
   "label.open_riichi_tag": "【オープンリーチ】",
   "label.open_hand": "👁 公開手牌",
   "yaku.開立直": "オープンリーチ",
-  "term.part_no_yaku": "一部役なし",
-  "label.part_noyaku_tag": "⚠️ 一部の待ちが役なし（和了不可の牌あり）",
+  "label.part_noyaku_tag": "⚠️ {tiles} は役なし（和了不可）",
   "yaku.役牌": "役牌",
   "yaku.拔北": "抜きドラ（北）",
   "yakulist.title": "🀄 役一覧",
@@ -329,5 +328,6 @@
   "yakulist.yakuman": "役満",
   "yakulist.yakuman2": "ダブル役満",
   "yakulist.bonus": "ドラ（役ではない）",
-  "yakulist.notes": "※＝副露で 1 飜減。役牌＝白/發/中/場風/自風。裏ドラはリーチ限定。北抜きは三麻で 1 枚 +1 飜。ハウスルール：オープンリーチ 2 飜（部屋設定）、オープンリーチへの放銃＝役満（放銃者リーチ中は除く）。"
+  "yakulist.notes": "※＝副露で 1 飜減。役牌＝白/發/中/場風/自風。裏ドラはリーチ限定。北抜きは三麻で 1 枚 +1 飜。ハウスルール：オープンリーチ 2 飜（部屋設定）、オープンリーチへの放銃＝役満（放銃者リーチ中は除く）。",
+  "term.part_no_yaku_tiles": "{tiles}役なし"
 }

@@ -320,8 +320,7 @@
   "label.open_riichi_tag": "【Open Riichi】",
   "label.open_hand": "👁 Revealed hand",
   "yaku.開立直": "Open Riichi",
-  "term.part_no_yaku": "some waits no yaku",
-  "label.part_noyaku_tag": "⚠️ Some waits have no yaku (can't win on those tiles)",
+  "label.part_noyaku_tag": "⚠️ No yaku on {tiles} (can't win on these)",
   "yaku.役牌": "Yakuhai",
   "yaku.拔北": "Kita (North)",
   "yakulist.title": "🀄 Yaku List",
@@ -329,5 +328,6 @@
   "yakulist.yakuman": "Yakuman",
   "yakulist.yakuman2": "Double Yakuman",
   "yakulist.bonus": "Bonus tiles (not yaku)",
-  "yakulist.notes": "※ = -1 han when open. Yakuhai = dragons / round wind / seat wind. Ura dora requires riichi. Kita: sanma, +1 han each. House rules: Open Riichi 2 han (room setting); dealing into an open riichi = yakuman (exempt if the discarder is in riichi)."
+  "yakulist.notes": "※ = -1 han when open. Yakuhai = dragons / round wind / seat wind. Ura dora requires riichi. Kita: sanma, +1 han each. House rules: Open Riichi 2 han (room setting); dealing into an open riichi = yakuman (exempt if the discarder is in riichi).",
+  "term.part_no_yaku_tiles": "no yaku on {tiles}"
 }
