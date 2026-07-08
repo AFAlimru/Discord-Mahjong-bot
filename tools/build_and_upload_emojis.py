@@ -67,7 +67,11 @@ PREFIX   = "mjb_" if STYLE == "black" else "mj_"
 OUT_JSON = "tile_emojis_black.json" if STYLE == "black" else "tile_emojis.json"
 
 # ── FluffyStuff 檔名對照：tile.code → 牌面 SVG 檔名（None＝牌本身就是完整圖）──
-BASE = f"https://raw.githubusercontent.com/FluffyStuff/riichi-mahjong-tiles/master/{FOLDER}/"
+# 下載來源：jsDelivr CDN 為主（不會像 GitHub raw 對整個 IP 限流），raw 備援
+MIRRORS = [
+    f"https://cdn.jsdelivr.net/gh/FluffyStuff/riichi-mahjong-tiles@master/{FOLDER}/",
+    f"https://raw.githubusercontent.com/FluffyStuff/riichi-mahjong-tiles/master/{FOLDER}/",
+]
 FRONT = "Front"  # 牌胚
 
 FACE = {}
@@ -99,18 +103,24 @@ def _fetch_svg(name: str) -> bytes:
             return f.read()
     print(f"  下載 {name}.svg …")
     import time
-    for attempt in range(4):   # GitHub raw 偶爾 429 限流：重試 + 退避
-        try:
-            with urllib.request.urlopen(BASE + name + ".svg", timeout=30) as r:
-                data = r.read()
+    data = None
+    last_err = None
+    for attempt in range(4):
+        for base in MIRRORS:   # 每輪輪流試各鏡像
+            try:
+                with urllib.request.urlopen(base + name + ".svg", timeout=30) as r:
+                    data = r.read()
+                break
+            except Exception as e:
+                last_err = e
+        if data is not None:
             break
-        except Exception as e:
-            if attempt == 3:
-                raise
-            wait = 10 * (attempt + 1)
-            print(f"    下載失敗（{e}），{wait}s 後重試 …")
-            time.sleep(wait)
-    time.sleep(0.4)   # 放慢一點，避免觸發限流
+        wait = 5 * (attempt + 1)
+        print(f"    下載失敗（{last_err}），{wait}s 後重試 …")
+        time.sleep(wait)
+    if data is None:
+        raise RuntimeError(f"下載 {name}.svg 失敗：{last_err}")
+    time.sleep(0.2)   # 放慢一點，避免觸發限流
     with open(path, "wb") as f:
         f.write(data)
     return data
@@ -176,11 +186,14 @@ def build_png(code: str) -> bytes:
 
 
 class Uploader(discord.Client):
+    def __init__(self, pngs, **kw):
+        super().__init__(**kw)
+        self.pngs = pngs
+
     async def on_ready(self):
         try:
             print(f"已登入：{self.user}（app id {self.application_id}）")
-            print("預先產生牌圖 …")
-            pngs = {code: build_png(code) for code in list(FACE) + list(FULL)}
+            pngs = self.pngs
 
             print(f"清除舊的 {PREFIX}* 應用程式表情 …")
             existing = await self.fetch_application_emojis()
@@ -212,7 +225,11 @@ class Uploader(discord.Client):
 def main():
     if not config.TOKEN:
         sys.exit("找不到 DISCORD_TOKEN，請確認 .env。")
-    Uploader(intents=discord.Intents.none()).run(config.TOKEN)
+    # 先在登入前把 76 張圖產好（下載＋光柵化都是同步操作，放進事件圈會堵住心跳）
+    print("預先產生牌圖 …")
+    pngs = {code: build_png(code) for code in list(FACE) + list(FULL)}
+    print(f"完成 {len(pngs)} 張，開始登入上傳 …")
+    Uploader(pngs, intents=discord.Intents.none()).run(config.TOKEN)
 
 
 if __name__ == "__main__":
