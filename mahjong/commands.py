@@ -842,19 +842,13 @@ async def cmd_repair(interaction: discord.Interaction) -> None:
         ephemeral=True)
 
 
-@mahjong.command(name="help", description="查看出牌輸入說明")
-async def cmd_help(interaction: discord.Interaction) -> None:
-    await interaction.response.send_message(
-        help_text(i18n.get_user_lang(interaction.user.id)), ephemeral=True)
-
-
 # ═══════════════════════════════════════════════════════════════
 #  Top-level commands（由 register(tree) 在入口掛上）
 # ═══════════════════════════════════════════════════════════════
 
 async def cmd_help_top(interaction: discord.Interaction) -> None:
-    await interaction.response.send_message(
-        help_text(i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+    lang = i18n.get_user_lang(interaction.user.id)
+    await interaction.response.send_message(i18n.t("help.guide", lang), ephemeral=True)
 
 
 # ── 語言設定（per-user）──────────────────────────────────────────
@@ -886,7 +880,7 @@ async def cmd_language(interaction: discord.Interaction) -> None:
 def register(tree) -> None:
     """把指令掛到 tree（由入口 run.py 在 bot/tree 建好後呼叫）。"""
     tree.add_command(mahjong)
-    tree.command(name="help", description="查看出牌輸入說明")(cmd_help_top)
+    tree.command(name="help", description="使用說明（指令一覽・如何開始遊戲）")(cmd_help_top)
     tree.command(name="language", description="設定顯示語言 / 表示言語を設定する")(cmd_language)
 
 

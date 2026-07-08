@@ -329,5 +329,6 @@
   "yakulist.yakuman2": "ダブル役満",
   "yakulist.bonus": "ドラ（役ではない）",
   "yakulist.notes": "※＝副露で 1 飜減。役牌＝白/發/中/場風/自風。裏ドラはリーチ限定。北抜きは三麻で 1 枚 +1 飜。ハウスルール：オープンリーチ 2 飜（部屋設定）、オープンリーチへの放銃＝役満（放銃者リーチ中は除く）。",
-  "term.part_no_yaku_tiles": "{tiles}役なし"
+  "term.part_no_yaku_tiles": "{tiles}役なし",
+  "help.guide": "**🀄 雀月 使い方**\n\n**対局を始める**\n・サーバーのチャンネルで `/mahjong start`：部屋を作成（三麻／長さ／飛び／喰い替え／オープンリーチ等を設定）→「加入遊戲」で参加、ホストは「加入 AI」でCPU補充 → 自動開始\n・BotへのDMで `/mahjong start`：CPU戦（段位対象外）\n・`/mahjong rank`：段位戦のグローバルマッチング（サーバー横断・全員人間、対局はDM）\n\n**対局中**\n・**牌ボタン**をタップして打牌（打字も可）；ポン／チー／カン／ロンはボタンで案内\n・入力の詳細：対局パネルの「❓ 說明」ボタン\n\n**主なコマンド**\n・`/mahjong status` 部屋状況　`/mahjong end` 部屋を閉じる（ホスト）\n・`/mahjong daily` デイリー　`/mahjong tasks` 今日のタスク\n・`/mahjong profile` プロフィール　`/mahjong stats` 成績　`/mahjong history` 牌譜一覧\n・`/mahjong replay <部屋番号>` リプレイ　`/mahjong yaku` 役一覧\n・`/mahjong rankinfo` 段位説明　`/mahjong skin` 牌スキン　`/language` 言語"
 }
