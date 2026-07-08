@@ -763,6 +763,25 @@ def get_activity_leaderboard(limit: int = 100) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_known_players(limit: int = 1000) -> list[dict]:
+    """所有「玩過這機器人」的人：有對局紀錄或簽到過的都算。
+    回傳 [{uid, username, games, activity, checked_in}]，依對局數→活躍度排序。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT uid, MAX(username) AS username, SUM(games) AS games, "
+            "MAX(activity) AS activity, MAX(checked_in) AS checked_in FROM ("
+            "  SELECT user_id AS uid, MAX(username) AS username, COUNT(*) AS games, "
+            "         0 AS activity, 0 AS checked_in FROM game_records GROUP BY user_id"
+            "  UNION ALL"
+            "  SELECT user_id, username, 0, activity, "
+            "         CASE WHEN last_checkin IS NOT NULL THEN 1 ELSE 0 END "
+            "  FROM user_activity"
+            ") GROUP BY uid ORDER BY games DESC, activity DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def task_status(user_id: str) -> dict:
     """今日任務狀態：{checkin, played, activity, streak}。"""
     today = _today()
