@@ -16,6 +16,10 @@ env/
 # 表情上傳工具的 SVG 快取
 tools/.tile_cache/
 
+# 牌面表情 ID 對照（綁各自的機器人應用，每個部署用自己的 token 重新上傳生成）
+mahjong/tile_emojis.json
+mahjong/tile_emojis_black.json
+
 # SQLite 資料庫與 WAL 檔
 *.db
 *.db-wal
