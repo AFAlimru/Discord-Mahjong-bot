@@ -62,6 +62,37 @@ def in_queue(uid: str):
     return None
 
 
+DAN_BAND = 2       # 段位賽可配對的段位跨度：同一場最高與最低段相差 ≤ 2（＝各人上下一段）
+
+
+def _dan_of(uid: str, mode: str) -> int:
+    from . import db
+    r = db.get_rating(uid, mode)
+    return r["dan_idx"] if r else 0
+
+
+def _try_match(kind: str, m: str, n: int):
+    """嘗試從佇列湊一組 n 人。休閒＝先到先湊；段位＝段位跨度 ≤ DAN_BAND 的相鄰一組。
+    有湊成回傳被取出的名單並從佇列移除，否則回 None。"""
+    q = _QUEUES[kind][m]
+    if len(q) < n:
+        return None
+    if kind != "rank":
+        players = q[:n]
+        del q[:n]
+        return players
+    # 段位：依段位排序，找連續 n 人且最高最低相差 ≤ DAN_BAND
+    order = sorted(range(len(q)), key=lambda i: q[i]["dan"])
+    for s in range(len(order) - n + 1):
+        win = order[s:s + n]
+        if q[win[-1]]["dan"] - q[win[0]]["dan"] <= DAN_BAND:
+            players = [q[i] for i in win]
+            for i in sorted(win, reverse=True):
+                del q[i]
+            return players
+    return None
+
+
 def join(user, is_sanma: bool, kind: str = "rank"):
     """加入排隊（kind＝rank 段位／casual 休閒）。回傳其一：
     ("in_game",)                     ── 已在對局中，不能排隊
@@ -81,10 +112,10 @@ def join(user, is_sanma: bool, kind: str = "rank"):
     q.append({
         "uid": uid, "name": getattr(user, "display_name", str(uid)),
         "user": user, "lang": i18n.get_user_lang(uid), "since": time.time(),
+        "dan": _dan_of(uid, m) if kind == "rank" else 0,
     })
-    if len(q) >= n:
-        players = q[:n]
-        del q[:n]
+    players = _try_match(kind, m, n)
+    if players is not None:
         return ("matched", players, m, kind)
     return ("queued", len(q), n)
 

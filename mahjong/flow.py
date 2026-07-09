@@ -1889,10 +1889,10 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
 #  段位賽（DM 制、跨伺服器匹配）
 # ═══════════════════════════════════════════════════════════════
 
-def _match_roster(gs: GameState, mode: str, lang: str) -> str:
+def _match_roster(gs: GameState, mode: str, lang: str, ranked: bool = False) -> str:
     """對戰表：開局時列出每位玩家的風位、名字、段位（像遊戲的「勝負」開場畫面）。"""
     from . import rating
-    lines = [i18n.t("match.roster_title", lang)]
+    lines = [i18n.t("match.roster_title_rank" if ranked else "match.roster_title_casual", lang)]
     for p in sorted(gs.players, key=lambda x: x.seat):
         wind = i18n.t(f"wind.{p.seat}", lang)
         if p.is_bot:
@@ -1905,10 +1905,11 @@ def _match_roster(gs: GameState, mode: str, lang: str) -> str:
 
 
 async def setup_dms(gid: str, gs: GameState, users: dict,
-                    greeting: str = "rank.matched", mode: str = None) -> None:
+                    greeting: str = "rank.matched", mode: str = None,
+                    ranked: bool = False) -> None:
     """DM 對局：以每位玩家的 DM 作為私人手牌通道（無公開串）。users: {uid: discord.User}。
     greeting：開場白翻譯鍵（段位賽＝rank.matched；DM 打電腦＝dm.start）。
-    mode：給定時，開局先送「對戰表」（各家風位／名字／段位）。"""
+    mode：給定時，開局先送「對戰表」（各家風位／名字／段位）。ranked：對戰表標題段位賽／友人場。"""
     private: dict[str, discord.abc.Messageable] = {}
     hand_msg: dict[str, discord.Message] = {}
     river_msg: dict[str, discord.Message] = {}
@@ -1922,7 +1923,7 @@ async def setup_dms(gid: str, gs: GameState, users: dict,
             raise RuntimeError(f"無法建立 {p.username} 的 DM 頻道")
         await dm.send(i18n.t(greeting, _lang))
         if mode:
-            await dm.send(_match_roster(gs, mode, _lang))
+            await dm.send(_match_roster(gs, mode, _lang, ranked))
         _apply_skin(p.user_id)
         rm = await dm.send(river_message_text(gs, _lang))
         river_msg[p.user_id] = rm
@@ -2004,7 +2005,7 @@ async def launch_match_game(players: list[dict], mode: str, ranked: bool = True)
     users = {p["uid"]: p["user"] for p in players}
     greeting = "rank.matched" if ranked else "match.matched"
     try:
-        await setup_dms(gid, gs, users, greeting=greeting, mode=mode)
+        await setup_dms(gid, gs, users, greeting=greeting, mode=mode, ranked=ranked)
     except Exception as e:
         print(f"[match] setup_dms 失敗：{e}")
         for p in players:           # 失敗 → 通知並清掉狀態

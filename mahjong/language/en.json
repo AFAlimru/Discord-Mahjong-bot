@@ -263,7 +263,7 @@
   "rank.dm_fail": "❌ Can't start ranked: I couldn't DM you. Allow DMs from server members in your privacy settings and queue again.",
   "rank.result": "🏅 Ranked game over: **{dan}** ({pt}pt) · R {rate} ({dr})",
   "rank.timeout": "⏳ No ranked match within 10 minutes — you've been removed from the queue. Run `/mahjong rank` to try again.",
-  "rank.info": "🏅 **Rank system**\n\n**Ladder** (low → high):\n{ladder}\n\n• Ranked games adjust your rank points by final **placement**; reach the threshold to promote. From **上弦月** onward, hitting 0 points demotes you.\n• **R** is a separate skill rating (Tenhou-style), weighted by your placement and opponents' average R; the more games you play, the smaller each change.\n• **Ranked**: use `/mahjong rank` to join **global matchmaking** (cross-server). When 4 (or 3 for sanma) are queued it auto-starts; the game runs in your DM with the bot — all human, no AI.\n• Full leaderboard is on the website.",
+  "rank.info": "🏅 **Rank system**\n\n**Ladder** (low → high):\n{ladder}\n\n• Ranked games adjust your rank points by final **placement**; reach the threshold to promote. From **上弦月** onward, hitting 0 points demotes you.\n• **R** is a separate skill rating (Tenhou-style), weighted by your placement and opponents' average R; the more games you play, the smaller each change.\n• **Ranked**: use `/mahjong rank` to join **global matchmaking** (cross-server). When 4 (or 3 for sanma) are queued it auto-starts (**matched by dan**: within one tier up/down); the game runs in your DM with the bot — all human, no AI.\n• Full leaderboard is on the website.",
   "daily.done": "✅ Checked in! Activity **+{reward}** ({streak}-day streak). Total activity **{activity}**.",
   "daily.already": "🕐 You already checked in today ({streak}-day streak). Total activity **{activity}**.",
   "task.title": "📋 Daily Tasks",
@@ -331,10 +331,11 @@
   "yakulist.notes": "※ = -1 han when open. Yakuhai = dragons / round wind / seat wind. Ura dora requires riichi. Kita: sanma, +1 han each. House rules: Open Riichi 2 han (room setting); dealing into an open riichi = yakuman (exempt if the discarder is in riichi).",
   "term.part_no_yaku_tiles": "no yaku on {tiles}",
   "help.guide": "**🀄 Suzume Tsuk — How to use**\n\n**Start a game**\n- In a server channel `/mahjong start`: create a room (sanma / length / tobi / kuikae / open riichi...) → friends press \"Join\", or the host fills with AI → auto start\n- DM the bot `/mahjong start`: play vs AI (unranked)\n- `/mahjong rank`: ranked global matchmaking (cross-server, humans only, played in DM)\n- `/mahjong match`: random matchmaking (cross-server, unranked); in a DM `/mahjong join` also works\n\n**During a game**\n- **Tap tile buttons** to discard (typing also works); Pon/Chi/Kan/Ron show prompt buttons\n- Input details: the \"❓ Help\" button on your hand panel\n\n**Commands**\n- `/mahjong status` room status, `/mahjong end` close room (host)\n- `/mahjong daily` check-in, `/mahjong tasks` daily tasks\n- `/mahjong profile` profile, `/mahjong stats` stats, `/mahjong history` game list\n- `/mahjong replay <room#>` replay, `/mahjong yaku` yaku list\n- `/mahjong rankinfo` rank info, `/mahjong skin` tile skin, `/language` language",
-  "match.roster_title": "🀄 **Match roster**",
   "match.roster_line": "{wind}　**{name}**　〔{dan}〕",
   "match.matched": "🎲 **Match found!** The game starts here in your DM — good luck!",
   "match.matched_you": "✅ Match found! Start the game in your DM with the bot.",
   "match.queued": "🎲 Joined random matchmaking ({cur}/{max})… auto-starts when full. Played in your DM with the bot.",
-  "match.already": "🎲 You're already in the random-match queue ({cur}/{max})."
+  "match.already": "🎲 You're already in the random-match queue ({cur}/{max}).",
+  "match.roster_title_rank": "🏅 **Ranked — Roster**",
+  "match.roster_title_casual": "🎲 **Friendly — Roster**"
 }

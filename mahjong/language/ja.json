@@ -263,7 +263,7 @@
   "rank.dm_fail": "❌ 段位戦を開始できません：DMを送れませんでした。プライバシー設定でサーバーメンバーのDMを許可して再度お試しください。",
   "rank.result": "🏅 段位戦終了：**{dan}**（{pt}pt）・R {rate}（{dr}）",
   "rank.timeout": "⏳ 段位戦のマッチングが10分間揃わなかったため、待機から自動的に外しました。もう一度 `/mahjong rank` をどうぞ。",
-  "rank.info": "🏅 **段位システム説明**\n\n**段位ラダー**（低 → 高）：\n{ladder}\n\n• 段位戦は終局**順位**で段位ptが増減し、貯まれば昇格。**上弦月**以降はptが0になると降格します。\n• **R値**は別の実力指標（天鳳Rate風）。順位と相手平均Rで加重し、対局数が増えるほど1局の変動は小さくなります。\n• **段位戦**：`/mahjong rank` で**グローバルマッチング**に参加（サーバー横断）。4人（三麻3人）揃えば自動開始、対局はBotとのDMで、全員人間・AI補充なし。\n• ランキングはサイトで確認できます。",
+  "rank.info": "🏅 **段位システム説明**\n\n**段位ラダー**（低 → 高）：\n{ladder}\n\n• 段位戦は終局**順位**で段位ptが増減し、貯まれば昇格。**上弦月**以降はptが0になると降格します。\n• **R値**は別の実力指標（天鳳Rate風）。順位と相手平均Rで加重し、対局数が増えるほど1局の変動は小さくなります。\n• **段位戦**：`/mahjong rank` で**グローバルマッチング**に参加（サーバー横断）。4人（三麻3人）揃えば自動開始（**近い段位同士のみ**：同卓の段位差は上下1段まで）、対局はBotとのDMで、全員人間・AI補充なし。\n• ランキングはサイトで確認できます。",
   "daily.done": "✅ チェックイン完了！活躍度 **+{reward}**（{streak}日連続）。現在の活躍度 **{activity}**。",
   "daily.already": "🕐 今日はもうチェックイン済みです（{streak}日連続）。現在の活躍度 **{activity}**。",
   "task.title": "📋 デイリータスク",
@@ -331,10 +331,11 @@
   "yakulist.notes": "※＝副露で 1 飜減。役牌＝白/發/中/場風/自風。裏ドラはリーチ限定。北抜きは三麻で 1 枚 +1 飜。ハウスルール：オープンリーチ 2 飜（部屋設定）、オープンリーチへの放銃＝役満（放銃者リーチ中は除く）。",
   "term.part_no_yaku_tiles": "{tiles}役なし",
   "help.guide": "**🀄 雀月 使い方**\n\n**対局を始める**\n・サーバーのチャンネルで `/mahjong start`：部屋を作成（三麻／長さ／飛び／喰い替え／オープンリーチ等を設定）→「加入遊戲」で参加、ホストは「加入 AI」でCPU補充 → 自動開始\n・BotへのDMで `/mahjong start`：CPU戦（段位対象外）\n・`/mahjong rank`：段位戦のグローバルマッチング（サーバー横断・全員人間、対局はDM）\n・`/mahjong match`：ランダムマッチ（サーバー横断・段位対象外）；DMで `/mahjong join` でも可\n\n**対局中**\n・**牌ボタン**をタップして打牌（打字も可）；ポン／チー／カン／ロンはボタンで案内\n・入力の詳細：対局パネルの「❓ 說明」ボタン\n\n**主なコマンド**\n・`/mahjong status` 部屋状況　`/mahjong end` 部屋を閉じる（ホスト）\n・`/mahjong daily` デイリー　`/mahjong tasks` 今日のタスク\n・`/mahjong profile` プロフィール　`/mahjong stats` 成績　`/mahjong history` 牌譜一覧\n・`/mahjong replay <部屋番号>` リプレイ　`/mahjong yaku` 役一覧\n・`/mahjong rankinfo` 段位説明　`/mahjong skin` 牌スキン　`/language` 言語",
-  "match.roster_title": "🀄 **対戦表**",
   "match.roster_line": "{wind}　**{name}**　〔{dan}〕",
   "match.matched": "🎲 **マッチング成立！** まもなくこのDMで対局開始、頑張って！",
   "match.matched_you": "✅ マッチング成立！Bot とのDMで対局を始めてください。",
   "match.queued": "🎲 ランダムマッチに参加（{cur}/{max}）…揃えば自動開始。対局はBotとのDMで行います。",
-  "match.already": "🎲 すでにランダムマッチ待機中です（{cur}/{max}）。"
+  "match.already": "🎲 すでにランダムマッチ待機中です（{cur}/{max}）。",
+  "match.roster_title_rank": "🏅 **段位戦・対戦表**",
+  "match.roster_title_casual": "🎲 **友人戦・対戦表**"
 }
