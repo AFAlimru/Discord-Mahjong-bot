@@ -336,6 +336,10 @@
   "match.matched_you": "✅ Match found! Start the game in your DM with the bot.",
   "match.queued": "🎲 Joined random matchmaking ({cur}/{max})… auto-starts when full. Played in your DM with the bot.",
   "match.already": "🎲 You're already in the random-match queue ({cur}/{max}).",
-  "match.roster_title_rank": "🏅 **Ranked — Roster**",
-  "match.roster_title_casual": "🎲 **Friendly — Roster**"
+  "match.roster_title_rank": "🏅 **Ranked {game} — Roster**",
+  "match.roster_title_casual": "🎲 **Friendly {game} — Roster**",
+  "mode.short.sanma": "3P",
+  "mode.short.yonma": "4P",
+  "len.short.tonpuu": " East",
+  "len.short.hanchan": " South"
 }

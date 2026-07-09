@@ -336,6 +336,10 @@
   "match.matched_you": "✅ マッチング成立！Bot とのDMで対局を始めてください。",
   "match.queued": "🎲 ランダムマッチに参加（{cur}/{max}）…揃えば自動開始。対局はBotとのDMで行います。",
   "match.already": "🎲 すでにランダムマッチ待機中です（{cur}/{max}）。",
-  "match.roster_title_rank": "🏅 **段位戦・対戦表**",
-  "match.roster_title_casual": "🎲 **友人戦・対戦表**"
+  "match.roster_title_rank": "🏅 **段位戦 {game}・対戦表**",
+  "match.roster_title_casual": "🎲 **友人戦 {game}・対戦表**",
+  "mode.short.sanma": "三人",
+  "mode.short.yonma": "四人",
+  "len.short.tonpuu": "東",
+  "len.short.hanchan": "南"
 }

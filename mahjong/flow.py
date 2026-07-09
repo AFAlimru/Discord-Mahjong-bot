@@ -1890,9 +1890,19 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
 # ═══════════════════════════════════════════════════════════════
 
 def _match_roster(gs: GameState, mode: str, lang: str, ranked: bool = False) -> str:
-    """對戰表：開局時列出每位玩家的風位、名字、段位（像遊戲的「勝負」開場畫面）。"""
+    """對戰表：開局時列出每位玩家的風位、名字、段位（像遊戲的「勝負」開場畫面）。
+    標題附場別描述：段位賽＝人數（三人／四人）；友人場＝人數＋戰長（東＝東風／南＝半莊）。"""
     from . import rating
-    lines = [i18n.t("match.roster_title_rank" if ranked else "match.roster_title_casual", lang)]
+    m_short = i18n.t("mode.short.sanma" if gs.is_sanma else "mode.short.yonma", lang)
+    if ranked:
+        game = m_short
+    else:
+        cfg = _room_configs.get(gs.game_id, {})
+        l_short = i18n.t("len.short.hanchan" if cfg.get("length") == "hanchan"
+                         else "len.short.tonpuu", lang)
+        game = m_short + l_short
+    title_key = "match.roster_title_rank" if ranked else "match.roster_title_casual"
+    lines = [i18n.t(title_key, lang, game=game)]
     for p in sorted(gs.players, key=lambda x: x.seat):
         wind = i18n.t(f"wind.{p.seat}", lang)
         if p.is_bot:

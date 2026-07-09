@@ -277,6 +277,10 @@
   "match.matched_you": "✅ 配對成功！請到與機器人的**私訊**開始對局。",
   "match.queued": "🎲 已加入隨機匹配排隊（{cur}/{max}）…湊滿就自動開局。對局會在你和機器人的**私訊**進行，請確認你允許伺服器成員私訊你。",
   "match.already": "🎲 你已在隨機匹配排隊中（{cur}/{max}），耐心等候配對。",
-  "match.roster_title_rank": "🏅 **段位賽・對戰表**",
-  "match.roster_title_casual": "🎲 **友人場・對戰表**"
+  "match.roster_title_rank": "🏅 **段位賽 {game}・對戰表**",
+  "match.roster_title_casual": "🎲 **友人場 {game}・對戰表**",
+  "mode.short.sanma": "三人",
+  "mode.short.yonma": "四人",
+  "len.short.tonpuu": "東",
+  "len.short.hanchan": "南"
 }
