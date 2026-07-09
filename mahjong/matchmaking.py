@@ -20,10 +20,12 @@ from __future__ import annotations
 import asyncio
 import time
 
-from .state import _rank_queue, _user_game
+from .state import _rank_queue, _casual_queue, _user_game
 from . import i18n
 
 TIMEOUT = 600     # 排隊逾時（秒）：等待逾 10 分鐘自動離開
+
+_QUEUES = {"rank": _rank_queue, "casual": _casual_queue}
 
 
 def need(is_sanma: bool) -> int:
@@ -34,53 +36,56 @@ def _mode(is_sanma: bool) -> str:
     return "sanma" if is_sanma else "yonma"
 
 
-def count(is_sanma: bool) -> int:
-    return len(_rank_queue[_mode(is_sanma)])
+def count(is_sanma: bool, kind: str = "rank") -> int:
+    return len(_QUEUES[kind][_mode(is_sanma)])
 
 
 def leave(uid: str) -> bool:
-    """把某人從所有佇列移除；有移除回 True。"""
+    """把某人從所有佇列（段位＋休閒）移除；有移除回 True。"""
     removed = False
-    for m in ("yonma", "sanma"):
-        q = _rank_queue[m]
-        keep = [e for e in q if e["uid"] != uid]
-        if len(keep) != len(q):
-            q[:] = keep
-            removed = True
+    for q_kind in _QUEUES.values():
+        for m in ("yonma", "sanma"):
+            q = q_kind[m]
+            keep = [e for e in q if e["uid"] != uid]
+            if len(keep) != len(q):
+                q[:] = keep
+                removed = True
     return removed
 
 
-def in_queue(uid: str) -> str | None:
-    for m in ("yonma", "sanma"):
-        if any(e["uid"] == uid for e in _rank_queue[m]):
-            return m
+def in_queue(uid: str):
+    """回傳 (kind, mode) 或 None。"""
+    for kind, q_kind in _QUEUES.items():
+        for m in ("yonma", "sanma"):
+            if any(e["uid"] == uid for e in q_kind[m]):
+                return (kind, m)
     return None
 
 
-def join(user, is_sanma: bool):
-    """加入段位賽排隊。回傳其一：
-    ("in_game",)             ── 已在對局中，不能排隊
-    ("already", count, need) ── 已在此模式佇列
-    ("queued",  count, need) ── 已加入，等待中
-    ("matched", players, mode) ── 此次加入湊滿，players 為配對名單（含 discord.User）
+def join(user, is_sanma: bool, kind: str = "rank"):
+    """加入排隊（kind＝rank 段位／casual 休閒）。回傳其一：
+    ("in_game",)                     ── 已在對局中，不能排隊
+    ("already", count, need)         ── 已在此模式佇列
+    ("queued",  count, need)         ── 已加入，等待中
+    ("matched", players, mode, kind) ── 此次加入湊滿，players 為配對名單（含 discord.User）
     """
     uid = str(user.id)
     if uid in _user_game:
         return ("in_game",)
     m = _mode(is_sanma)
     n = need(is_sanma)
-    if any(e["uid"] == uid for e in _rank_queue[m]):
-        return ("already", len(_rank_queue[m]), n)
-    leave(uid)                                  # 不能同時在兩個佇列
-    _rank_queue[m].append({
+    q = _QUEUES[kind][m]
+    if any(e["uid"] == uid for e in q):
+        return ("already", len(q), n)
+    leave(uid)                                  # 不能同時在多個佇列
+    q.append({
         "uid": uid, "name": getattr(user, "display_name", str(uid)),
         "user": user, "lang": i18n.get_user_lang(uid), "since": time.time(),
     })
-    q = _rank_queue[m]
     if len(q) >= n:
         players = q[:n]
         del q[:n]
-        return ("matched", players, m)
+        return ("matched", players, m, kind)
     return ("queued", len(q), n)
 
 
@@ -88,12 +93,13 @@ def expire(now: float = None) -> list[dict]:
     """移除等待逾 TIMEOUT 的排隊者，回傳被移除的項目（供通知）。"""
     now = now or time.time()
     expired = []
-    for m in ("yonma", "sanma"):
-        q = _rank_queue[m]
-        keep = []
-        for e in q:
-            (expired if now - e["since"] >= TIMEOUT else keep).append(e)
-        q[:] = keep
+    for q_kind in _QUEUES.values():
+        for m in ("yonma", "sanma"):
+            q = q_kind[m]
+            keep = []
+            for e in q:
+                (expired if now - e["since"] >= TIMEOUT else keep).append(e)
+            q[:] = keep
     return expired
 
 

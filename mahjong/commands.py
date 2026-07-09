@@ -244,11 +244,15 @@ async def cmd_start(interaction: discord.Interaction) -> None:
     _lobbies[gid] = lobby
 
 
-@mahjong.command(name="join", description="加入此頻道的麻將房間")
+@mahjong.command(name="join", description="加入房間（頻道內＝此房；私訊＝跨伺服器隨機匹配）")
 @app_commands.describe(host="（選填）指定房主，確認是要加入誰開的房")
 async def cmd_join(interaction: discord.Interaction, host: discord.Member = None) -> None:
     channel_id = str(interaction.channel_id)
     uid        = str(interaction.user.id)
+    # 私訊裡沒有頻道房間 → 直接跨伺服器隨機匹配（四人）
+    if interaction.guild_id is None:
+        await _do_casual_match(interaction, sanma=False)
+        return
     gid        = _channel_games.get(channel_id)
 
     if not gid:
@@ -480,9 +484,39 @@ async def cmd_rank(interaction: discord.Interaction,
         await interaction.response.send_message(
             i18n.t(key, lang, cur=cur, max=mx), ephemeral=True, view=RankQueueView(lang))
     elif kind == "matched":
-        _, players, mode = res
+        _, players, mode, _k = res
         await interaction.response.send_message(i18n.t("rank.matched_you", lang), ephemeral=True)
         await launch_ranked_game(players, mode)
+
+
+async def _do_casual_match(interaction: discord.Interaction, sanma: bool) -> None:
+    """休閒隨機匹配（跨伺服器、對局走 DM、不計段位）。"""
+    from .flow import launch_match_game
+    lang = i18n.get_user_lang(interaction.user.id)
+    res  = matchmaking.join(interaction.user, sanma, kind="casual")
+    kind = res[0]
+    if kind == "in_game":
+        await interaction.response.send_message(i18n.t("rank.in_game", lang), ephemeral=True)
+    elif kind in ("queued", "already"):
+        _, cur, mx = res
+        key = "match.queued" if kind == "queued" else "match.already"
+        await interaction.response.send_message(
+            i18n.t(key, lang, cur=cur, max=mx), ephemeral=True, view=RankQueueView(lang))
+    elif kind == "matched":
+        _, players, mode, _k = res
+        await interaction.response.send_message(i18n.t("match.matched_you", lang), ephemeral=True)
+        await launch_match_game(players, mode, ranked=False)
+
+
+@mahjong.command(name="match", description="隨機匹配：跨伺服器湊人開局（對局在你的私訊進行，不計段位）")
+@app_commands.describe(mode="選擇人數模式（不選＝四人）")
+@app_commands.choices(mode=[
+    app_commands.Choice(name="四人麻將", value="yonma"),
+    app_commands.Choice(name="三人麻將", value="sanma"),
+])
+async def cmd_match(interaction: discord.Interaction,
+                    mode: app_commands.Choice[str] = None) -> None:
+    await _do_casual_match(interaction, mode is not None and mode.value == "sanma")
 
 
 @mahjong.command(name="rankinfo", description="段位／R 與段位賽說明")

@@ -57,9 +57,11 @@ async def _delete_later(msg: discord.Message, delay: float) -> None:
         pass
 
 
-def _name_ref(p: PlayerState) -> str:
-    """玩家稱呼：真人用 @ 提及（在「編輯訊息」裡顯示不會再觸發通知），AI 用名字。"""
-    return f"<@{p.user_id}>" if not p.is_bot else p.username
+def _name_ref(p: PlayerState, is_dm: bool = False) -> str:
+    """玩家稱呼：頻道對局真人用 @ 提及；DM 對局（私訊看不到別人的 @）與 AI 一律用名字。"""
+    if p.is_bot or is_dm:
+        return p.username
+    return f"<@{p.user_id}>"
 
 
 def _is_nagashi(p: PlayerState) -> bool:
@@ -809,6 +811,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
     private       = th["private"]
     hand_msg      = th["hand_msg"]
     river_msg     = th.get("river_msg", {})
+    is_dm         = bool(th.get("is_dm"))   # DM 對局：稱呼一律用名字（私訊看不到別人的 @）
     _river_cache: dict[str, str] = {}   # uid → 上次送出的牌河文字（沒變就不編輯，省 API）
     _action_logs[gid] = []   # 每局開始清空動作記錄
 
@@ -972,7 +975,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             gs.pending_discard   = discard_tile
             gs.pending_from_seat = player.seat
             giri = "action.tsumogiri" if (drawn is not None and discard_tile == drawn) else "action.tegiri"
-            nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)])
+            nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)], is_dm)
             if last_call:   # 鳴牌後的打出：合併成「碰了…打出…」一句
                 await render_board("feed.call_discard", name=f"🤖 {player.username}",
                                    call=last_call[0], loser=last_call[1], ctile=last_call[2],
@@ -1016,8 +1019,9 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 prompt_base = i18n.t("prompt.discard", lang_p)
                 turn_time   = thinking_time
 
+            _mention = player.username if is_dm else f"<@{player.user_id}>"
             await render_board("feed.your_turn", log=False,
-                               mention=f"<@{player.user_id}>", wind=f"wind.{player.seat}")
+                               mention=_mention, wind=f"wind.{player.seat}")
 
             pt = private.get(player.user_id)
             hm = hand_msg.get(player.user_id)
@@ -1026,7 +1030,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             if pt and (not already_riichi or can_tsumo):
                 try:
                     ping_msg = await pt.send(
-                        i18n.t("ping.your_turn", lang_p, mention=f"<@{player.user_id}>"))
+                        i18n.t("ping.your_turn", lang_p, mention=_mention))
                 except Exception:
                     pass
             result = None
@@ -1197,7 +1201,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             _update_warn(player)   # 打完牌重算警示（振聽／無役）
             await render_hand(player, "", post_note)
 
-            nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)])
+            nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)], is_dm)
             if already_riichi:
                 await render_board("feed.riichi_tsumogiri", name=player.username,
                                    tile=discard_tile, nxt=nxt)
@@ -1885,10 +1889,26 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
 #  段位賽（DM 制、跨伺服器匹配）
 # ═══════════════════════════════════════════════════════════════
 
+def _match_roster(gs: GameState, mode: str, lang: str) -> str:
+    """對戰表：開局時列出每位玩家的風位、名字、段位（像遊戲的「勝負」開場畫面）。"""
+    from . import rating
+    lines = [i18n.t("match.roster_title", lang)]
+    for p in sorted(gs.players, key=lambda x: x.seat):
+        wind = i18n.t(f"wind.{p.seat}", lang)
+        if p.is_bot:
+            dan = "🤖 AI"
+        else:
+            r = db.get_rating(p.user_id, mode)
+            dan = rating.dan_name(r["dan_idx"]) if r else rating.dan_name(0)
+        lines.append(i18n.t("match.roster_line", lang, wind=wind, name=p.username, dan=dan))
+    return "\n".join(lines)
+
+
 async def setup_dms(gid: str, gs: GameState, users: dict,
-                    greeting: str = "rank.matched") -> None:
+                    greeting: str = "rank.matched", mode: str = None) -> None:
     """DM 對局：以每位玩家的 DM 作為私人手牌通道（無公開串）。users: {uid: discord.User}。
-    greeting：開場白翻譯鍵（段位賽＝rank.matched；DM 打電腦＝dm.start）。"""
+    greeting：開場白翻譯鍵（段位賽＝rank.matched；DM 打電腦＝dm.start）。
+    mode：給定時，開局先送「對戰表」（各家風位／名字／段位）。"""
     private: dict[str, discord.abc.Messageable] = {}
     hand_msg: dict[str, discord.Message] = {}
     river_msg: dict[str, discord.Message] = {}
@@ -1901,6 +1921,8 @@ async def setup_dms(gid: str, gs: GameState, users: dict,
         if dm is None:
             raise RuntimeError(f"無法建立 {p.username} 的 DM 頻道")
         await dm.send(i18n.t(greeting, _lang))
+        if mode:
+            await dm.send(_match_roster(gs, mode, _lang))
         _apply_skin(p.user_id)
         rm = await dm.send(river_message_text(gs, _lang))
         river_msg[p.user_id] = rm
@@ -1938,7 +1960,8 @@ async def launch_dm_game(gid: str, user) -> None:
     except Exception as e:
         print(f"[dm] launch DB 失敗：{e}")
     try:
-        await setup_dms(gid, gs, {str(user.id): user}, greeting="dm.start")
+        await setup_dms(gid, gs, {str(user.id): user}, greeting="dm.start",
+                        mode="sanma" if gs.is_sanma else "yonma")
     except Exception as e:
         print(f"[dm] setup_dms 失敗：{e}")
         _cleanup(gid, gid)
@@ -1947,8 +1970,9 @@ async def launch_dm_game(gid: str, user) -> None:
     _game_tasks[gid] = asyncio.create_task(match_loop_t(gid, None))
 
 
-async def launch_ranked_game(players: list[dict], mode: str) -> None:
-    """配對成功 → 開一場段位賽（全真人、DM 制）。players: [{"uid","name","user","lang"}]。"""
+async def launch_match_game(players: list[dict], mode: str, ranked: bool = True) -> None:
+    """配對成功 → 開一場全真人 DM 對局。ranked=True 段位賽（計段位）／False 休閒隨機匹配。
+    players: [{"uid","name","user","lang"}]。"""
     import uuid
     is_sanma = (mode == "sanma")
     gid  = str(uuid.uuid4())[:8]
@@ -1957,8 +1981,8 @@ async def launch_ranked_game(players: list[dict], mode: str) -> None:
     _room_configs[gid] = {
         "is_sanma": is_sanma, "thinking_time": 30, "max_players": len(players),
         "length": "hanchan", "tobi": True, "ruleset": "tenhou", "start_points": None,
-        "kuikae": False, "open_riichi": False,   # 段位賽：禁食替、無開立直
-        "lang": i18n.DEFAULT, "ranked": True, "open_hand": False,
+        "kuikae": False, "open_riichi": False,   # 匹配局：禁食替、無開立直
+        "lang": i18n.DEFAULT, "ranked": ranked, "open_hand": False,
     }
     gs = new_game(gid, info, is_sanma)
     _games[gid] = gs
@@ -1976,12 +2000,13 @@ async def launch_ranked_game(players: list[dict], mode: str) -> None:
             "wall": gs.wall_seed,
         })
     except Exception as e:
-        print(f"[rank] launch DB 失敗：{e}")
+        print(f"[match] launch DB 失敗：{e}")
     users = {p["uid"]: p["user"] for p in players}
+    greeting = "rank.matched" if ranked else "match.matched"
     try:
-        await setup_dms(gid, gs, users)
+        await setup_dms(gid, gs, users, greeting=greeting, mode=mode)
     except Exception as e:
-        print(f"[rank] setup_dms 失敗：{e}")
+        print(f"[match] setup_dms 失敗：{e}")
         for p in players:           # 失敗 → 通知並清掉狀態
             try:
                 await p["user"].send(i18n.t("rank.dm_fail", p.get("lang", i18n.DEFAULT)))
@@ -1991,6 +2016,11 @@ async def launch_ranked_game(players: list[dict], mode: str) -> None:
         return
     rooms.set_status(gid, "playing")
     _game_tasks[gid] = asyncio.create_task(match_loop_t(gid, None))
+
+
+async def launch_ranked_game(players: list[dict], mode: str) -> None:
+    """段位賽（計段位）。"""
+    await launch_match_game(players, mode, ranked=True)
 
 
 # ═══════════════════════════════════════════════════════════════
