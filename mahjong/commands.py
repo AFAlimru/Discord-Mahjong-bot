@@ -472,7 +472,11 @@ class RankQueueView(discord.ui.View):
 ])
 async def cmd_rank(interaction: discord.Interaction,
                    mode: app_commands.Choice[str] = None) -> None:
-    sanma = (mode is not None and mode.value == "sanma")
+    await _do_rank_match(interaction, mode is not None and mode.value == "sanma")
+
+
+async def _do_rank_match(interaction: discord.Interaction, sanma: bool) -> None:
+    """段位賽排隊（指令與大廳按鈕共用）。"""
     lang  = i18n.get_user_lang(interaction.user.id)
     res   = matchmaking.join(interaction.user, sanma)
     kind = res[0]
@@ -568,19 +572,28 @@ async def cmd_yaku(interaction: discord.Interaction) -> None:
     app_commands.Choice(name="黑色（日全食解鎖）", value="black"),
 ])
 async def cmd_skin(interaction: discord.Interaction, style: app_commands.Choice[str]) -> None:
+    await _set_skin_choice(interaction, style.value, style.name)
+
+
+def _skin_unlocked(uid: str) -> bool:
+    """黑色牌風是否解鎖（任一模式段位達日全食）。"""
+    from . import rating as _rt
+    return any((db.get_rating(uid, m) or {}).get("dan_idx", 0) >= _rt.BLACK_SKIN_IDX
+               for m in ("yonma", "sanma"))
+
+
+async def _set_skin_choice(interaction: discord.Interaction, val: str, label: str) -> None:
     from . import rating as _rt
     from . import tiles as _tiles
     from .flow import _skin_cache
     uid  = str(interaction.user.id)
     lang = i18n.get_user_lang(uid)
-    val  = style.value
     if val != "default":
         if val not in _tiles.available_skins():
             await interaction.response.send_message(i18n.t("skin.na", lang), ephemeral=True)
             return
         # 解鎖條件：任一模式段位達「日全食」；機器人擁有者直接可用（測試）
-        unlocked = any((db.get_rating(uid, m) or {}).get("dan_idx", 0) >= _rt.BLACK_SKIN_IDX
-                       for m in ("yonma", "sanma"))
+        unlocked = _skin_unlocked(uid)
         if not unlocked:
             try:
                 unlocked = await interaction.client.is_owner(interaction.user)
@@ -592,7 +605,7 @@ async def cmd_skin(interaction: discord.Interaction, style: app_commands.Choice[
             return
     db.set_user_skin(uid, None if val == "default" else val)
     _skin_cache.pop(uid, None)   # 對局中的快取立即失效，下一次渲染就換
-    await interaction.response.send_message(i18n.t("skin.set", lang, name=style.name), ephemeral=True)
+    await interaction.response.send_message(i18n.t("skin.set", lang, name=label), ephemeral=True)
 
 
 @mahjong.command(name="daily", description="每日簽到，獲得活躍度")
@@ -619,12 +632,10 @@ async def cmd_tasks(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-@mahjong.command(name="profile", description="查看個人資訊卡")
-async def cmd_profile(interaction: discord.Interaction) -> None:
+def _profile_embed(u) -> discord.Embed:
     from . import rating as _rt
-    uid  = str(interaction.user.id)
+    uid  = str(u.id)
     lang = i18n.get_user_lang(uid)
-    u    = interaction.user
     L    = lambda k: i18n.t(k, lang)
     embed = discord.Embed(title=i18n.t("profile.title", lang, name=u.display_name), color=0x7AA2F7)
     try:
@@ -663,7 +674,12 @@ async def cmd_profile(interaction: discord.Interaction) -> None:
         lines.append(f"{L('profile.best_win')}：{L('profile.none')}")
 
     embed.description = "\n".join(lines)
-    await interaction.response.send_message(embed=embed)
+    return embed
+
+
+@mahjong.command(name="profile", description="查看個人資訊卡")
+async def cmd_profile(interaction: discord.Interaction) -> None:
+    await interaction.response.send_message(embed=_profile_embed(interaction.user))
 
 
 _HIST_PAGE = 10
@@ -811,6 +827,10 @@ class ReplayControl(discord.ui.View):
 @mahjong.command(name="replay", description="輸入房號回放該場對局")
 @app_commands.describe(room="房號（例：1 代表 房間#0001）")
 async def cmd_replay(interaction: discord.Interaction, room: int) -> None:
+    await _start_replay(interaction, room)
+
+
+async def _start_replay(interaction: discord.Interaction, room: int) -> None:
     from . import replay
     lang = i18n.get_user_lang(interaction.user.id)
     g = db.get_game_by_room_no(room)
@@ -909,6 +929,174 @@ async def cmd_language(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(
         i18n.t("language.choose", cur, cur=i18n.lang_name(cur)),
         view=LanguageView(), ephemeral=True)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  遊戲大廳頻道（/mahjong lobby）：唯讀頻道＋一則常駐按鈕面板
+# ═══════════════════════════════════════════════════════════════
+
+def _latest_changelog() -> str:
+    """CHANGELOG.md 最新一版的內容（給「📢 公告」按鈕）。"""
+    import os as _os
+    path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                         "CHANGELOG.md")
+    try:
+        with open(path, encoding="utf-8") as f:
+            md = f.read()
+    except Exception:
+        return "（暫時讀不到更新日誌）"
+    i = md.find("## [")
+    if i < 0:
+        return md[:1800]
+    j = md.find("## [", i + 4)
+    body = md[i:j].strip() if j > 0 else md[i:].strip()
+    if len(body) > 1800:
+        body = body[:1800] + "…"
+    return body
+
+
+class _ModePick(discord.ui.View):
+    """大廳：選人數（四人／三人）後進排隊。"""
+    def __init__(self, ranked: bool, lang: str):
+        super().__init__(timeout=120)
+        self.ranked = ranked
+        self.y.label = i18n.t("hub.yonma", lang)
+        self.s.label = i18n.t("hub.sanma", lang)
+
+    async def _go(self, interaction, sanma):
+        if self.ranked:
+            await _do_rank_match(interaction, sanma)
+        else:
+            await _do_casual_match(interaction, sanma)
+
+    @discord.ui.button(label="四人", style=discord.ButtonStyle.primary)
+    async def y(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._go(interaction, False)
+
+    @discord.ui.button(label="三人", style=discord.ButtonStyle.secondary)
+    async def s(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._go(interaction, True)
+
+
+class _SkinPick(discord.ui.View):
+    """大廳：倉庫（牌風切換）。"""
+    def __init__(self, lang: str):
+        super().__init__(timeout=120)
+
+    @discord.ui.button(label="⚪ 預設（白）", style=discord.ButtonStyle.secondary)
+    async def d(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _set_skin_choice(interaction, "default", "預設（白）")
+
+    @discord.ui.button(label="⚫ 黑色", style=discord.ButtonStyle.secondary)
+    async def b(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _set_skin_choice(interaction, "black", "黑色")
+
+
+class _ReplayModal(discord.ui.Modal):
+    """大廳：輸入房號回放。"""
+    room = discord.ui.TextInput(label="房號（數字）", placeholder="例：12", min_length=1, max_length=8)
+
+    def __init__(self, lang: str):
+        super().__init__(title="🎞 回放")
+
+    async def on_submit(self, interaction: discord.Interaction):
+        raw = str(self.room.value).strip().lstrip("#")
+        if not raw.isdigit():
+            await interaction.response.send_message("❌ 房號要是數字。", ephemeral=True)
+            return
+        await _start_replay(interaction, int(raw))
+
+
+class LobbyPanel(discord.ui.View):
+    """大廳常駐面板（persistent view：custom_id 固定、重啟後由 run.py 重新掛上）。"""
+    def __init__(self):
+        super().__init__(timeout=None)
+        from .config import WEB_BASE_URL
+        if WEB_BASE_URL:
+            self.add_item(discord.ui.Button(label="🌐 網頁", style=discord.ButtonStyle.link,
+                                            url=WEB_BASE_URL, row=2))
+
+    @discord.ui.button(label="🏅 段位賽", style=discord.ButtonStyle.primary,
+                       custom_id="hub:rank", row=0)
+    async def rank(self, interaction: discord.Interaction, button: discord.ui.Button):
+        lang = i18n.get_user_lang(interaction.user.id)
+        await interaction.response.send_message(
+            i18n.t("hub.pick_mode", lang), view=_ModePick(True, lang), ephemeral=True)
+
+    @discord.ui.button(label="🎲 友人場", style=discord.ButtonStyle.success,
+                       custom_id="hub:match", row=0)
+    async def match(self, interaction: discord.Interaction, button: discord.ui.Button):
+        lang = i18n.get_user_lang(interaction.user.id)
+        await interaction.response.send_message(
+            i18n.t("hub.pick_mode", lang), view=_ModePick(False, lang), ephemeral=True)
+
+    @discord.ui.button(label="👤 個人資訊", style=discord.ButtonStyle.secondary,
+                       custom_id="hub:profile", row=1)
+    async def profile(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(embed=_profile_embed(interaction.user), ephemeral=True)
+
+    @discord.ui.button(label="🎒 倉庫", style=discord.ButtonStyle.secondary,
+                       custom_id="hub:skin", row=1)
+    async def skin(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid  = str(interaction.user.id)
+        lang = i18n.get_user_lang(uid)
+        cur  = db.get_user_skin(uid) or "default"
+        black = "✅" if _skin_unlocked(uid) else "🔒（日全食解鎖）"
+        body = i18n.t("hub.skin_body", lang, cur=("黑色" if cur == "black" else "預設（白）"), black=black)
+        await interaction.response.send_message(body, view=_SkinPick(lang), ephemeral=True)
+
+    @discord.ui.button(label="📜 牌譜", style=discord.ButtonStyle.secondary,
+                       custom_id="hub:history", row=1)
+    async def history(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid  = str(interaction.user.id)
+        lang = i18n.get_user_lang(uid)
+        embed, page, pages = _history_embed(uid, "yonma", 0, lang)
+        if pages > 1:
+            await interaction.response.send_message(
+                embed=embed, view=HistoryView(uid, "yonma", page, pages, lang), ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="🎞 回放", style=discord.ButtonStyle.secondary,
+                       custom_id="hub:replay", row=1)
+    async def replay(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(_ReplayModal(i18n.get_user_lang(interaction.user.id)))
+
+    @discord.ui.button(label="📢 公告", style=discord.ButtonStyle.secondary,
+                       custom_id="hub:news", row=2)
+    async def news(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(_latest_changelog(), ephemeral=True)
+
+
+@mahjong.command(name="lobby", description="建立遊戲大廳頻道（唯讀＋常駐按鈕面板；需管理頻道權限）")
+async def cmd_lobby(interaction: discord.Interaction) -> None:
+    lang = i18n.get_user_lang(interaction.user.id)
+    if interaction.guild_id is None:
+        await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
+        return
+    perms = getattr(interaction.user, "guild_permissions", None)
+    if not (perms and (perms.manage_channels or perms.administrator)):
+        await interaction.response.send_message(i18n.t("hub.need_perm", lang), ephemeral=True)
+        return
+    guild = interaction.guild
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(
+            send_messages=False, add_reactions=False,
+            create_public_threads=False, create_private_threads=False,
+            send_messages_in_threads=False),
+        guild.me: discord.PermissionOverwrite(
+            send_messages=True, manage_channels=True, manage_threads=True,
+            create_public_threads=True, send_messages_in_threads=True),
+    }
+    try:
+        ch = await guild.create_text_channel("🀄︱雀月大廳", overwrites=overwrites,
+                                             reason="Suzume Tsuk 遊戲大廳")
+        await ch.send(i18n.t("hub.panel", i18n.DEFAULT), view=LobbyPanel())
+    except discord.Forbidden:
+        await interaction.response.send_message(i18n.t("hub.create_fail", lang), ephemeral=True)
+        return
+    await interaction.response.send_message(
+        i18n.t("hub.created", lang, channel=ch.mention), ephemeral=True)
 
 
 def register(tree) -> None:

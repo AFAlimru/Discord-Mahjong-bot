@@ -336,10 +336,17 @@
   "match.matched_you": "✅ マッチング成立！Bot とのDMで対局を始めてください。",
   "match.queued": "🎲 ランダムマッチに参加（{cur}/{max}）…揃えば自動開始。対局はBotとのDMで行います。",
   "match.already": "🎲 すでにランダムマッチ待機中です（{cur}/{max}）。",
-  "match.roster_title_rank": "🏅 **段位戦 {game}・対戦表**",
-  "match.roster_title_casual": "🎲 **友人戦 {game}・対戦表**",
+  "match.roster_title_rank": "🏅 **段位戦 {game}**",
+  "match.roster_title_casual": "🎲 **友人戦 {game}**",
   "mode.short.sanma": "三人",
   "mode.short.yonma": "四人",
   "len.short.tonpuu": "東",
-  "len.short.hanchan": "南"
+  "len.short.hanchan": "南",
+  "hub.pick_mode": "人数モードを選択：",
+  "hub.yonma": "四人麻雀",
+  "hub.sanma": "三人麻雀",
+  "hub.skin_body": "🎒 **倉庫・牌スキン**\n現在：**{cur}**\n⚪ デフォルト（白）：✅\n⚫ 黒：{black}",
+  "hub.need_perm": "❌ ロビー作成には「チャンネル管理」権限が必要です。",
+  "hub.create_fail": "❌ チャンネル作成に失敗：Botの「チャンネル管理」権限を確認してください。",
+  "hub.created": "✅ ロビーを作成しました：{channel}"
 }

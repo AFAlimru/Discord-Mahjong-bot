@@ -85,6 +85,13 @@ async def on_ready() -> None:
         matchmaking.start_sweeper()
     except Exception as e:
         print(f"⚠️ 排隊清掃器啟動失敗: {e}")
+    try:                                      # 大廳常駐面板（persistent view，重啟後按鈕仍有效）
+        if not getattr(bot, "_hub_view_added", False):
+            from mahjong.commands import LobbyPanel
+            bot.add_view(LobbyPanel())
+            bot._hub_view_added = True
+    except Exception as e:
+        print(f"⚠️ 大廳面板掛載失敗: {e}")
 
 
 def run() -> None:

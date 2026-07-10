@@ -336,10 +336,17 @@
   "match.matched_you": "✅ Match found! Start the game in your DM with the bot.",
   "match.queued": "🎲 Joined random matchmaking ({cur}/{max})… auto-starts when full. Played in your DM with the bot.",
   "match.already": "🎲 You're already in the random-match queue ({cur}/{max}).",
-  "match.roster_title_rank": "🏅 **Ranked {game} — Roster**",
-  "match.roster_title_casual": "🎲 **Friendly {game} — Roster**",
+  "match.roster_title_rank": "🏅 **Ranked {game}**",
+  "match.roster_title_casual": "🎲 **Friendly {game}**",
   "mode.short.sanma": "3P",
   "mode.short.yonma": "4P",
   "len.short.tonpuu": " East",
-  "len.short.hanchan": " South"
+  "len.short.hanchan": " South",
+  "hub.pick_mode": "Pick a mode:",
+  "hub.yonma": "4-player",
+  "hub.sanma": "3-player",
+  "hub.skin_body": "🎒 **Warehouse — Tile skins**\nCurrent: **{cur}**\n⚪ Default (white): ✅\n⚫ Black: {black}",
+  "hub.need_perm": "❌ You need Manage Channels permission to create the lobby.",
+  "hub.create_fail": "❌ Failed to create the channel — check the bot's Manage Channels permission.",
+  "hub.created": "✅ Lobby created: {channel}"
 }

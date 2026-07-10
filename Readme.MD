@@ -2,7 +2,15 @@
 
 > 🤖 本專案以 **vibe coding**（AI 輔助開發）方式完成。
 
-在 Discord 上遊玩完整規則的日本麻將（立直麻將）。支援四麻／三麻、東風戰／半莊戰、AI 對局、觀戰模式，並以單一面板訊息持續編輯（不洗版）。
+> 在 Discord 上遊玩完整規則的日本麻將（立直麻將）。支援四麻／三麻、東風戰／半莊戰、AI 對局、觀戰模式，並以單一面板訊息持續編輯。
+
+# Link
+```
+支援伺服器 https://discord.gg/QNJMBhDrcjp
+網站      https://suzume-tsuk-mahjong.yubingserver.top/
+本專案    https://github.com/AFAlimru/Discord-Mahjong-bot
+直接安裝  https://discord.com/oauth2/authorize?client_id=1508777411901259826&permissions=8516802040034384&integration_type=1&scope=bot
+```
 
 > 規則細節（役種、符點、精算、振聽等）請見 **[Rules guide.MD](Rules%20guide.MD)**。本檔只說明專案結構與使用方式。
 
