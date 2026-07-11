@@ -1012,12 +1012,23 @@ class _ReplayModal(discord.ui.Modal):
 
 
 class LobbyPanel(discord.ui.View):
-    """大廳常駐面板（persistent view：custom_id 固定、重啟後由 run.py 重新掛上）。"""
-    def __init__(self):
+    """大廳常駐面板（persistent view：custom_id 固定、重啟後由 run.py 重新掛上）。
+    lang：面板按鈕標籤語言（建立大廳時依建立者語言；分發只看 custom_id，與標籤無關）。"""
+    def __init__(self, lang: str = None):
         super().__init__(timeout=None)
+        lang = lang or i18n.DEFAULT
+        labels = {"rank": "hub.btn.rank", "match": "hub.btn.match", "daily": "hub.btn.daily",
+                  "profile": "hub.btn.profile", "skin": "hub.btn.skin", "history": "hub.btn.history",
+                  "replay": "hub.btn.replay", "yaku": "hub.btn.yaku", "lang": "hub.btn.lang",
+                  "news": "hub.btn.news"}
+        for c in self.children:
+            cid = (getattr(c, "custom_id", "") or "").replace("hub:", "")
+            if cid in labels:
+                c.label = i18n.t(labels[cid], lang)
         from .config import WEB_BASE_URL
         if WEB_BASE_URL:
-            self.add_item(discord.ui.Button(label="🌐 網頁", style=discord.ButtonStyle.link,
+            self.add_item(discord.ui.Button(label=i18n.t("hub.btn.web", lang),
+                                            style=discord.ButtonStyle.link,
                                             url=WEB_BASE_URL, row=2))
 
     @discord.ui.button(label="🏅 段位賽", style=discord.ButtonStyle.primary,
@@ -1122,7 +1133,7 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
     try:
         ch = await guild.create_text_channel("🀄︱雀月大廳", overwrites=overwrites,
                                              reason="Suzume Tsuk 遊戲大廳")
-        await ch.send(i18n.t("hub.panel", i18n.DEFAULT), view=LobbyPanel())
+        await ch.send(i18n.t("hub.panel", lang), view=LobbyPanel(lang))
     except discord.Forbidden:
         await interaction.response.send_message(i18n.t("hub.create_fail", lang), ephemeral=True)
         return

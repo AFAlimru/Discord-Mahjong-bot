@@ -291,5 +291,16 @@
   "hub.need_perm": "❌ 需要「管理頻道」權限才能建立大廳。",
   "hub.create_fail": "❌ 建立頻道失敗：請確認機器人有「管理頻道」權限。",
   "hub.created": "✅ 大廳已建立：{channel}",
-  "match.timeout": "⏳ 休閒匹配排隊超過 5 分鐘仍未湊滿，已自動把你移出排隊。想再排請重打 `/mahjong match`。"
+  "match.timeout": "⏳ 休閒匹配排隊超過 5 分鐘仍未湊滿，已自動把你移出排隊。想再排請重打 `/mahjong match`。",
+  "hub.btn.rank": "🏅 段位賽",
+  "hub.btn.match": "🎲 休閒場",
+  "hub.btn.daily": "✅ 每日簽到",
+  "hub.btn.profile": "👤 個人資訊",
+  "hub.btn.skin": "🎒 倉庫",
+  "hub.btn.history": "📜 牌譜",
+  "hub.btn.replay": "🎞 回放",
+  "hub.btn.yaku": "📖 役種",
+  "hub.btn.lang": "🗣 語言",
+  "hub.btn.news": "📢 公告",
+  "hub.btn.web": "🌐 網頁"
 }

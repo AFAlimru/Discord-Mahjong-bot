@@ -349,5 +349,17 @@
   "hub.need_perm": "❌ You need Manage Channels permission to create the lobby.",
   "hub.create_fail": "❌ Failed to create the channel — check the bot's Manage Channels permission.",
   "hub.created": "✅ Lobby created: {channel}",
-  "match.timeout": "⏳ Casual matchmaking timed out after 5 minutes; you've been removed from the queue. Run `/mahjong match` to queue again."
+  "match.timeout": "⏳ Casual matchmaking timed out after 5 minutes; you've been removed from the queue. Run `/mahjong match` to queue again.",
+  "hub.btn.rank": "🏅 Ranked",
+  "hub.btn.match": "🎲 Casual",
+  "hub.btn.daily": "✅ Daily",
+  "hub.btn.profile": "👤 Profile",
+  "hub.btn.skin": "🎒 Warehouse",
+  "hub.btn.history": "📜 Games",
+  "hub.btn.replay": "🎞 Replay",
+  "hub.btn.yaku": "📖 Yaku",
+  "hub.btn.lang": "🗣 Language",
+  "hub.btn.news": "📢 News",
+  "hub.btn.web": "🌐 Website",
+  "hub.panel": "# 🀄 Suzume Tsuk Lobby\n\n**Pick a button to start:**\n\n🏅 **Ranked** — global matchmaking, affects your dan (played in DM)\n🎲 **Casual** — random matchmaking, unranked (played in DM)\n✅ **Daily** — claim daily activity\n\n👤 Profile　🎒 Warehouse (tile skins)　📜 Games　🎞 Replay\n📖 Yaku list　🗣 Language　📢 News　🌐 Website\n\nPlay with friends: `/mahjong start` in any channel; vs AI: DM me `/mahjong start`."
 }

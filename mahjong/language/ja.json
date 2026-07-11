@@ -349,5 +349,17 @@
   "hub.need_perm": "❌ ロビー作成には「チャンネル管理」権限が必要です。",
   "hub.create_fail": "❌ チャンネル作成に失敗：Botの「チャンネル管理」権限を確認してください。",
   "hub.created": "✅ ロビーを作成しました：{channel}",
-  "match.timeout": "⏳ カジュアルマッチは5分間揃わなかったため、待機列から外しました。再度 `/mahjong match` でどうぞ。"
+  "match.timeout": "⏳ カジュアルマッチは5分間揃わなかったため、待機列から外しました。再度 `/mahjong match` でどうぞ。",
+  "hub.btn.rank": "🏅 段位戦",
+  "hub.btn.match": "🎲 カジュアル",
+  "hub.btn.daily": "✅ デイリー",
+  "hub.btn.profile": "👤 プロフィール",
+  "hub.btn.skin": "🎒 倉庫",
+  "hub.btn.history": "📜 牌譜",
+  "hub.btn.replay": "🎞 リプレイ",
+  "hub.btn.yaku": "📖 役一覧",
+  "hub.btn.lang": "🗣 言語",
+  "hub.btn.news": "📢 お知らせ",
+  "hub.btn.web": "🌐 ウェブ",
+  "hub.panel": "# 🀄 雀月ロビー\n\n**下のボタンからどうぞ：**\n\n🏅 **段位戦**　グローバルマッチ・段位あり（対局はDM）\n🎲 **カジュアル**　ランダムマッチ・段位なし（対局はDM）\n✅ **デイリー**　毎日の活躍度を受け取る\n\n👤 プロフィール　🎒 倉庫（牌スキン）　📜 牌譜　🎞 リプレイ\n📖 役一覧　🗣 言語　📢 お知らせ　🌐 ウェブ\n\n友達と部屋を作る：任意のチャンネルで `/mahjong start`；CPU戦：BotにDMで `/mahjong start`。"
 }
