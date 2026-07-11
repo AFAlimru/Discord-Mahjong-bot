@@ -547,9 +547,7 @@ _YAKUMAN2 = ["國士無雙十三面", "四暗刻單騎", "純正九蓮寶燈", "
 _BONUS    = ["寶牌", "裏寶牌", "赤寶牌", "拔北"]
 
 
-@mahjong.command(name="yaku", description="役種一覽（飜數表）")
-async def cmd_yaku(interaction: discord.Interaction) -> None:
-    lang = i18n.get_user_lang(interaction.user.id)
+def _yaku_embed(lang: str) -> discord.Embed:
     Y = lambda n: i18n.yaku(n, lang) + ("※" if n in _YAKU_FURO_MINUS else "")
     embed = discord.Embed(title=i18n.t("yakulist.title", lang), color=0xE0AF68)
     for han, names in _YAKU_CHART:
@@ -562,7 +560,13 @@ async def cmd_yaku(interaction: discord.Interaction) -> None:
     embed.add_field(name=i18n.t("yakulist.bonus", lang),
                     value="、".join(i18n.yaku(n, lang) for n in _BONUS), inline=False)
     embed.set_footer(text=i18n.t("yakulist.notes", lang))
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    return embed
+
+
+@mahjong.command(name="yaku", description="役種一覽（飜數表）")
+async def cmd_yaku(interaction: discord.Interaction) -> None:
+    lang = i18n.get_user_lang(interaction.user.id)
+    await interaction.response.send_message(embed=_yaku_embed(lang), ephemeral=True)
 
 
 @mahjong.command(name="skin", description="切換牌面風格（黑色牌風＝達到「日全食」段位解鎖）")
@@ -1023,12 +1027,22 @@ class LobbyPanel(discord.ui.View):
         await interaction.response.send_message(
             i18n.t("hub.pick_mode", lang), view=_ModePick(True, lang), ephemeral=True)
 
-    @discord.ui.button(label="🎲 友人場", style=discord.ButtonStyle.success,
+    @discord.ui.button(label="🎲 休閒場", style=discord.ButtonStyle.success,
                        custom_id="hub:match", row=0)
     async def match(self, interaction: discord.Interaction, button: discord.ui.Button):
         lang = i18n.get_user_lang(interaction.user.id)
         await interaction.response.send_message(
             i18n.t("hub.pick_mode", lang), view=_ModePick(False, lang), ephemeral=True)
+
+    @discord.ui.button(label="✅ 每日簽到", style=discord.ButtonStyle.secondary,
+                       custom_id="hub:daily", row=0)
+    async def daily(self, interaction: discord.Interaction, button: discord.ui.Button):
+        lang = i18n.get_user_lang(interaction.user.id)
+        r = db.checkin(str(interaction.user.id), interaction.user.display_name)
+        key = "daily.already" if r["already"] else "daily.done"
+        await interaction.response.send_message(
+            i18n.t(key, lang, reward=r["reward"], streak=r["streak"], activity=r["activity"]),
+            ephemeral=True)
 
     @discord.ui.button(label="👤 個人資訊", style=discord.ButtonStyle.secondary,
                        custom_id="hub:profile", row=1)
@@ -1062,14 +1076,31 @@ class LobbyPanel(discord.ui.View):
     async def replay(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(_ReplayModal(i18n.get_user_lang(interaction.user.id)))
 
+    @discord.ui.button(label="📖 役種", style=discord.ButtonStyle.secondary,
+                       custom_id="hub:yaku", row=2)
+    async def yaku(self, interaction: discord.Interaction, button: discord.ui.Button):
+        lang = i18n.get_user_lang(interaction.user.id)
+        await interaction.response.send_message(embed=_yaku_embed(lang), ephemeral=True)
+
+    @discord.ui.button(label="🗣 語言", style=discord.ButtonStyle.secondary,
+                       custom_id="hub:lang", row=2)
+    async def lang_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cur = i18n.get_user_lang(interaction.user.id)
+        await interaction.response.send_message(
+            i18n.t("language.choose", cur, cur=i18n.lang_name(cur)),
+            view=LanguageView(), ephemeral=True)
+
     @discord.ui.button(label="📢 公告", style=discord.ButtonStyle.secondary,
                        custom_id="hub:news", row=2)
     async def news(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(_latest_changelog(), ephemeral=True)
 
 
-@mahjong.command(name="lobby", description="建立遊戲大廳頻道（唯讀＋常駐按鈕面板；需管理頻道權限）")
-async def cmd_lobby(interaction: discord.Interaction) -> None:
+setup_group = app_commands.Group(name="setup", description="伺服器設定（遊戲大廳等）")
+
+
+@setup_group.command(name="create", description="建立遊戲大廳頻道（唯讀＋常駐按鈕面板；需管理頻道權限）")
+async def cmd_setup_create(interaction: discord.Interaction) -> None:
     lang = i18n.get_user_lang(interaction.user.id)
     if interaction.guild_id is None:
         await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
@@ -1102,6 +1133,7 @@ async def cmd_lobby(interaction: discord.Interaction) -> None:
 def register(tree) -> None:
     """把指令掛到 tree（由入口 run.py 在 bot/tree 建好後呼叫）。"""
     tree.add_command(mahjong)
+    tree.add_command(setup_group)
     tree.command(name="help", description="使用說明（指令一覽・如何開始遊戲）")(cmd_help_top)
     tree.command(name="language", description="設定顯示語言 / 表示言語を設定する")(cmd_language)
 

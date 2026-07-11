@@ -278,17 +278,18 @@
   "match.queued": "🎲 已加入隨機匹配排隊（{cur}/{max}）…湊滿就自動開局。對局會在你和機器人的**私訊**進行，請確認你允許伺服器成員私訊你。",
   "match.already": "🎲 你已在隨機匹配排隊中（{cur}/{max}），耐心等候配對。",
   "match.roster_title_rank": "🏅 **段位賽 {game}**",
-  "match.roster_title_casual": "🎲 **友人場 {game}**",
+  "match.roster_title_casual": "🎲 **休閒場 {game}**",
   "mode.short.sanma": "三人",
   "mode.short.yonma": "四人",
   "len.short.tonpuu": "東",
   "len.short.hanchan": "南",
-  "hub.panel": "# 🀄 雀月大廳\n\n**點下面的按鈕開始：**\n\n🏅 **段位賽**　全域匹配・計段位（對局在你的私訊進行）\n🎲 **友人場**　隨機匹配・不計段位（對局在你的私訊進行）\n\n👤 個人資訊　🎒 倉庫（牌風）　📜 牌譜　🎞 回放　📢 公告\n\n想跟朋友開房：到任一頻道用 `/mahjong start`；跟電腦打：私訊我 `/mahjong start`。",
+  "hub.panel": "# 🀄 雀月大廳\n\n**點下面的按鈕開始：**\n\n🏅 **段位賽**　全域匹配・計段位（對局在你的私訊進行）\n🎲 **休閒場**　隨機匹配・不計段位（對局在你的私訊進行）\n✅ **每日簽到**　領取活躍度\n\n👤 個人資訊　🎒 倉庫（牌風）　📜 牌譜　🎞 回放\n📖 役種表　🗣 語言　📢 公告　🌐 網頁\n\n想跟朋友開房：到任一頻道用 `/mahjong start`；跟電腦打：私訊我 `/mahjong start`。",
   "hub.pick_mode": "選擇人數模式：",
   "hub.yonma": "四人麻將",
   "hub.sanma": "三人麻將",
   "hub.skin_body": "🎒 **倉庫・牌面風格**\n目前使用：**{cur}**\n⚪ 預設（白）：✅\n⚫ 黑色：{black}",
   "hub.need_perm": "❌ 需要「管理頻道」權限才能建立大廳。",
   "hub.create_fail": "❌ 建立頻道失敗：請確認機器人有「管理頻道」權限。",
-  "hub.created": "✅ 大廳已建立：{channel}"
+  "hub.created": "✅ 大廳已建立：{channel}",
+  "match.timeout": "⏳ 休閒匹配排隊超過 5 分鐘仍未湊滿，已自動把你移出排隊。想再排請重打 `/mahjong match`。"
 }

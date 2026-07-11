@@ -337,7 +337,7 @@
   "match.queued": "🎲 ランダムマッチに参加（{cur}/{max}）…揃えば自動開始。対局はBotとのDMで行います。",
   "match.already": "🎲 すでにランダムマッチ待機中です（{cur}/{max}）。",
   "match.roster_title_rank": "🏅 **段位戦 {game}**",
-  "match.roster_title_casual": "🎲 **友人戦 {game}**",
+  "match.roster_title_casual": "🎲 **カジュアル {game}**",
   "mode.short.sanma": "三人",
   "mode.short.yonma": "四人",
   "len.short.tonpuu": "東",
@@ -348,5 +348,6 @@
   "hub.skin_body": "🎒 **倉庫・牌スキン**\n現在：**{cur}**\n⚪ デフォルト（白）：✅\n⚫ 黒：{black}",
   "hub.need_perm": "❌ ロビー作成には「チャンネル管理」権限が必要です。",
   "hub.create_fail": "❌ チャンネル作成に失敗：Botの「チャンネル管理」権限を確認してください。",
-  "hub.created": "✅ ロビーを作成しました：{channel}"
+  "hub.created": "✅ ロビーを作成しました：{channel}",
+  "match.timeout": "⏳ カジュアルマッチは5分間揃わなかったため、待機列から外しました。再度 `/mahjong match` でどうぞ。"
 }

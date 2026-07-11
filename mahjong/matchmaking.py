@@ -23,7 +23,7 @@ import time
 from .state import _rank_queue, _casual_queue, _user_game
 from . import i18n
 
-TIMEOUT = 600     # 排隊逾時（秒）：等待逾 10 分鐘自動離開
+TIMEOUTS = {"rank": 600, "casual": 300}   # 排隊逾時（秒）：段位 10 分鐘、休閒 5 分鐘
 
 _QUEUES = {"rank": _rank_queue, "casual": _casual_queue}
 
@@ -121,15 +121,20 @@ def join(user, is_sanma: bool, kind: str = "rank"):
 
 
 def expire(now: float = None) -> list[dict]:
-    """移除等待逾 TIMEOUT 的排隊者，回傳被移除的項目（供通知）。"""
+    """移除等待逾時的排隊者（段位 10 分、休閒 5 分），回傳被移除的項目（供通知，
+    每項多帶 kind）。"""
     now = now or time.time()
     expired = []
-    for q_kind in _QUEUES.values():
+    for kind, q_kind in _QUEUES.items():
+        limit = TIMEOUTS[kind]
         for m in ("yonma", "sanma"):
             q = q_kind[m]
             keep = []
             for e in q:
-                (expired if now - e["since"] >= TIMEOUT else keep).append(e)
+                if now - e["since"] >= limit:
+                    expired.append({**e, "kind": kind})
+                else:
+                    keep.append(e)
             q[:] = keep
     return expired
 
@@ -148,8 +153,9 @@ def start_sweeper(interval: float = 30.0) -> None:
         while True:
             await asyncio.sleep(interval)
             for e in expire():
+                key = "match.timeout" if e.get("kind") == "casual" else "rank.timeout"
                 try:
-                    await e["user"].send(i18n.t("rank.timeout", e.get("lang", i18n.DEFAULT)))
+                    await e["user"].send(i18n.t(key, e.get("lang", i18n.DEFAULT)))
                 except Exception:
                     pass
 
