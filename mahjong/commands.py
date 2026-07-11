@@ -1131,7 +1131,8 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
             create_public_threads=True, send_messages_in_threads=True),
     }
     try:
-        ch = await guild.create_text_channel("🀄︱雀月大廳", overwrites=overwrites,
+        ch = await guild.create_text_channel(i18n.t("hub.channel_name", lang),
+                                             overwrites=overwrites,
                                              reason="Suzume Tsuk 遊戲大廳")
         await ch.send(i18n.t("hub.panel", lang), view=LobbyPanel(lang))
     except discord.Forbidden:
