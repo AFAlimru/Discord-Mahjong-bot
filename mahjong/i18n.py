@@ -85,6 +85,12 @@ def t(key: str, lang: str | None = None, **kw) -> str:
     return s
 
 
+def raw(key: str, lang: str) -> str | None:
+    """取「指定語言」的翻譯；缺鍵回 None（不退回母本）。指令描述翻譯用。"""
+    _load()
+    return _cache.get(lang, {}).get(key)
+
+
 def yaku(name: str, lang: str | None = None) -> str:
     """役種／滿貫等級名稱翻譯（母本直接回原名；其他語言查 yaku.<原名>，缺則回原名）。
     處理「役牌中」這類前綴：先整體查，再退回前綴+牌名分別查。"""

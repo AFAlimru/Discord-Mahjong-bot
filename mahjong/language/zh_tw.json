@@ -271,7 +271,7 @@
   "yakulist.bonus": "懸賞（不算役，只加飜）",
   "yakulist.notes": "※＝副露減 1 飜。役牌＝白/發/中/場風/自風。裏寶牌限立直。拔北為三麻、每張 +1 飜。房規：開立直 2 飜（房間開啟時），對開立直放銃＝役滿（放銃者已立直除外）。",
   "term.part_no_yaku_tiles": "{tiles}無役",
-  "help.guide": "**🀄 雀月 使用說明**\n\n**開始遊戲**\n・伺服器頻道 `/mahjong start`：開房（可設三麻／戰長／擊飛／食替／開立直…）→ 朋友按「加入遊戲」或房主按「加入 AI」補滿 → 自動開局\n・私訊機器人 `/mahjong start`：直接跟電腦打（不列入段位）\n・`/mahjong rank`：段位賽全域匹配（跨伺服器、全真人，對局在私訊進行）\n・`/mahjong match`：隨機匹配（跨伺服器湊人、不計段位）；私訊裡打 `/mahjong join` 也可\n\n**對局中**\n・點**牌面按鈕**出牌（也可打字）；碰／吃／槓／榮和會跳提示按鈕\n・詳細出牌輸入方式：對局面板的「❓ 說明」按鈕\n\n**常用指令**\n・`/mahjong status` 房間狀態　`/mahjong end` 關房（房主）\n・`/mahjong daily` 每日簽到　`/mahjong tasks` 今日任務\n・`/mahjong profile` 個人卡　`/mahjong stats` 統計　`/mahjong history` 牌譜列表\n・`/mahjong replay <房號>` 回放　`/mahjong yaku` 役種表\n・`/mahjong rankinfo` 段位說明　`/mahjong skin` 牌面風格　`/language` 語言",
+  "help.guide": "**🀄 雀月 使用說明**\n\n**開始遊戲**\n・伺服器頻道 `/mahjong start`：開房（可設三麻／戰長／擊飛／食替／開立直…）→ 朋友按「加入遊戲」或房主按「加入 AI」補滿 → 自動開局\n・私訊機器人 `/mahjong start`：直接跟電腦打（不列入段位）\n・`/mahjong rank`：段位賽全域匹配（跨伺服器、全真人，對局在私訊進行）\n・`/mahjong match`：隨機匹配（跨伺服器湊人、不計段位）；私訊裡打 `/mahjong join` 也可\n\n**對局中**\n・點**牌面按鈕**出牌（也可打字）；碰／吃／槓／榮和會跳提示按鈕\n・詳細出牌輸入方式：對局面板的「❓ 說明」按鈕\n\n**常用指令**\n・`/setup create` 建立遊戲大廳頻道（管理員；一整面按鈕面板）\n・`/mahjong status` 房間狀態　`/mahjong end` 關房（房主）\n・`/mahjong daily` 每日簽到　`/mahjong tasks` 今日任務\n・`/mahjong profile` 個人卡　`/mahjong stats` 統計　`/mahjong history` 牌譜列表\n・`/mahjong replay <房號>` 回放　`/mahjong yaku` 役種表\n・`/mahjong rankinfo` 段位說明　`/mahjong skin` 牌面風格　`/language` 語言",
   "match.roster_line": "{wind}　**{name}**　〔{dan}〕",
   "match.matched": "🎲 **隨機匹配成功！** 對局即將在此私訊開始，祝你好運！",
   "match.matched_you": "✅ 配對成功！請到與機器人的**私訊**開始對局。",

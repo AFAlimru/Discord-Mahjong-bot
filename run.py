@@ -62,6 +62,12 @@ async def on_message(message: discord.Message) -> None:
 @bot.event
 async def on_ready() -> None:
     db.init_db()
+    try:                                      # 指令描述在地化（依使用者 Discord 介面語言）
+        from mahjong.commands import CommandTranslator
+        if tree.translator is None:
+            await tree.set_translator(CommandTranslator())
+    except Exception as e:
+        print(f"⚠️ 指令翻譯器掛載失敗: {e}")
     try:
         if DEV_GUILD_ID:
             guild = discord.Object(id=int(DEV_GUILD_ID))

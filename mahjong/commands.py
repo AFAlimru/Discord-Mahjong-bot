@@ -1142,6 +1142,25 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
         i18n.t("hub.created", lang, channel=ch.mention), ephemeral=True)
 
 
+class CommandTranslator(app_commands.Translator):
+    """斜線指令在地化：依使用者的 Discord 介面語言翻譯指令描述／參數／選項。
+    discord.py 預設把所有描述包成 locale_str（原文＝繁中母本），這裡以
+    「cmdtr.<原文>」為鍵查 ja/en 語言檔；查無＝保持原文。指令名稱不翻譯。"""
+    _MAP = {
+        discord.Locale.taiwan_chinese: "zh_tw",
+        discord.Locale.chinese: "zh_tw",       # 簡中暫用繁中
+        discord.Locale.japanese: "ja",
+        discord.Locale.american_english: "en",
+        discord.Locale.british_english: "en",
+    }
+
+    async def translate(self, string, locale, context):
+        lang = self._MAP.get(locale)
+        if not lang or lang == i18n.DEFAULT:
+            return None
+        return i18n.raw("cmdtr." + str(string), lang)
+
+
 def register(tree) -> None:
     """把指令掛到 tree（由入口 run.py 在 bot/tree 建好後呼叫）。"""
     tree.add_command(mahjong)
