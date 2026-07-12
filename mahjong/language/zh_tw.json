@@ -303,5 +303,6 @@
   "hub.btn.lang": "🗣 語言",
   "hub.btn.news": "📢 公告",
   "hub.btn.web": "🌐 網頁",
-  "hub.channel_name": "🀄︱雀月大廳"
+  "hub.channel_name": "🀄︱雀月大廳",
+  "hub.lock_manual": "⚠️ 沒能自動鎖定發言權限——請到頻道設定把 @everyone 的「發送訊息」關掉（或給機器人「管理權限」後刪掉頻道重建）。"
 }

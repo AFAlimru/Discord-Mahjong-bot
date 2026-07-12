@@ -391,5 +391,6 @@
   "cmdtr.四人麻將": "4-player",
   "cmdtr.三人麻將": "3-player",
   "cmdtr.預設（白）": "Default (white)",
-  "cmdtr.黑色（日全食解鎖）": "Black (eclipse unlock)"
+  "cmdtr.黑色（日全食解鎖）": "Black (eclipse unlock)",
+  "hub.lock_manual": "⚠️ Couldn't lock posting automatically — please disable @everyone's Send Messages in channel settings (or grant the bot Manage Permissions and recreate)."
 }

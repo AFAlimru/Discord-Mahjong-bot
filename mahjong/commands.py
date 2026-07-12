@@ -1120,7 +1120,11 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
     if not (perms and (perms.manage_channels or perms.administrator)):
         await interaction.response.send_message(i18n.t("hub.need_perm", lang), ephemeral=True)
         return
+    await interaction.response.defer(ephemeral=True)
     guild = interaction.guild
+    name = i18n.t("hub.channel_name", lang)
+    # 帶 overwrites 建頻道時，機器人必須「擁有」所設定的每項權限＋管理權限（Manage Roles）；
+    # 缺任何一項都會 Forbidden。所以先試完整版，不行就降級（先建、再鎖 @everyone 發言）。
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(
             send_messages=False, add_reactions=False,
@@ -1130,16 +1134,39 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
             send_messages=True, manage_channels=True, manage_threads=True,
             create_public_threads=True, send_messages_in_threads=True),
     }
+    ch = None
+    note = ""
     try:
-        ch = await guild.create_text_channel(i18n.t("hub.channel_name", lang),
-                                             overwrites=overwrites,
+        ch = await guild.create_text_channel(name, overwrites=overwrites,
                                              reason="Suzume Tsuk 遊戲大廳")
-        await ch.send(i18n.t("hub.panel", lang), view=LobbyPanel(lang))
     except discord.Forbidden:
-        await interaction.response.send_message(i18n.t("hub.create_fail", lang), ephemeral=True)
+        # 降級 1：不帶 overwrites 建立
+        try:
+            ch = await guild.create_text_channel(name, reason="Suzume Tsuk 遊戲大廳")
+        except Exception as e:
+            await interaction.followup.send(
+                i18n.t("hub.create_fail", lang) + f"\n`{e}`", ephemeral=True)
+            return
+        # 降級 2：至少鎖 @everyone 發言（需要該頻道的管理權限；不行就提示手動）
+        try:
+            await ch.set_permissions(guild.default_role, send_messages=False,
+                                     add_reactions=False, create_public_threads=False,
+                                     create_private_threads=False,
+                                     send_messages_in_threads=False)
+        except Exception:
+            note = "\n" + i18n.t("hub.lock_manual", lang)
+    except Exception as e:
+        await interaction.followup.send(
+            i18n.t("hub.create_fail", lang) + f"\n`{e}`", ephemeral=True)
         return
-    await interaction.response.send_message(
-        i18n.t("hub.created", lang, channel=ch.mention), ephemeral=True)
+    try:
+        await ch.send(i18n.t("hub.panel", lang), view=LobbyPanel(lang))
+    except Exception as e:
+        await interaction.followup.send(
+            i18n.t("hub.create_fail", lang) + f"\n`{e}`", ephemeral=True)
+        return
+    await interaction.followup.send(
+        i18n.t("hub.created", lang, channel=ch.mention) + note, ephemeral=True)
 
 
 class CommandTranslator(app_commands.Translator):
