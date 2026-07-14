@@ -121,11 +121,15 @@ class LobbyView(discord.ui.View):
         content = self._content(self.lang)
 
         if count >= max_p:
-            for child in self.children:
-                child.disabled = True
-            content += "\n\n" + i18n.t("lobby.full", self.lang)
-            await interaction.response.edit_message(content=content, view=self)
             self.stop()
+            try:                       # 開局：大廳訊息直接刪除（不留殘影）
+                await interaction.response.defer()
+            except Exception:
+                pass
+            try:
+                await interaction.message.delete()
+            except Exception:
+                pass
             await launch_game(gid, self.channel)
         else:
             await interaction.response.edit_message(content=content, view=self)
@@ -138,15 +142,12 @@ class LobbyView(discord.ui.View):
         count = len(_waiting.get(gid, []))
         content = self._content(self.lang)
         if count >= max_p:
-            for child in self.children:
-                child.disabled = True
-            content += "\n\n" + i18n.t("lobby.full", self.lang)
-            if self.lobby_message:
+            self.stop()
+            if self.lobby_message:     # 開局：大廳訊息直接刪除
                 try:
-                    await self.lobby_message.edit(content=content, view=self)
+                    await self.lobby_message.delete()
                 except Exception:
                     pass
-            self.stop()
             await launch_game(gid, self.channel)
         elif self.lobby_message:
             try:
@@ -335,7 +336,7 @@ async def cmd_end(interaction: discord.Interaction) -> None:
         except Exception as e:
             print(f"[end] finish_game 失敗：{e}")
 
-    # 2) 等人中的大廳訊息 → 關閉
+    # 2) 等人中的大廳訊息 → 直接刪除（不留殘影）
     if lobby is not None:
         try:
             lobby.stop()
@@ -344,7 +345,7 @@ async def cmd_end(interaction: discord.Interaction) -> None:
         lm = getattr(lobby, "lobby_message", None)
         if lm:
             try:
-                await lm.edit(content=closed, view=None)
+                await lm.delete()
             except Exception:
                 pass
 
