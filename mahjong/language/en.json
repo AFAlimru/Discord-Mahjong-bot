@@ -392,5 +392,18 @@
   "cmdtr.三人麻將": "3-player",
   "cmdtr.預設（白）": "Default (white)",
   "cmdtr.黑色（日全食解鎖）": "Black (eclipse unlock)",
-  "hub.lock_manual": "⚠️ Couldn't lock posting automatically — please disable @everyone's Send Messages in channel settings (or grant the bot Manage Permissions and recreate)."
+  "hub.lock_manual": "⚠️ Couldn't lock posting automatically — please disable @everyone's Send Messages in channel settings (or grant the bot Manage Permissions and recreate).",
+  "guide.channel_name": "🀄︱suzume-guide",
+  "guide.text": "# 🀄 Suzume Tsuk — Quick Setup\n(Only admins can see this channel; delete it with the button below when done)\n\n**⚡ Getting started**\n1. `/setup create` — create the game lobby (button panel)\n2. `/setup channel` — (optional) restrict play commands to one channel\n3. Done! Players use the lobby buttons or `/mahjong start`\n\n**🎮 Play**\n- Ranked `/mahjong rank` - Casual `/mahjong match`\n- vs AI: DM the bot `/mahjong start`\n- History `/mahjong history` - Replay `/mahjong replay` - Yaku `/mahjong yaku`\n- Full guide: `/help`\n\n**🔧 Required permissions**\nSend Messages, Create/Manage Threads, Manage Channels",
+  "notify.on": "🔔 Queue notifications ON: you'll get a DM when someone queues (at most once per 10 min). Press again to turn off.",
+  "notify.off": "🔕 Queue notifications OFF.",
+  "notify.queue_rank": "🔔 Someone is waiting for ranked! {mode} ({cur}/{max}) — join with /mahjong rank.",
+  "notify.queue_casual": "🔔 Someone is waiting for casual! {mode} ({cur}/{max}) — join with /mahjong match.",
+  "setup.channel_set": "✅ Play channel set: {channel}",
+  "setup.channel_cleared": "✅ Play-channel restriction cleared.",
+  "msg.play_channel_only": "❌ This server plays in {channel} — use the command there.",
+  "cmdtr.開／關「有人排隊配對就私訊我」通知": "Toggle DM alerts when someone queues",
+  "cmdtr.指定遊玩頻道（start/join 只能在該頻道用；clear=True 解除）": "Set the play channel (clear=True to remove)",
+  "cmdtr.要指定的頻道（不選＝目前頻道）": "Channel to set (default: current)",
+  "cmdtr.True＝解除限制": "True = remove the restriction"
 }

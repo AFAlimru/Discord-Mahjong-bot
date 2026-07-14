@@ -392,5 +392,18 @@
   "cmdtr.三人麻將": "三人麻雀",
   "cmdtr.預設（白）": "デフォルト（白）",
   "cmdtr.黑色（日全食解鎖）": "黒（日全食で解禁）",
-  "hub.lock_manual": "⚠️ 発言権限を自動でロックできませんでした——チャンネル設定で @everyone の「メッセージを送信」をオフにしてください（またはBotに「権限の管理」を付与して作り直し）。"
+  "hub.lock_manual": "⚠️ 発言権限を自動でロックできませんでした——チャンネル設定で @everyone の「メッセージを送信」をオフにしてください（またはBotに「権限の管理」を付与して作り直し）。",
+  "guide.channel_name": "🀄︱雀月ガイド",
+  "guide.text": "# 🀄 雀月 — クイックセットアップ\n（このチャンネルは管理者のみ表示。設定後は下のボタンで削除できます）\n\n**⚡ はじめに**\n1️⃣ `/setup create` — ゲームロビーを作成（ボタンパネル）\n2️⃣ `/setup channel` — （任意）プレイチャンネルを指定\n3️⃣ 完了！ロビーのボタンか `/mahjong start` で対局開始\n\n**🎮 遊び方**\n・🏅 段位戦 `/mahjong rank`・🎲 カジュアル `/mahjong match`\n・🤖 CPU戦：BotにDMで `/mahjong start`\n・📜 牌譜 `/mahjong history`・🎞 リプレイ `/mahjong replay`・📖 役 `/mahjong yaku`\n・詳細：`/help`\n\n**🔧 必要権限**\nメッセージ送信、スレッド作成/管理、チャンネル管理",
+  "notify.on": "🔔 マッチング通知をオンにしました：誰かが待機列に入るとDMでお知らせ（最大10分に1回）。もう一度押すとオフ。",
+  "notify.off": "🔕 マッチング通知をオフにしました。",
+  "notify.queue_rank": "🔔 段位戦の待機者がいます！{mode}（{cur}/{max}）——`/mahjong rank` で参加。",
+  "notify.queue_casual": "🔔 カジュアルの待機者がいます！{mode}（{cur}/{max}）——`/mahjong match` で参加。",
+  "setup.channel_set": "✅ プレイチャンネルを設定：{channel}",
+  "setup.channel_cleared": "✅ プレイチャンネル制限を解除しました。",
+  "msg.play_channel_only": "❌ このサーバーでは {channel} でプレイしてください。",
+  "cmdtr.開／關「有人排隊配對就私訊我」通知": "「待機者が出たらDM」通知のオン／オフ",
+  "cmdtr.指定遊玩頻道（start/join 只能在該頻道用；clear=True 解除）": "プレイチャンネルを指定（clear=True で解除）",
+  "cmdtr.要指定的頻道（不選＝目前頻道）": "指定するチャンネル（未選択＝現在のチャンネル）",
+  "cmdtr.True＝解除限制": "True＝制限を解除"
 }

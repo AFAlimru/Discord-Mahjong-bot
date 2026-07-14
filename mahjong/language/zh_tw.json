@@ -304,5 +304,14 @@
   "hub.btn.news": "📢 公告",
   "hub.btn.web": "🌐 網頁",
   "hub.channel_name": "🀄︱雀月大廳",
-  "hub.lock_manual": "⚠️ 沒能自動鎖定發言權限——請到頻道設定把 @everyone 的「發送訊息」關掉（或給機器人「管理權限」後刪掉頻道重建）。"
+  "hub.lock_manual": "⚠️ 沒能自動鎖定發言權限——請到頻道設定把 @everyone 的「發送訊息」關掉（或給機器人「管理權限」後刪掉頻道重建）。",
+  "guide.channel_name": "🀄︱雀月指南",
+  "guide.text": "# 🀄 雀月 — 快速設定指南\n（此頻道僅管理員可見，設定完可用下方按鈕刪除）\n\n**⚡ 快速開始**\n1️⃣ `/setup create` — 建立遊戲大廳（唯讀按鈕面板，玩家一鍵排隊／簽到／查資料）\n2️⃣ `/setup channel` — （可選）指定遊玩頻道，限制 `/mahjong start`・`/join` 只能在該頻道使用\n3️⃣ 完成！玩家可用大廳按鈕或 `/mahjong start` 開打\n\n**🎮 主要玩法**\n・🏅 段位賽 `/mahjong rank`（跨伺服器匹配・對局走私訊）\n・🎲 休閒場 `/mahjong match`（不計段位）\n・🤖 跟電腦打：私訊機器人 `/mahjong start`\n・📜 牌譜 `/mahjong history`・🎞 回放 `/mahjong replay`・📖 役種 `/mahjong yaku`\n・完整說明：`/help`\n\n**🔧 權限需求**\n傳送訊息、建立/管理討論串、管理頻道（建大廳用；全自動鎖權限另需「管理權限」）",
+  "notify.on": "🔔 已開啟排隊通知：有人加入配對排隊時會私訊你（每 10 分鐘最多一次）。再按一次可關閉。",
+  "notify.off": "🔕 已關閉排隊通知。",
+  "notify.queue_rank": "🔔 有人在等段位賽！{mode}（{cur}/{max}）——用 `/mahjong rank` 或大廳按鈕加入。",
+  "notify.queue_casual": "🔔 有人在等休閒場！{mode}（{cur}/{max}）——用 `/mahjong match` 或大廳按鈕加入。",
+  "setup.channel_set": "✅ 已指定遊玩頻道：{channel}（`/mahjong start`・`/join` 僅限該頻道）",
+  "setup.channel_cleared": "✅ 已解除遊玩頻道限制。",
+  "msg.play_channel_only": "❌ 本伺服器指定在 {channel} 遊玩，請到那裡使用指令。"
 }

@@ -171,6 +171,15 @@ def init_db() -> None:
             conn.execute("ALTER TABLE user_prefs ADD COLUMN skin TEXT")
         except Exception:
             pass
+        try:
+            conn.execute("ALTER TABLE user_prefs ADD COLUMN notify_queue INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS guild_settings ("
+            " guild_id TEXT PRIMARY KEY,"
+            " play_channel_id TEXT)"
+        )
     print(f"[DB] Database initialised at: {DATABASE_PATH}")
 
 
@@ -412,6 +421,46 @@ def set_user_skin(user_id: str, skin: str | None) -> None:
             "INSERT INTO user_prefs (user_id, skin) VALUES (?, ?) "
             "ON CONFLICT(user_id) DO UPDATE SET skin=excluded.skin",
             (user_id, skin)
+        )
+
+
+def get_notify_queue(user_id: str) -> bool:
+    """是否訂閱「有人排隊」私訊通知。"""
+    with get_connection() as conn:
+        row = conn.execute("SELECT notify_queue FROM user_prefs WHERE user_id=?", (user_id,)).fetchone()
+    return bool(row["notify_queue"]) if row else False
+
+
+def set_notify_queue(user_id: str, on: bool) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO user_prefs (user_id, notify_queue) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET notify_queue=excluded.notify_queue",
+            (user_id, 1 if on else 0)
+        )
+
+
+def get_queue_subscribers() -> list[str]:
+    """所有訂閱排隊通知的玩家 uid。"""
+    with get_connection() as conn:
+        rows = conn.execute("SELECT user_id FROM user_prefs WHERE notify_queue=1").fetchall()
+    return [r["user_id"] for r in rows]
+
+
+def get_play_channel(guild_id: str) -> str | None:
+    """該伺服器指定的遊玩頻道（None＝不限制）。"""
+    with get_connection() as conn:
+        row = conn.execute("SELECT play_channel_id FROM guild_settings WHERE guild_id=?",
+                           (guild_id,)).fetchone()
+    return row["play_channel_id"] if row else None
+
+
+def set_play_channel(guild_id: str, channel_id: str | None) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO guild_settings (guild_id, play_channel_id) VALUES (?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET play_channel_id=excluded.play_channel_id",
+            (guild_id, channel_id)
         )
 
 

@@ -91,13 +91,31 @@ async def on_ready() -> None:
         matchmaking.start_sweeper()
     except Exception as e:
         print(f"⚠️ 排隊清掃器啟動失敗: {e}")
-    try:                                      # 大廳常駐面板（persistent view，重啟後按鈕仍有效）
+    try:                                      # 大廳常駐面板＋指南（persistent view，重啟後按鈕仍有效）
         if not getattr(bot, "_hub_view_added", False):
-            from mahjong.commands import LobbyPanel
+            from mahjong.commands import LobbyPanel, GuideView
             bot.add_view(LobbyPanel())
+            bot.add_view(GuideView())
             bot._hub_view_added = True
     except Exception as e:
         print(f"⚠️ 大廳面板掛載失敗: {e}")
+
+
+@bot.event
+async def on_guild_join(guild) -> None:
+    """加入新伺服器：建立「僅管理員可見」的設定指南頻道（含刪除鈕與支援群連結）。"""
+    try:
+        from mahjong.commands import GuideView
+        from mahjong import i18n as _i
+        loc = str(getattr(guild, "preferred_locale", "") or "")
+        lang = "ja" if loc.startswith("ja") else ("en" if loc.startswith("en") else "zh_tw")
+        overwrites = {guild.default_role: discord.PermissionOverwrite(view_channel=False)}
+        ch = await guild.create_text_channel(_i.t("guide.channel_name", lang),
+                                             overwrites=overwrites,
+                                             reason="Suzume Tsuk 設定指南（僅管理員可見）")
+        await ch.send(_i.t("guide.text", lang), view=GuideView())
+    except Exception as e:
+        print(f"⚠️ 指南頻道建立失敗（{getattr(guild, 'name', '?')}）: {e}")
 
 
 def run() -> None:

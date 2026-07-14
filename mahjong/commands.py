@@ -199,9 +199,16 @@ async def cmd_start(interaction: discord.Interaction) -> None:
             await interaction.response.send_message(
                 i18n.t("msg.channel_has_game", i18n.get_user_lang(user_id)), ephemeral=True)
             return
-    elif channel_id in _channel_games:
-        await interaction.response.send_message(i18n.t("msg.channel_has_game", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
-        return
+    else:
+        pc = db.get_play_channel(str(interaction.guild_id))
+        if pc and channel_id != pc:   # 伺服器有指定遊玩頻道
+            await interaction.response.send_message(
+                i18n.t("msg.play_channel_only", i18n.get_user_lang(user_id), channel=f"<#{pc}>"),
+                ephemeral=True)
+            return
+        if channel_id in _channel_games:
+            await interaction.response.send_message(i18n.t("msg.channel_has_game", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+            return
 
     host_lang = i18n.get_user_lang(user_id)
     sv = RoomSettingsView(gid="setup", lang=host_lang)
@@ -252,6 +259,12 @@ async def cmd_join(interaction: discord.Interaction, host: discord.Member = None
     # 私訊裡沒有頻道房間 → 直接跨伺服器隨機匹配（四人）
     if interaction.guild_id is None:
         await _do_casual_match(interaction, sanma=False)
+        return
+    pc = db.get_play_channel(str(interaction.guild_id))
+    if pc and channel_id != pc:   # 伺服器有指定遊玩頻道
+        await interaction.response.send_message(
+            i18n.t("msg.play_channel_only", i18n.get_user_lang(uid), channel=f"<#{pc}>"),
+            ephemeral=True)
         return
     gid        = _channel_games.get(channel_id)
 
@@ -475,6 +488,53 @@ async def cmd_rank(interaction: discord.Interaction,
     await _do_rank_match(interaction, mode is not None and mode.value == "sanma")
 
 
+_notify_last: dict = {}      # uid → 上次通知時間（冷卻，避免洗頻）
+_NOTIFY_CD = 600             # 每人至多每 10 分鐘收到一次排隊通知
+
+
+async def _notify_queue_subscribers(client, qkind: str, sanma: bool,
+                                    cur: int, mx: int, joiner_uid: str) -> None:
+    """有人加入排隊 → 私訊通知訂閱者（排除本人／對局中／已在排隊者，帶冷卻）。"""
+    import time as _t
+    now = _t.time()
+    mode_key = "mode.sanma" if sanma else "mode.yonma"
+    key = "notify.queue_rank" if qkind == "rank" else "notify.queue_casual"
+    for uid in db.get_queue_subscribers():
+        if uid == joiner_uid or uid in _user_game or matchmaking.in_queue(uid):
+            continue
+        if now - _notify_last.get(uid, 0) < _NOTIFY_CD:
+            continue
+        lang = i18n.get_user_lang(uid)
+        try:
+            user = client.get_user(int(uid)) or await client.fetch_user(int(uid))
+            await user.send(i18n.t(key, lang, mode=i18n.t(mode_key, lang), cur=cur, max=mx))
+            _notify_last[uid] = now
+        except Exception:
+            pass
+
+
+def _fire_queue_notify(interaction, qkind: str, sanma: bool, cur: int, mx: int) -> None:
+    task = asyncio.create_task(_notify_queue_subscribers(
+        interaction.client, qkind, sanma, cur, mx, str(interaction.user.id)))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+
+async def _toggle_notify(interaction: discord.Interaction) -> None:
+    """切換「有人排隊就私訊我」訂閱。"""
+    uid  = str(interaction.user.id)
+    on   = not db.get_notify_queue(uid)
+    db.set_notify_queue(uid, on)
+    lang = i18n.get_user_lang(uid)
+    await interaction.response.send_message(
+        i18n.t("notify.on" if on else "notify.off", lang), ephemeral=True)
+
+
+@mahjong.command(name="notify", description="開／關「有人排隊配對就私訊我」通知")
+async def cmd_notify(interaction: discord.Interaction) -> None:
+    await _toggle_notify(interaction)
+
+
 async def _do_rank_match(interaction: discord.Interaction, sanma: bool) -> None:
     """段位賽排隊（指令與大廳按鈕共用）。"""
     lang  = i18n.get_user_lang(interaction.user.id)
@@ -487,6 +547,8 @@ async def _do_rank_match(interaction: discord.Interaction, sanma: bool) -> None:
         key = "rank.queued" if kind == "queued" else "rank.already"
         await interaction.response.send_message(
             i18n.t(key, lang, cur=cur, max=mx), ephemeral=True, view=RankQueueView(lang))
+        if kind == "queued":
+            _fire_queue_notify(interaction, "rank", sanma, cur, mx)
     elif kind == "matched":
         _, players, mode, _k = res
         await interaction.response.send_message(i18n.t("rank.matched_you", lang), ephemeral=True)
@@ -506,6 +568,8 @@ async def _do_casual_match(interaction: discord.Interaction, sanma: bool) -> Non
         key = "match.queued" if kind == "queued" else "match.already"
         await interaction.response.send_message(
             i18n.t(key, lang, cur=cur, max=mx), ephemeral=True, view=RankQueueView(lang))
+        if kind == "queued":
+            _fire_queue_notify(interaction, "casual", sanma, cur, mx)
     elif kind == "matched":
         _, players, mode, _k = res
         await interaction.response.send_message(i18n.t("match.matched_you", lang), ephemeral=True)
@@ -1055,6 +1119,11 @@ class LobbyPanel(discord.ui.View):
             i18n.t(key, lang, reward=r["reward"], streak=r["streak"], activity=r["activity"]),
             ephemeral=True)
 
+    @discord.ui.button(label="🔔 通知", style=discord.ButtonStyle.secondary,
+                       custom_id="hub:notify", row=0)
+    async def notify(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _toggle_notify(interaction)
+
     @discord.ui.button(label="👤 個人資訊", style=discord.ButtonStyle.secondary,
                        custom_id="hub:profile", row=1)
     async def profile(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1167,6 +1236,53 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
         return
     await interaction.followup.send(
         i18n.t("hub.created", lang, channel=ch.mention) + note, ephemeral=True)
+
+
+@setup_group.command(name="channel", description="指定遊玩頻道（start/join 只能在該頻道用；clear=True 解除）")
+@app_commands.describe(channel="要指定的頻道（不選＝目前頻道）", clear="True＝解除限制")
+async def cmd_setup_channel(interaction: discord.Interaction,
+                            channel: discord.TextChannel = None,
+                            clear: bool = False) -> None:
+    lang = i18n.get_user_lang(interaction.user.id)
+    if interaction.guild_id is None:
+        await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
+        return
+    perms = getattr(interaction.user, "guild_permissions", None)
+    if not (perms and (perms.manage_channels or perms.administrator)):
+        await interaction.response.send_message(i18n.t("hub.need_perm", lang), ephemeral=True)
+        return
+    gid = str(interaction.guild_id)
+    if clear:
+        db.set_play_channel(gid, None)
+        await interaction.response.send_message(i18n.t("setup.channel_cleared", lang), ephemeral=True)
+        return
+    ch = channel or interaction.channel
+    db.set_play_channel(gid, str(ch.id))
+    await interaction.response.send_message(
+        i18n.t("setup.channel_set", lang, channel=ch.mention), ephemeral=True)
+
+
+class GuideView(discord.ui.View):
+    """加入伺服器時的管理員指南（persistent）：刪除頻道＋支援伺服器連結。"""
+    def __init__(self):
+        super().__init__(timeout=None)
+        from .config import SUPPORT_URL
+        if SUPPORT_URL:
+            self.add_item(discord.ui.Button(label="💬 支援伺服器",
+                                            style=discord.ButtonStyle.link, url=SUPPORT_URL))
+
+    @discord.ui.button(label="🗑 刪除指南頻道", style=discord.ButtonStyle.danger,
+                       custom_id="guide:delete")
+    async def delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        perms = getattr(interaction.user, "guild_permissions", None)
+        if not (perms and (perms.manage_channels or perms.administrator)):
+            await interaction.response.send_message(
+                i18n.t("hub.need_perm", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+            return
+        try:
+            await interaction.channel.delete(reason="管理員刪除指南頻道")
+        except Exception as e:
+            await interaction.response.send_message(f"x {e}", ephemeral=True)
 
 
 class CommandTranslator(app_commands.Translator):

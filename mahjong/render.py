@@ -214,11 +214,12 @@ def river_panel(gs: GameState, lang: str = DEFAULT, cap: int | None = None) -> s
         opened = p.riichi and getattr(p, "open_riichi", False)
         riichi = (t("label.open_riichi_tag" if opened else "label.riichi_tag", lang)
                   if p.riichi else "")
-        melds  = ("　" + t("panel.melds", lang) + "：" + "　".join(T.meld(m) for m in p.melds)) if p.melds else ""
         shown  = p.discards if cap is None else p.discards[-cap:]
         trim   = "…" if len(shown) < len(p.discards) else ""
         disc   = trim + "".join(T.of(tt) for tt in shown) if p.discards else "—"
-        lines.append(f"## {cur}{_wind(p.seat, lang)}「{p.username}」{riichi}（{len(p.discards)}）{melds}")
+        lines.append(f"## {cur}{_wind(p.seat, lang)}「{p.username}」{riichi}（{len(p.discards)}）")
+        if p.melds:   # 副露自成一行（名字下、牌河上）
+            lines.append(t("panel.melds", lang) + "：" + "　".join(T.meld(m) for m in p.melds))
         if opened:   # 開立直：亮出手牌（不標待牌）
             lines.append(t("label.open_hand", lang) + "：" +
                          T.render(sorted(p.hand, key=lambda x: (x.suit, x.value))))

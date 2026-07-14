@@ -30,6 +30,9 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "mahjong.db")
 # ── 網站（公開網址；大廳面板的「🌐 網頁」按鈕用，留空則不顯示）──
 WEB_BASE_URL = os.getenv("WEB_BASE_URL", "").strip()
 
+# ── 支援伺服器邀請連結（指南／大廳按鈕用）──
+SUPPORT_URL = os.getenv("SUPPORT_URL", "https://discord.gg/QNJMBhDrcj").strip()
+
 # ── 遊戲常數 ──────────────────────────────────────────────────
 WIND_LABELS          = ["東", "南", "西", "北"]
 AI_NAMES             = ["小春", "小夏", "小秋", "小冬"]
