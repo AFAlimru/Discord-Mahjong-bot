@@ -738,7 +738,7 @@ def _profile_embed(u) -> discord.Embed:
         hand = act.get("best_win_hand") or ""
         lines.append(f"{L('profile.best_win')}：**{(nm + ' ') if nm else ''}{best} {L('profile.points')}**")
         if hand:
-            lines.append(T.emojify(hand))
+            lines.append(T.emojify_hand(hand))
     else:
         lines.append(f"{L('profile.best_win')}：{L('profile.none')}")
 

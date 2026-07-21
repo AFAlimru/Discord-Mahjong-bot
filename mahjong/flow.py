@@ -1772,7 +1772,7 @@ async def win_ceremony(channel: discord.TextChannel, gs: GameState,
     # 立直則一併揭曉裏寶牌（以原始（中文）役名判斷）
     names = [n for n, *_ in (result.yaku or [])] + [n for n, *_ in (result.yakuman or [])]
     is_riichi = any("立直" in (n or "") for n in names)
-    top = f"{head}\n{dora_reveal_text(gs, is_riichi, lang)}\n## {T.emojify(hand_str)}"
+    top = f"{head}\n{dora_reveal_text(gs, is_riichi, lang)}\n## {T.emojify_hand(hand_str)}"
     try:
         await msg.edit(content=top)         # ② 揭曉寶牌/裏寶牌 + 手牌
     except Exception:

@@ -315,7 +315,7 @@ def make_river_text(gs: GameState, lang: str = DEFAULT) -> str:
 def result_body(header: str, hand_str: str, result, log, gs: GameState,
                 tenpai=None, lang: str = DEFAULT, draw_key: str = "result.draw_title") -> str:
     """一局結果的靜態文字（送到聊天串與各私人討論串）。"""
-    hand_str = T.emojify(hand_str)
+    hand_str = T.emojify_hand(hand_str)
     if result is None:
         title = t(draw_key, lang)
         if tenpai is None:   # 途中流局（如九種九牌）：無聽牌罰符、無點數移動

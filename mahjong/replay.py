@@ -47,7 +47,7 @@ def _ceremony(snap, win, e, wd, wh, uid2name, lang, d0):
             dline += "　[" + T.render(ura) + "]"       # 裏寶牌
         head.append(dline)
         if wh.get(u):
-            head.append(T.emojify(wh[u]))
+            head.append(T.emojify_hand(wh[u]))
         snap("\n".join(head), d0)                                  # ① 標題＋寶牌＋手牌
         ym, yk = det.get("yakuman", []), det.get("yaku", [])
         items = [(n, None) for n in ym] if ym else [(n, h) for n, h in yk]
@@ -158,7 +158,7 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
                     res = i18n.t("result.draw_title", lang)
                 for u, hd in wh.items():
                     if hd:
-                        res += f"\n　{uid2name.get(u, u)}：{T.emojify(hd)}"
+                        res += f"\n　{uid2name.get(u, u)}：{T.emojify_hand(hd)}"
                 snap(f"**{res}**", d0, clear=True)
             hand += 1
             dcount, turn = 0, 0
@@ -243,7 +243,7 @@ def render_frame(frames: list[dict], idx: int, seats: dict,
     hd = f.get("hands", {}).get(focus, [])
     lines.append("=" * 22)
     lines.append(f"👁 {seats[focus]}　{i18n.t('panel.your_hand', lang)}")
-    lines.append(("# " + T.emojify(_sort_hand(hd))) if hd else i18n.t("panel.none", lang))
+    lines.append(("# " + T.emojify_hand(_sort_hand(hd))) if hd else i18n.t("panel.none", lang))
     lines.append("")
     lines.append(f"> {f['action']}")
     lines.append(f"`{i18n.t('replay.step', lang, i=idx + 1, total=len(frames))}`")

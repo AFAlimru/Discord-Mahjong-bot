@@ -168,6 +168,12 @@ def _tidy_spaces(s: str) -> str:
     return s
 
 
+def emojify_hand(s: str) -> str:
+    """和牌牌型專用：轉表情後把「所有」空白清光（牌型字串只有牌／副露／｜，沒有詞句，
+    可安全全收）。用於最高和了、和牌儀式、結果、回放的手牌顯示。"""
+    return re.sub(r"[ 　]+", "", emojify(s))
+
+
 def back() -> str:
     """牌背（暗槓兩端、未翻寶牌）：有自訂表情用表情，否則 🀫。"""
     return _get_code("back") or "🀫"
