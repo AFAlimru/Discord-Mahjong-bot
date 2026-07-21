@@ -1753,12 +1753,12 @@ def deal_next_hand(gid: str, players_info: list[dict], prev: GameState) -> GameS
 
 
 def format_winning_hand(player: PlayerState, win_tile: Tile) -> str:
-    """和牌手牌顯示：門前手牌（含空隔）＋副露，並標出和牌張。"""
+    """和牌手牌顯示：門前手牌＋副露，並以｜標出和牌張（表情自帶留白，牌之間不再補空格）。"""
     hand_sorted = sorted(player.hand, key=lambda t: (t.suit, t.value))
-    parts = [" ".join(str(t) for t in hand_sorted)]
+    parts = ["".join(str(t) for t in hand_sorted)]
     if player.melds:
         parts.append("　".join(str(m) for m in player.melds))
-    return "　".join(parts) + f"　| {win_tile}"
+    return "　".join(parts) + f"｜{win_tile}"
 
 
 async def win_ceremony(channel: discord.TextChannel, gs: GameState,
