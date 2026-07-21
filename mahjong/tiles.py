@@ -168,10 +168,17 @@ def _tidy_spaces(s: str) -> str:
     return s
 
 
+_RE_HAND_PIPE = re.compile(r"([\]>])\s*([｜|])")   # ]／表情 之後緊接 ｜／|
+
+
 def emojify_hand(s: str) -> str:
-    """和牌牌型專用：轉表情後把「所有」空白清光（牌型字串只有牌／副露／｜，沒有詞句，
-    可安全全收）。用於最高和了、和牌儀式、結果、回放的手牌顯示。"""
-    return re.sub(r"[ 　]+", "", emojify(s))
+    """和牌牌型專用：牌之間相鄰（無空白），只在**副露之間**與**｜之前**留一個半形空白。
+    用於最高和了、和牌儀式、結果、回放的手牌顯示（牌型只有牌／副露／｜，沒有詞句）。"""
+    s = re.sub(r"[ 　]+", "", emojify(s))   # 先全收
+    s = s.replace("][", "] [")               # 副露 ↔ 副露
+    s = s.replace(">[", "> [")               # 手牌 ↔ 副露
+    s = _RE_HAND_PIPE.sub(r"\1 \2", s)       # ｜ 之前留半形空白
+    return s
 
 
 def back() -> str:
