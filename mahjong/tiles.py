@@ -148,7 +148,24 @@ def emojify(s: str) -> str:
     for k in sorted(keys, key=len, reverse=True):   # 先換 🔴X 再換單字
         if k in s:
             s = s.replace(k, uni.get(k) or fallback[k])
-    return s.replace("🀫", back())   # 蓋牌（暗槓／未翻寶牌）→ 牌背表情
+    s = s.replace("🀫", back())   # 蓋牌（暗槓／未翻寶牌）→ 牌背表情
+    return _tidy_spaces(s)
+
+
+_EMO = r"<a?:\w+:\d+>"
+_RE_EMO_GAP  = re.compile(rf"({_EMO})[ 　]+(?={_EMO})")   # 表情之間的空白
+_RE_BEFORE   = re.compile(r"[ 　]+(?=[｜|\]])")           # ｜／] 之前的空白
+_RE_AFTER    = re.compile(r"(?<=[\[｜|])[ 　]+")          # ［／｜ 之後的空白
+
+
+def _tidy_spaces(s: str) -> str:
+    """把表情牌之間、以及緊貼｜／［］的空白收掉（牌自帶留白）。
+    句子裡單張牌前後（如「碰了 🀄 打出」）不受影響——只有兩張牌相鄰時才收。"""
+    s = _RE_EMO_GAP.sub(r"\1", s)
+    s = _RE_EMO_GAP.sub(r"\1", s)   # 連續多張需再掃一次
+    s = _RE_BEFORE.sub("", s)
+    s = _RE_AFTER.sub("", s)
+    return s
 
 
 def back() -> str:
