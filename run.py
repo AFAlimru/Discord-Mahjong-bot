@@ -14,12 +14,26 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """啟動入口：建立 bot/tree、事件處理，並以 `python run.py` 啟動。"""
 from __future__ import annotations
+import logging
 import discord
 from discord.ext import commands as _dpy
 
 from mahjong.config import TOKEN, DEV_GUILD_ID
 from mahjong import db
 from mahjong.state import _input_queues, _input_thread, _thread_game, _threads
+
+
+class _QuietBadRequests(logging.Filter):
+    """丟掉網站被畸形／掃描請求（非 HTTP 位元組）打到時 aiohttp 印的 400 traceback。
+    這類請求本就被拒絕、無害，只是洗版 log；真正的伺服器錯誤照常印出。"""
+    def filter(self, record: logging.LogRecord) -> bool:
+        exc = record.exc_info
+        if exc and exc[0] is not None and getattr(exc[0], "__module__", "") == "aiohttp.http_exceptions":
+            return False
+        return True
+
+
+logging.getLogger("aiohttp.server").addFilter(_QuietBadRequests())
 
 intents = discord.Intents.default()
 intents.message_content = True
