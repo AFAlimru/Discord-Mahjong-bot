@@ -405,5 +405,6 @@
   "cmdtr.開／關「有人排隊配對就私訊我」通知": "Toggle DM alerts when someone queues",
   "cmdtr.指定遊玩頻道（start/join 只能在該頻道用；clear=True 解除）": "Set the play channel (clear=True to remove)",
   "cmdtr.要指定的頻道（不選＝目前頻道）": "Channel to set (default: current)",
-  "cmdtr.True＝解除限制": "True = remove the restriction"
+  "cmdtr.True＝解除限制": "True = remove the restriction",
+  "hub.btn.refresh": "🔁 Refresh"
 }

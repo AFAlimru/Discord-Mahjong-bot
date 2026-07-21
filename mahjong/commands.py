@@ -1085,7 +1085,7 @@ class LobbyPanel(discord.ui.View):
         labels = {"rank": "hub.btn.rank", "match": "hub.btn.match", "daily": "hub.btn.daily",
                   "profile": "hub.btn.profile", "skin": "hub.btn.skin", "history": "hub.btn.history",
                   "replay": "hub.btn.replay", "yaku": "hub.btn.yaku", "lang": "hub.btn.lang",
-                  "news": "hub.btn.news"}
+                  "news": "hub.btn.news", "refresh": "hub.btn.refresh"}
         for c in self.children:
             cid = (getattr(c, "custom_id", "") or "").replace("hub:", "")
             if cid in labels:
@@ -1175,6 +1175,18 @@ class LobbyPanel(discord.ui.View):
                        custom_id="hub:news", row=2)
     async def news(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(_latest_changelog(), ephemeral=True)
+
+    @discord.ui.button(label="🔁 更新面板", style=discord.ButtonStyle.secondary,
+                       custom_id="hub:refresh", row=2)
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # 更新面板到最新版（機器人改版後新按鈕才會出現）；管理員限定、順便切成點按者語言
+        perms = getattr(interaction.user, "guild_permissions", None)
+        lang = i18n.get_user_lang(interaction.user.id)
+        if not (perms and (perms.manage_channels or perms.administrator)):
+            await interaction.response.send_message(i18n.t("hub.need_perm", lang), ephemeral=True)
+            return
+        await interaction.response.edit_message(content=i18n.t("hub.panel", lang),
+                                                view=LobbyPanel(lang))
 
 
 setup_group = app_commands.Group(name="setup", description="伺服器設定（遊戲大廳等）")

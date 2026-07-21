@@ -313,5 +313,6 @@
   "notify.queue_casual": "🔔 有人在等休閒場！{mode}（{cur}/{max}）——用 `/mahjong match` 或大廳按鈕加入。",
   "setup.channel_set": "✅ 已指定遊玩頻道：{channel}（`/mahjong start`・`/join` 僅限該頻道）",
   "setup.channel_cleared": "✅ 已解除遊玩頻道限制。",
-  "msg.play_channel_only": "❌ 本伺服器指定在 {channel} 遊玩，請到那裡使用指令。"
+  "msg.play_channel_only": "❌ 本伺服器指定在 {channel} 遊玩，請到那裡使用指令。",
+  "hub.btn.refresh": "🔁 更新面板"
 }
