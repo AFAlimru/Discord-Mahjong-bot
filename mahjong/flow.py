@@ -1087,10 +1087,13 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             # ── 暗槓 ──
             if action == "ankan" and ankan_opts:
                 kan_tile = arg
+                # 摸到的牌若不是槓牌 → 先併回手牌（否則會被嶺上摸覆蓋而憑空遺失）
+                if player.drawn_tile is not None and not (
+                        player.drawn_tile.suit == kan_tile.suit and player.drawn_tile.value == kan_tile.value):
+                    player.hand.append(player.drawn_tile)
+                player.drawn_tile = None
                 player.hand = [t for t in player.hand
                                if not (t.suit == kan_tile.suit and t.value == kan_tile.value)]
-                if player.drawn_tile and player.drawn_tile.suit == kan_tile.suit and player.drawn_tile.value == kan_tile.value:
-                    player.drawn_tile = None
                 player.melds.append(Meld(MeldType.ANKAN, [Tile(kan_tile.suit, kan_tile.value)] * 4, -1))
                 gs.open_dora()
                 any_call = True
@@ -1134,6 +1137,10 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 if player.drawn_tile and player.drawn_tile.suit == kan_tile.suit and player.drawn_tile.value == kan_tile.value:
                     player.drawn_tile = None
                 else:
+                    # 第 4 張在手牌：摸到的別張牌先併回手牌（否則被嶺上摸覆蓋而遺失）
+                    if player.drawn_tile is not None:
+                        player.hand.append(player.drawn_tile)
+                        player.drawn_tile = None
                     for i, t in enumerate(player.hand):
                         if t.suit == kan_tile.suit and t.value == kan_tile.value:
                             player.hand.pop(i); break
