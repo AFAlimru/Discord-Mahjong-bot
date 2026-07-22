@@ -160,16 +160,12 @@ def feed_text(key: str, lang: str = DEFAULT, **kw) -> str:
 
 
 def _action_feed(gid: str, gs: GameState, lang: str = DEFAULT) -> str:
-    """私人面板上方的動態：上家剛打出的牌（放大）+ 最新一筆動作（依玩家語言）。"""
-    parts = []
-    ld = _last_discard_info(gs, lang)
-    if ld:
-        parts.append(ld)
+    """私人面板上方的動態：最新一筆動作（依玩家語言）。"""
     log = _action_logs.get(gid, [])
     if log:
         key, kw = log[-1]
-        parts.append(f"## 📜 {feed_text(key, lang, **kw)}")
-    return "\n\n".join(parts)
+        return f"## {feed_text(key, lang, **kw)}"
+    return ""
 
 
 def make_action_log_text(gid: str, lang: str = DEFAULT) -> str:
