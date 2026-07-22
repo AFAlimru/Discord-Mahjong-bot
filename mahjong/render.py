@@ -173,12 +173,24 @@ def _action_feed(gid: str, gs: GameState, lang: str = DEFAULT) -> str:
 
 
 def make_action_log_text(gid: str, lang: str = DEFAULT) -> str:
-    """完整動態（給「看動態」按鈕的私密訊息用，依語言）。"""
+    """動態（給「看動態」按鈕的私密訊息用，依語言）。
+    表情牌一多，整份可能破 Discord 2000 字上限——只保留「最近、放得下」的幾筆。"""
     title = t("actionlog.title", lang)
     log = _action_logs.get(gid, [])
     if not log:
         return f"{title}\n{t('actionlog.empty', lang)}"
-    return f"{title}\n" + "\n".join(f"> {feed_text(k, lang, **kw)}" for k, kw in log)
+    lines = [f"> {feed_text(k, lang, **kw)}" for k, kw in log]
+    kept, total = [], len(title) + 1
+    for ln in reversed(lines):            # 由新到舊塞，塞到接近上限為止
+        if total + len(ln) + 1 > 1950:
+            break
+        kept.append(ln)
+        total += len(ln) + 1
+    kept.reverse()
+    body = "\n".join(kept)
+    if len(kept) < len(lines):
+        body = "> …\n" + body            # 有省略時標一下
+    return f"{title}\n{body}"
 
 
 def _board_info(gs: GameState, lang: str = DEFAULT) -> str:
