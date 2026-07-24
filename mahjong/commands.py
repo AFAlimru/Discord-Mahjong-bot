@@ -113,6 +113,23 @@ class LobbyView(discord.ui.View):
         lang = i18n.get_user_lang(interaction.user.id)
         await interaction.response.send_message(self._content(lang), ephemeral=True)
 
+    @discord.ui.button(label="📩 DM", style=discord.ButtonStyle.secondary)
+    async def dm_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """本場對局的手牌面板走私訊（每人各自切換；只影響這一場）。"""
+        uid  = str(interaction.user.id)
+        lang = i18n.get_user_lang(uid)
+        cfg  = _room_configs.get(self.gid)
+        if cfg is None:
+            await interaction.response.send_message(i18n.t("msg.no_open_room", lang), ephemeral=True)
+            return
+        dm_uids = cfg.setdefault("dm_uids", set())
+        if uid in dm_uids:
+            dm_uids.discard(uid)
+            await interaction.response.send_message(i18n.t("lobby.dm_off", lang), ephemeral=True)
+        else:
+            dm_uids.add(uid)
+            await interaction.response.send_message(i18n.t("lobby.dm_on", lang), ephemeral=True)
+
     async def _update(self, interaction: discord.Interaction):
         gid   = self.gid
         cfg   = _room_configs.get(gid, {})
@@ -1192,7 +1209,8 @@ class LobbyPanel(discord.ui.View):
 setup_group = app_commands.Group(name="setup", description="伺服器設定（遊戲大廳等）")
 
 
-@setup_group.command(name="create", description="建立遊戲大廳頻道（唯讀＋常駐按鈕面板；需管理頻道權限）")
+@setup_group.command(name="create",
+                     description="建立雀月類別（大廳頻道＋配對語音；對局頻道也會開在裡面；需管理頻道權限）")
 async def cmd_setup_create(interaction: discord.Interaction) -> None:
     lang = i18n.get_user_lang(interaction.user.id)
     if interaction.guild_id is None:
@@ -1204,6 +1222,15 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
         return
     await interaction.response.defer(ephemeral=True)
     guild = interaction.guild
+    # 0.7：建「類別」→ 裡面放大廳文字頻道＋配對語音；之後對局頻道全開在此類別下
+    cat = None
+    try:
+        cat = await guild.create_category(i18n.t("hub.category_name", lang),
+                                          reason="Suzume Tsuk 雀月類別")
+    except Exception as e:
+        await interaction.followup.send(
+            i18n.t("hub.create_fail", lang) + f"\n`{e}`", ephemeral=True)
+        return
     name = i18n.t("hub.channel_name", lang)
     # 帶 overwrites 建頻道時，機器人必須「擁有」所設定的每項權限＋管理權限（Manage Roles）；
     # 缺任何一項都會 Forbidden。所以先試完整版，不行就降級（先建、再鎖 @everyone 發言）。
@@ -1214,17 +1241,19 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
             send_messages_in_threads=False),
         guild.me: discord.PermissionOverwrite(
             send_messages=True, manage_channels=True, manage_threads=True,
+            manage_messages=True,
             create_public_threads=True, send_messages_in_threads=True),
     }
     ch = None
     note = ""
     try:
-        ch = await guild.create_text_channel(name, overwrites=overwrites,
+        ch = await guild.create_text_channel(name, category=cat, overwrites=overwrites,
                                              reason="Suzume Tsuk 遊戲大廳")
     except discord.Forbidden:
         # 降級 1：不帶 overwrites 建立
         try:
-            ch = await guild.create_text_channel(name, reason="Suzume Tsuk 遊戲大廳")
+            ch = await guild.create_text_channel(name, category=cat,
+                                                 reason="Suzume Tsuk 遊戲大廳")
         except Exception as e:
             await interaction.followup.send(
                 i18n.t("hub.create_fail", lang) + f"\n`{e}`", ephemeral=True)
@@ -1241,6 +1270,29 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
         await interaction.followup.send(
             i18n.t("hub.create_fail", lang) + f"\n`{e}`", ephemeral=True)
         return
+    # 開房頻道：給玩家打 /mahjong start・/join 用（可發言），並預設設為指定遊玩頻道
+    start_ch = None
+    try:
+        start_ch = await guild.create_text_channel(
+            i18n.t("hub.start_channel_name", lang), category=cat,
+            reason="Suzume Tsuk 開房頻道")
+        db.set_play_channel(str(guild.id), str(start_ch.id))
+    except Exception as e:
+        note += "\n" + i18n.t("hub.start_fail", lang) + f" `{e}`"
+    # 配對語音：玩家加入 → 自動開 4 人語音房，滿人自動開局（建不了就略過，不擋大廳）
+    vc = None
+    try:
+        vc = await guild.create_voice_channel(i18n.t("hub.voice_name", lang),
+                                              category=cat,
+                                              reason="Suzume Tsuk 配對語音")
+    except Exception as e:
+        note += "\n" + i18n.t("hub.voice_fail", lang) + f" `{e}`"
+    db.set_guild_setup(str(guild.id), str(cat.id), str(ch.id),
+                       str(vc.id) if vc else None)
+    from .state import _lobby_channels
+    _lobby_channels[str(guild.id)] = str(ch.id)   # 更新「大廳打字即刪」快取
+    if start_ch is not None:
+        note += "\n" + i18n.t("hub.start_created", lang, channel=start_ch.mention)
     try:
         await ch.send(i18n.t("hub.panel", lang), view=LobbyPanel(lang))
     except Exception as e:
@@ -1249,6 +1301,33 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
         return
     await interaction.followup.send(
         i18n.t("hub.created", lang, channel=ch.mention) + note, ephemeral=True)
+
+
+@setup_group.command(name="sounds",
+                     description="（擁有者）把 assets/sounds/ 的音效包上傳到本伺服器音效板（家伺服器用）")
+async def cmd_setup_sounds(interaction: discord.Interaction) -> None:
+    lang = i18n.get_user_lang(interaction.user.id)
+    if interaction.guild_id is None:
+        await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
+        return
+    try:
+        is_owner = await interaction.client.is_owner(interaction.user)
+    except Exception:
+        is_owner = False
+    if not is_owner:
+        await interaction.response.send_message(i18n.t("hub.need_perm", lang), ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    from . import sfx
+    ok, errs = await sfx.upload_pack(interaction.guild)
+    msg = f"✅ 上傳 {ok} 個音效。"
+    if errs:
+        msg += "\n" + "\n".join(f"⚠️ {e}" for e in errs[:10])
+    await interaction.followup.send(msg, ephemeral=True)
+    try:                                   # 上傳完重載快取（家伺服器才有意義）
+        await sfx.load(interaction.client)
+    except Exception:
+        pass
 
 
 @setup_group.command(name="channel", description="指定遊玩頻道（start/join 只能在該頻道用；clear=True 解除）")

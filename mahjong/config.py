@@ -33,6 +33,12 @@ WEB_BASE_URL = os.getenv("WEB_BASE_URL", "").strip()
 # ── 支援伺服器邀請連結（指南／大廳按鈕用）──
 SUPPORT_URL = os.getenv("SUPPORT_URL", "https://discord.gg/QNJMBhDrcj").strip()
 
+# ── 0.7 全域音效（Soundboard）──
+# 音效包上傳到這個「家」伺服器（支援伺服器），對局時跨伺服器代發；留空＝音效功能停用。
+SOUND_GUILD_ID = os.getenv("SOUND_GUILD_ID", "").strip()
+# 音效檔資料夾（/setup sounds 批次上傳用）
+SOUNDS_DIR = os.getenv("SOUNDS_DIR", "assets/sounds")
+
 # ── 遊戲常數 ──────────────────────────────────────────────────
 WIND_LABELS          = ["東", "南", "西", "北"]
 AI_NAMES             = ["小春", "小夏", "小秋", "小冬"]

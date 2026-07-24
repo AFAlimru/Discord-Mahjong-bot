@@ -20,7 +20,8 @@ from discord.ext import commands as _dpy
 
 from mahjong.config import TOKEN, DEV_GUILD_ID
 from mahjong import db
-from mahjong.state import _input_queues, _input_thread, _thread_game, _threads
+from mahjong.state import (_input_queues, _input_thread, _thread_game, _threads,
+                           _lobby_channels)
 
 
 class _QuietBadRequests(logging.Filter):
@@ -43,9 +44,22 @@ tree = bot.tree
 
 @bot.event
 async def on_message(message: discord.Message) -> None:
-    """讀取玩家在自己私人討論串打的字；公開牌桌討論串則禁止打字。"""
+    """讀取玩家在自己私人討論串打的字；公開牌桌討論串則禁止打字。
+    0.7：大廳頻道（面板）任何人打字都直接刪（含有權限繞過唯讀的管理員）。"""
     if message.author.bot:
         return
+    if message.guild is not None:
+        gid_s = str(message.guild.id)
+        lid = _lobby_channels.get(gid_s)
+        if lid is None:                       # 尚未查過 → 查一次 DB 進快取
+            lid = db.get_guild_setup(gid_s).get("lobby_channel_id") or "?"
+            _lobby_channels[gid_s] = lid
+        if lid == str(message.channel.id):
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            return
     uid = str(message.author.id)
     q = _input_queues.get(uid)
     if q is not None and message.channel.id == _input_thread.get(uid):
@@ -105,6 +119,11 @@ async def on_ready() -> None:
         matchmaking.start_sweeper()
     except Exception as e:
         print(f"⚠️ 排隊清掃器啟動失敗: {e}")
+    try:                                      # 0.7 全域音效：載入家伺服器音效板
+        from mahjong import sfx
+        await sfx.load(bot)
+    except Exception as e:
+        print(f"⚠️ 音效載入失敗: {e}")
     try:                                      # 大廳常駐面板＋指南（persistent view，重啟後按鈕仍有效）
         if not getattr(bot, "_hub_view_added", False):
             from mahjong.commands import LobbyPanel, GuideView
@@ -113,6 +132,16 @@ async def on_ready() -> None:
             bot._hub_view_added = True
     except Exception as e:
         print(f"⚠️ 大廳面板掛載失敗: {e}")
+
+
+@bot.event
+async def on_voice_state_update(member, before, after) -> None:
+    """0.7 語音配對：進「配對語音」自動開房、滿人開局、空房自刪。"""
+    try:
+        from mahjong.voice import handle_voice_update
+        await handle_voice_update(member, before, after)
+    except Exception as e:
+        print(f"⚠️ 語音配對處理失敗: {e!r}")
 
 
 @bot.event
@@ -139,6 +168,8 @@ def run() -> None:
         raise SystemExit(1)
     from mahjong import commands as _commands
     _commands.register(tree)              # 把 /mahjong、/help、/language 掛到 tree
+    from mahjong import flow as _flow
+    _flow.BOT = bot                       # 0.7：DM 面板／語音配對需要 bot 參考
     try:                                  # 選用擴充：存在時自動掛上
         from mahjong.web import server as _web
         _web.attach(bot)

@@ -48,6 +48,9 @@ from . import i18n
 from . import tiles as T
 from . import rooms
 
+# 0.7：bot 參考（run.py 啟動時設定）——DM 面板、語音配對需要拿 User 物件
+BOT: discord.Client | None = None
+
 
 async def _delete_later(msg: discord.Message, delay: float) -> None:
     await asyncio.sleep(delay)
@@ -105,10 +108,116 @@ def _apply_skin(uid: str) -> None:
     T.set_skin(sk)
 
 
+def _guild_category(guild) -> discord.CategoryChannel | None:
+    """該伺服器若用 /setup create 建過類別，回傳 CategoryChannel（否則 None＝沿用討論串模式）。"""
+    if guild is None:
+        return None
+    try:
+        cid = db.get_guild_setup(str(guild.id)).get("category_id")
+        if cid:
+            c = guild.get_channel(int(cid))
+            if isinstance(c, discord.CategoryChannel):
+                return c
+    except Exception:
+        pass
+    return None
+
+
+async def _player_member(guild, uid: str):
+    """拿玩家的 Member（私人頻道 overwrites 用）：先查快取、再 fetch。"""
+    m = guild.get_member(int(uid))
+    if m is None:
+        m = await guild.fetch_member(int(uid))
+    return m
+
+
+async def _player_dm(uid: str):
+    """拿玩家的 DM 頻道（手牌面板走私訊用）。"""
+    if BOT is None:
+        raise RuntimeError("BOT 未設定")
+    user = BOT.get_user(int(uid))
+    if user is None:
+        user = await BOT.fetch_user(int(uid))
+    return user.dm_channel or await user.create_dm()
+
+
+async def setup_channels(gid: str, cat: discord.CategoryChannel, gs: GameState,
+                         watch: bool = False) -> None:
+    """0.7 類別模式：對局開在類別裡的文字頻道（公開聊天/牌桌＋每人私人頻道或 DM）。"""
+    rlang = _room_configs.get(gid, {}).get("lang", i18n.DEFAULT)
+    guild = cat.guild
+    _rn = rooms.room_no(gid)
+    _tag = f"{_rn:04d}" if _rn else gid[:4]
+    over_pub = {
+        guild.me: discord.PermissionOverwrite(
+            view_channel=True, send_messages=True, manage_channels=True,
+            manage_messages=True),
+    }
+    if watch:   # 觀戰牌桌：唯讀（聊天請去語音／大廳）
+        over_pub[guild.default_role] = discord.PermissionOverwrite(send_messages=False)
+    public = await guild.create_text_channel(
+        ("🀄" if watch else "💬") + f"雀月房-{_tag}",
+        category=cat, overwrites=over_pub, reason="Suzume Tsuk 對局頻道")
+    if watch:
+        board_msg = await public.send(make_thread_board(gs, "", rlang),
+                                      view=make_board_view(gid, rlang))
+    else:
+        await public.send(i18n.t("thread.chat_hint", rlang))
+        board_msg = None
+
+    private: dict[str, discord.abc.Messageable] = {}
+    hand_msg: dict[str, discord.Message] = {}
+    river_msg: dict[str, discord.Message] = {}
+    dm_uids = _room_configs.get(gid, {}).get("dm_uids", set())   # 這一場選了 DM 的玩家
+    for p in gs.players:
+        if p.is_bot:
+            continue
+        _lang = i18n.get_user_lang(p.user_id)
+        pt = None
+        if p.user_id in dm_uids:            # 大廳裡選了「📩 DM」：面板走私訊
+            try:
+                pt = await _player_dm(p.user_id)
+            except Exception as e:
+                print(f"[channels] {p.username} DM 失敗（{e}），改用私人頻道")
+        if pt is None:
+            member = await _player_member(guild, p.user_id)
+            over = {
+                guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                member: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+                guild.me: discord.PermissionOverwrite(
+                    view_channel=True, send_messages=True, manage_channels=True,
+                    manage_messages=True),
+            }
+            pt = await guild.create_text_channel(
+                f"🀫{i18n.t('thread.hand', _lang, name=p.username)}-{_tag}",
+                category=cat, overwrites=over, reason="Suzume Tsuk 手牌頻道")
+        private[p.user_id] = pt
+        _apply_skin(p.user_id)
+        rm = await pt.send(river_message_text(gs, _lang))
+        river_msg[p.user_id] = rm
+        hm = await pt.send(make_hand_panel(p, i18n.t("panel.waiting_start", _lang), lang=_lang),
+                           view=make_hand_view(gid, _lang))
+        hand_msg[p.user_id] = hm
+
+    _threads[gid] = {
+        "public": public, "board_msg": board_msg, "is_channels": True,
+        "private": private, "hand_msg": hand_msg, "river_msg": river_msg,
+        "result_msg": None,
+    }
+    _thread_game[public.id] = gid
+    for pt in private.values():
+        _thread_game[pt.id] = gid
+
+
 async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
                         watch: bool = False) -> None:
     """建立公開討論串 + 每位真人玩家的私人討論串。
-    watch=True（觀戰）：公開串當牌桌；否則當聊天/和牌資訊串（牌桌資訊改用按鈕看）。"""
+    watch=True（觀戰）：公開串當牌桌；否則當聊天/和牌資訊串（牌桌資訊改用按鈕看）。
+    0.7：伺服器若建過類別（/setup create），改走類別內文字頻道模式。"""
+    cat = _guild_category(getattr(channel, "guild", None))
+    if cat is not None:
+        await setup_channels(gid, cat, gs, watch=watch)
+        return
     rlang = _room_configs.get(gid, {}).get("lang", i18n.DEFAULT)   # 公開牌桌顯示語言
     if watch:
         public = await channel.create_thread(
@@ -215,29 +324,41 @@ async def _archive_threads(th: dict) -> None:
             pass
 
 
-async def _delete_threads(th: dict) -> int:
-    """刪除對局的所有討論串與開局公告（用於 /end 強制結束）。回傳刪除失敗的數量。"""
-    await _delete_announce(th)
-    threads = [th.get("public")] + list(th.get("private", {}).values())
-    failed = 0
-    for t in threads:
-        if t is None:
+def _deletable_surfaces(th: dict) -> list:
+    """可刪除的對局面（討論串或文字頻道）；DM 頻道不可刪、直接略過。"""
+    out = []
+    for t in [th.get("public")] + list(th.get("private", {}).values()):
+        if t is None or isinstance(t, discord.DMChannel):
             continue
+        out.append(t)
+    return out
+
+
+async def _delete_threads(th: dict) -> int:
+    """刪除對局的所有討論串／頻道與開局公告（用於 /end 強制結束）。回傳刪除失敗的數量。"""
+    vc = th.get("voice")
+    if vc is not None:                     # 音效：離開語音房
+        try:
+            from . import sfx
+            await sfx.leave(vc.guild)
+        except Exception:
+            pass
+    await _delete_announce(th)
+    failed = 0
+    for t in _deletable_surfaces(th):
         try:
             await t.delete()
         except Exception as e:
             failed += 1
-            print(f"[threads] 刪除討論串失敗（{getattr(t, 'name', '?')}）：{e!r}"
-                  f"　← 多半是機器人缺『管理討論串』權限")
+            print(f"[threads] 刪除討論串/頻道失敗（{getattr(t, 'name', '?')}）：{e!r}"
+                  f"　← 多半是機器人缺『管理討論串／管理頻道』權限")
     return failed
 
 
 async def _delete_threads_later(th: dict, delay: float = 60.0) -> None:
-    """對局自然結束後，保留一段時間讓大家看結果，再刪除討論串。"""
+    """對局自然結束後，保留一段時間讓大家看結果，再刪除討論串／頻道。"""
     await asyncio.sleep(delay)
-    for t in [th.get("public")] + list(th.get("private", {}).values()):
-        if t is None:
-            continue
+    for t in _deletable_surfaces(th):
         try:
             await t.delete()
         except Exception:
@@ -245,10 +366,50 @@ async def _delete_threads_later(th: dict, delay: float = 60.0) -> None:
 
 
 def _schedule_delete_threads(th: dict, delay: float = 60.0) -> None:
-    """排程延遲刪除討論串，並保留任務參考避免被 GC。"""
+    """排程延遲刪除討論串／頻道，並保留任務參考避免被 GC。"""
     task = asyncio.create_task(_delete_threads_later(th, delay))
     _bg_tasks.add(task)
     task.add_done_callback(_bg_tasks.discard)
+
+
+class RoomDeleteButton(discord.ui.Button):
+    """對局結束訊息上的「立即刪除頻道」按鈕（不按也會自動刪）。"""
+    def __init__(self, th: dict, lang: str):
+        super().__init__(style=discord.ButtonStyle.danger,
+                         label=i18n.t("room.delete_now", lang))
+        self._th = th
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        try:
+            await interaction.response.defer()
+        except Exception:
+            pass
+        for t in _deletable_surfaces(self._th):
+            try:
+                await t.delete()
+            except Exception:
+                pass
+
+
+async def _finish_channels(th: dict, lang: str = i18n.DEFAULT, delay: float = 300.0) -> None:
+    """0.7 類別模式收尾：公開頻道發「對局已結束」＋刪除按鈕，幾分鐘後自動刪全部頻道。"""
+    vc = th.get("voice")
+    if vc is not None:                     # 音效：離開語音房
+        try:
+            from . import sfx
+            await sfx.leave(vc.guild)
+        except Exception:
+            pass
+    await _delete_announce(th)
+    pub = th.get("public")
+    if pub is not None:
+        try:
+            v = discord.ui.View(timeout=None)
+            v.add_item(RoomDeleteButton(th, lang))
+            await pub.send(i18n.t("room.ended", lang, min=int(delay // 60)), view=v)
+        except Exception:
+            pass
+    _schedule_delete_threads(th, delay)
 
 
 #  0.2 討論串：打字輸入解析 + 反應收集 + 對局迴圈
@@ -1179,6 +1340,12 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 double_rii[player.seat] = (not any_call) and (len(player.discards) == 0)
                 ippatsu[player.seat] = True
                 word = "feed.word_riichi_open" if action == "riichi_open" else "feed.word_riichi"
+                if not player.is_bot:            # 音效：真人立直（綁語音房才會出聲）
+                    try:
+                        from . import sfx
+                        await sfx.play(gid, "riichi")
+                    except Exception:
+                        pass
             elif timed:
                 word = "feed.word_timeout"
             else:
@@ -1552,6 +1719,11 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                         continue
                     (pub_pairs if idx < pub_count else priv_pairs).extend(rl)
             elif result is not None:
+                try:                       # 音效：和牌（自摸／榮和；綁語音房才會出聲）
+                    from . import sfx
+                    await sfx.play(gid, "tsumo" if "tsumo" in header_key else "ron")
+                except Exception:
+                    pass
                 cer = await asyncio.gather(
                     *[win_ceremony(ch, gs, header_key, header_kw, hand_str, result, log, lg)
                       for ch, lg in targets],
@@ -1729,6 +1901,9 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
 
         if th.get("is_dm"):
             pass   # 段位賽走 DM，不封存／刪除（DM 自然保留）
+        elif th.get("is_channels"):
+            # 0.7 類別模式：公開頻道發結束訊息＋刪除按鈕，數分鐘後自動刪
+            await _finish_channels(th, config.get("lang", i18n.DEFAULT))
         elif th.get("board_msg") is not None:
             # 觀戰：保留約一分鐘讓大家看結果，再刪除討論串
             await _delete_announce(th)
@@ -1884,10 +2059,16 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
         _cleanup(gid, str(channel.id))
         return
 
-    announce = await channel.send(
-        f"🀄 {rooms.label(gid)} 遊戲開始！牌桌在討論串 {_threads[gid]['public'].mention}，"
-        f"真人玩家請到自己的私人討論串出牌（直接打字）。"
-    )
+    if _threads[gid].get("is_channels"):
+        announce = await channel.send(
+            f"🀄 {rooms.label(gid)} 遊戲開始！牌桌頻道 {_threads[gid]['public'].mention}，"
+            f"真人玩家請到自己的手牌頻道（或私訊）出牌。"
+        )
+    else:
+        announce = await channel.send(
+            f"🀄 {rooms.label(gid)} 遊戲開始！牌桌在討論串 {_threads[gid]['public'].mention}，"
+            f"真人玩家請到自己的私人討論串出牌（直接打字）。"
+        )
     _threads[gid]["announce"] = announce
     _game_tasks[gid] = asyncio.create_task(match_loop_t(gid, channel))
 

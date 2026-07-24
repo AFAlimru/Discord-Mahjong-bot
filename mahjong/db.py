@@ -180,6 +180,12 @@ def init_db() -> None:
             " guild_id TEXT PRIMARY KEY,"
             " play_channel_id TEXT)"
         )
+        # 0.7：類別制大廳（category + 大廳頻道 + 配對語音）
+        for col in ("category_id", "lobby_channel_id", "hub_voice_id"):
+            try:
+                conn.execute(f"ALTER TABLE guild_settings ADD COLUMN {col} TEXT")
+            except Exception:
+                pass
     print(f"[DB] Database initialised at: {DATABASE_PATH}")
 
 
@@ -461,6 +467,31 @@ def set_play_channel(guild_id: str, channel_id: str | None) -> None:
             "INSERT INTO guild_settings (guild_id, play_channel_id) VALUES (?, ?) "
             "ON CONFLICT(guild_id) DO UPDATE SET play_channel_id=excluded.play_channel_id",
             (guild_id, channel_id)
+        )
+
+
+def get_guild_setup(guild_id: str) -> dict:
+    """該伺服器的類別制設定（category / 大廳頻道 / 配對語音）。缺者為 None。"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT category_id, lobby_channel_id, hub_voice_id "
+            "FROM guild_settings WHERE guild_id=?", (guild_id,)).fetchone()
+    if not row:
+        return {"category_id": None, "lobby_channel_id": None, "hub_voice_id": None}
+    return {"category_id": row["category_id"],
+            "lobby_channel_id": row["lobby_channel_id"],
+            "hub_voice_id": row["hub_voice_id"]}
+
+
+def set_guild_setup(guild_id: str, category_id: str | None,
+                    lobby_channel_id: str | None, hub_voice_id: str | None) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO guild_settings (guild_id, category_id, lobby_channel_id, hub_voice_id) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET category_id=excluded.category_id, "
+            "lobby_channel_id=excluded.lobby_channel_id, hub_voice_id=excluded.hub_voice_id",
+            (guild_id, category_id, lobby_channel_id, hub_voice_id)
         )
 
 

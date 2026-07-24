@@ -1,2 +1,4 @@
 discord.py>=2.3.0
 python-dotenv>=1.0.0
+# 0.7 音效（soundboard）：需 discord.py>=2.5 才會啟用；PyNaCl 供機器人進語音
+PyNaCl>=1.5.0

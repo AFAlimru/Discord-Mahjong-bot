@@ -31,3 +31,6 @@ mahjong/tile_emojis_black.json
 .claude/
 .DS_Store
 Thumbs.db
+
+# 未發表創作（劇情設定/正文），不提交公開 GitHub
+劇情*.md

@@ -51,3 +51,7 @@ _bg_tasks:      set  = set()
 # ── 房間編號（0.3）──
 # game_id -> RoomMeta（房間#0001 等）
 rooms:          dict = {}
+
+# ── 0.7 類別制 ──
+# guild_id(str) -> 大廳頻道 id(str) 或 None（快取，供 on_message 刪大廳打字；"?"＝尚未查過）
+_lobby_channels: dict = {}
