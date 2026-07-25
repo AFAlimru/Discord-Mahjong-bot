@@ -272,6 +272,13 @@ class RoomSettingsView(View):
     @button(label="✅ 確認", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer()
+        try:                                   # 確認後把設定面板整則刪掉（不留死按鈕）
+            await interaction.message.delete()
+        except Exception:
+            try:                               # ephemeral 面板（/mahjong start）走這條刪
+                await interaction.delete_original_response()
+            except Exception:
+                pass
         self.stop()
 
 

@@ -201,9 +201,10 @@ def evaluate_win(gs: GameState, player: PlayerState, win_tile: Tile, is_tsumo: b
 
 
 def hand_waits(player: PlayerState) -> set:
-    """玩家目前的待牌（牌型完成，含副露，忽略役）。回傳 {(suit,value), ...}。"""
-    base = list(player.hand) + [t for m in player.melds for t in m.tiles[:3]]
-    if len(base) % 3 != 1:
+    """玩家目前的待牌（牌型完成，考慮副露佔的面子數，忽略役）。回傳 {(suit,value), ...}。
+    ⚠️ 副露牌不可混進手牌重組（副露是固定的）——只判「純手牌」補完剩下的面子＋雀頭。"""
+    base = list(player.hand)
+    if (len(base) + 3 * len(player.melds)) % 3 != 1:
         return set()
     waits = set()
     for suit in (Suit.MAN, Suit.SOU, Suit.PIN, Suit.WIND, Suit.DRAGON):
@@ -215,10 +216,10 @@ def hand_waits(player: PlayerState) -> set:
 
 
 def tenpai_advice(player: PlayerState) -> list:
-    """輪到時（14 張）分析：回傳 [(要打的牌, [待牌...]), ...]，即打哪張可進聽、聽哪些。"""
+    """輪到時（14 張）分析：回傳 [(要打的牌, [待牌...]), ...]，即打哪張可進聽、聽哪些。
+    ⚠️ 副露牌不可混進手牌重組——只用「純手牌」判（副露佔掉的面子數由張數自然反映）。"""
     full = list(player.hand) + ([player.drawn_tile] if player.drawn_tile else [])
-    meld_tiles = [t for m in player.melds for t in m.tiles[:3]]
-    if (len(full) + len(meld_tiles)) % 3 != 2:
+    if (len(full) + 3 * len(player.melds)) % 3 != 2:
         return []
     results = []
     seen = set()
@@ -229,7 +230,7 @@ def tenpai_advice(player: PlayerState) -> list:
         seen.add(key)
         remaining = list(full)
         remaining.remove(d)
-        base = remaining + meld_tiles
+        base = remaining
         waits = []
         for suit in (Suit.MAN, Suit.SOU, Suit.PIN, Suit.WIND, Suit.DRAGON):
             rng = 9 if suit in (Suit.MAN, Suit.SOU, Suit.PIN) else (4 if suit == Suit.WIND else 3)

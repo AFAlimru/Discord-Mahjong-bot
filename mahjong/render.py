@@ -21,7 +21,10 @@ from .i18n import t, DEFAULT
 from . import tiles as T
 
 
-def _wind(seat: int, lang: str) -> str:
+def _wind(seat: int, lang: str, gs: GameState | None = None) -> str:
+    """自風顯示：傳入 gs 時**相對莊家**（莊家＝東，換莊會輪轉；連莊不變）。"""
+    if gs is not None:
+        seat = (seat - gs.dealer_seat) % len(gs.players)
     return t(f"wind.{seat}", lang)
 
 
@@ -53,7 +56,7 @@ def make_board_text(gs: GameState, status: str = "", open_hand: bool = False,
         f"# {ind_str}",
     ]
     for p in gs.players:
-        wind     = _wind(p.seat, lang)
+        wind     = _wind(p.seat, lang, gs)
         cur      = "▶" if p.seat == gs.current_seat else "　"
         riichi   = t("label.riichi_tag", lang) if p.riichi else ""
         bot_mark = "🤖" if p.is_bot else ""
@@ -99,7 +102,7 @@ def make_thread_board(gs: GameState, status: str = "", lang: str = DEFAULT) -> s
             lines.append("")
             lines.append("━" * 35)
             lines.append("")
-        wind     = _wind(p.seat, lang)
+        wind     = _wind(p.seat, lang, gs)
         cur      = "▶" if p.seat == gs.current_seat else "　"
         riichi   = t("label.riichi_tag", lang) if p.riichi else ""
         bot_mark = "🤖" if p.is_bot else ""
@@ -127,7 +130,7 @@ def _last_discard_info(gs: GameState, lang: str = DEFAULT) -> str:
     """上家剛打出的牌（含打牌者）；牌單獨一行放大。"""
     if gs is not None and gs.pending_discard is not None and gs.pending_from_seat >= 0:
         who = gs.players[gs.pending_from_seat].username
-        head = t("feed.last_discard", lang, wind=_wind(gs.pending_from_seat, lang), who=who)
+        head = t("feed.last_discard", lang, wind=_wind(gs.pending_from_seat, lang, gs), who=who)
         # 表情牌可與文字同行，直接接在後面並整行放大
         return f"## {head}　{T.of(gs.pending_discard)}"
     return ""
@@ -225,7 +228,7 @@ def river_panel(gs: GameState, lang: str = DEFAULT, cap: int | None = None) -> s
         shown  = p.discards if cap is None else p.discards[-cap:]
         trim   = "…" if len(shown) < len(p.discards) else ""
         disc   = trim + "".join(T.of(tt) for tt in shown) if p.discards else "—"
-        lines.append(f"## {cur}{_wind(p.seat, lang)}「{p.username}」{riichi}（{len(p.discards)}）")
+        lines.append(f"## {cur}{_wind(p.seat, lang, gs)}「{p.username}」{riichi}（{len(p.discards)}）")
         if p.melds:   # 副露自成一行（名字下、牌河上）
             lines.append(t("panel.melds", lang) + "：" + "　".join(T.meld(m) for m in p.melds))
         if opened:   # 開立直：亮出手牌（不標待牌）
@@ -313,7 +316,7 @@ def make_river_text(gs: GameState, lang: str = DEFAULT) -> str:
             lines.append("─" * 24)   # 玩家之間分隔線
         trim = "…" if len(p.discards) > 15 else ""
         disc = trim + "".join(T.of(tt) for tt in p.discards[-15:]) if p.discards else t("river.none", lang)
-        lines.append(f"{_wind(p.seat, lang)} {p.username}（{len(p.discards)}）")
+        lines.append(f"{_wind(p.seat, lang, gs)} {p.username}（{len(p.discards)}）")
         lines.append(f"# {disc}")
     lines.append("")
     lines.append(t("river.snapshot", lang))
@@ -350,7 +353,7 @@ def make_score_text(gs: GameState, lang: str = DEFAULT) -> str:
     lines = [f"**{t('score.title', lang)}**"]
     for i, p in enumerate(ranked):
         bot = "🤖" if p.is_bot else ""
-        lines.append(f"{medals[i]} {_wind(p.seat, lang)}　{bot}{p.username}：**{p.score}** {t('score.point', lang)}")
+        lines.append(f"{medals[i]} {_wind(p.seat, lang, gs)}　{bot}{p.username}：**{p.score}** {t('score.point', lang)}")
     return "\n".join(lines)
 
 
@@ -362,7 +365,7 @@ def make_meld_text(gs: GameState, lang: str = DEFAULT) -> str:
         if p.melds:
             any_meld = True
             melds = "　".join(T.meld(m) for m in p.melds)
-            lines.append(f"{_wind(p.seat, lang)}　{p.username}：{melds}")
+            lines.append(f"{_wind(p.seat, lang, gs)}　{p.username}：{melds}")
     if not any_meld:
         lines.append(t("meld.none", lang))
     return "\n".join(lines)

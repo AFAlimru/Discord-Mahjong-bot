@@ -33,13 +33,25 @@ _voice_rooms: dict[int, dict] = {}
 _room_seq = 0
 
 
-def _default_config(lang: str, sanma: bool = False) -> dict:
-    """語音配對局的房間設定（半莊、天鳳規則、不計段位；sanma=True 三麻）。"""
+def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> dict:
+    """語音房的對局設定：讀語音文字區設定面板（RoomSettingsView）當下的值；
+    沒有面板時用友人場預設。sanma_override＝「三人先開」按鈕強制三麻。"""
+    if sv is None:
+        sanma = bool(sanma_override)
+        return {
+            "is_sanma": sanma, "thinking_time": 25, "max_players": 3 if sanma else 4,
+            "length": "tonpuu", "tobi": True, "ruleset": "mixed", "start_points": None,
+            "kuikae": False, "open_riichi": False,
+            "lang": lang, "ranked": False, "open_hand": False,
+        }
+    sanma = sanma_override if sanma_override is not None else sv.sanma
     return {
-        "is_sanma": sanma, "thinking_time": 30, "max_players": 3 if sanma else 4,
-        "length": "hanchan", "tobi": True, "ruleset": "tenhou", "start_points": None,
-        "kuikae": False, "open_riichi": False,
-        "lang": lang, "ranked": False, "open_hand": False,
+        "is_sanma": sanma, "thinking_time": sv.thinking_time,
+        "max_players": 3 if sanma else 4,
+        "length": "hanchan" if sv.hanchan else "tonpuu",
+        "tobi": sv.tobi, "ruleset": sv.ruleset, "start_points": sv.start_points,
+        "kuikae": sv.kuikae, "open_riichi": sv.open_riichi,
+        "lang": lang, "ranked": False, "open_hand": sv.open_hand,
     }
 
 
@@ -105,11 +117,15 @@ class SanmaStartButton(discord.ui.Button):
         except Exception:
             pass
         await _clear_sanma_prompt(info)
+        try:
+            await vc.edit(user_limit=3, reason="Suzume Tsuk 三麻開局（限 3 人）")
+        except Exception:
+            pass
         await _start_voice_game(vc, free, sanma=True)
 
 
 async def _start_voice_game(vc: discord.VoiceChannel, members: list,
-                            sanma: bool = False) -> None:
+                            sanma: bool | None = None) -> None:
     from .flow import launch_game
     guild = vc.guild
     setup = db.get_guild_setup(str(guild.id))
@@ -127,7 +143,16 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
     _waiting[gid] = [{"user_id": str(m.id), "username": m.display_name, "is_bot": False}
                      for m in members]
     _room_owners[gid]  = str(host.id)
-    _room_configs[gid] = _default_config(lang, sanma=sanma)
+    sv = _voice_rooms.get(vc.id, {}).get("settings")
+    _room_configs[gid] = _config_from_settings(sv, lang, sanma_override=sanma)
+    try:                                   # 設定面板鎖起來（開局後不能再改）
+        if sv is not None:
+            sv.stop()
+            msg = _voice_rooms.get(vc.id, {}).get("settings_msg")
+            if msg is not None:
+                await msg.edit(view=None)
+    except Exception:
+        pass
     rooms.register(gid, guild.id, str(lobby.id))
     try:
         await vc.send(i18n.t("voice.starting", lang))
@@ -155,6 +180,17 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
     try:
         from . import sfx
         await sfx.play(gid, "start")
+    except Exception:
+        pass
+
+
+async def cleanup_room(vc) -> None:
+    """對局結束時直接刪除語音配對房（不是本模組開的語音就不動）。"""
+    if getattr(vc, "id", None) not in _voice_rooms:
+        return
+    _voice_rooms.pop(vc.id, None)
+    try:
+        await vc.delete(reason="Suzume Tsuk 語音房清理（對局結束）")
     except Exception:
         pass
 
@@ -188,18 +224,37 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
             except Exception:
                 # 移不過去（權限不足）→ 房間留著讓玩家自己點進去
                 pass
+            # 設定面板發在語音房的文字區（開局前都能調；開局時鎖定）
+            try:
+                from .views import RoomSettingsView
+                sv = RoomSettingsView(gid=f"vc{vc.id}", lang=lang, timeout=None)
+                msg = await vc.send(i18n.t("voice.settings_hint", lang), view=sv)
+                _voice_rooms[vc.id]["settings"] = sv
+                _voice_rooms[vc.id]["settings_msg"] = msg
+            except Exception as e:
+                print(f"[voice] 設定面板發送失敗：{e!r}")
             return
 
-    # 2) 加入受管理的語音房 → 滿 4 個真人就開四麻；剛好 3 人時提示可先開三麻
+    # 2) 加入受管理的語音房 → 滿員就開局；剛好 3 人時提示可先開三麻
+    #    （設定面板選了三麻 → 3 人即滿員直接開三麻；4 人一律四麻）
     if after.channel is not None and after.channel.id in _voice_rooms:
         room = after.channel
         info = _voice_rooms[room.id]
+        sv   = info.get("settings")
         humans = [m for m in room.members if not m.bot]
         free   = [m for m in humans if str(m.id) not in _user_game]
-        if len(free) >= (room.user_limit or 4) and not info["starting"]:
+        if len(free) >= 4 and not info["starting"]:
             info["starting"] = True
             await _clear_sanma_prompt(info)
-            await _start_voice_game(room, free[: room.user_limit or 4])
+            await _start_voice_game(room, free[:4], sanma=False)
+        elif len(free) == 3 and not info["starting"] and sv is not None and sv.sanma:
+            info["starting"] = True
+            await _clear_sanma_prompt(info)
+            try:
+                await room.edit(user_limit=3, reason="Suzume Tsuk 三麻開局（限 3 人）")
+            except Exception:
+                pass
+            await _start_voice_game(room, free[:3], sanma=True)
         elif len(free) == 3 and not info["starting"] and info.get("sanma_msg") is None:
             lang = i18n.get_user_lang(str(member.id))
             try:

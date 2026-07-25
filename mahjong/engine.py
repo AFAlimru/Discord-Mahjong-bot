@@ -513,26 +513,30 @@ def new_game(game_id: str, players_info: list[dict], is_sanma: bool = False,
 # ─── Hand Validation ──────────────────────────────────────────────────────
 
 def is_complete(tiles: list[Tile]) -> bool:
-    """檢查手牌是否成胡（含七對子、國士無雙特殊型）"""
-    if len(tiles) != 14:
+    """檢查牌是否成胡。14 張＝門清整手（含七對子、國士無雙）；
+    2/5/8/11 張＝有副露時的「純手牌」部分（副露佔掉幾組面子就少幾組），
+    只判 (n-2)/3 組面子＋雀頭——副露牌不可混進來重組（會生出幻影聽牌）。"""
+    n = len(tiles)
+    if n % 3 != 2 or n > 14:
         return False
 
     from collections import Counter
     counts = Counter((t.suit, t.value) for t in tiles)
 
-    # 七對子：7 種各 2 張
-    if len(counts) == 7 and all(v == 2 for v in counts.values()):
-        return True
+    if n == 14:
+        # 七對子：7 種各 2 張
+        if len(counts) == 7 and all(v == 2 for v in counts.values()):
+            return True
 
-    # 國士無雙：13 種么九牌齊全，其一成對
-    yaochuu = {
-        (Suit.MAN, 1), (Suit.MAN, 9), (Suit.SOU, 1), (Suit.SOU, 9),
-        (Suit.PIN, 1), (Suit.PIN, 9),
-        (Suit.WIND, 1), (Suit.WIND, 2), (Suit.WIND, 3), (Suit.WIND, 4),
-        (Suit.DRAGON, 1), (Suit.DRAGON, 2), (Suit.DRAGON, 3),
-    }
-    if set(counts.keys()) == yaochuu and any(v == 2 for v in counts.values()):
-        return True
+        # 國士無雙：13 種么九牌齊全，其一成對
+        yaochuu = {
+            (Suit.MAN, 1), (Suit.MAN, 9), (Suit.SOU, 1), (Suit.SOU, 9),
+            (Suit.PIN, 1), (Suit.PIN, 9),
+            (Suit.WIND, 1), (Suit.WIND, 2), (Suit.WIND, 3), (Suit.WIND, 4),
+            (Suit.DRAGON, 1), (Suit.DRAGON, 2), (Suit.DRAGON, 3),
+        }
+        if set(counts.keys()) == yaochuu and any(v == 2 for v in counts.values()):
+            return True
     
     def remove_mentsu(c: Counter) -> bool:
         if not c:

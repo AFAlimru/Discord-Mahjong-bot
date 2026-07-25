@@ -162,7 +162,9 @@ async def setup_channels(gid: str, cat: discord.CategoryChannel, gs: GameState,
         board_msg = await public.send(make_thread_board(gs, "", rlang),
                                       view=make_board_view(gid, rlang))
     else:
-        await public.send(i18n.t("thread.chat_hint", rlang))
+        _ev = discord.ui.View(timeout=None)
+        _ev.add_item(EndGameButton(gid, rlang))
+        await public.send(i18n.t("thread.chat_hint", rlang), view=_ev)
         board_msg = None
 
     private: dict[str, discord.abc.Messageable] = {}
@@ -231,7 +233,9 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
             name=f"💬 {rooms.label(gid)}　{gs.round_label}",
             type=discord.ChannelType.public_thread,
         )
-        await public.send("💬 這裡會顯示每局和牌／流局結果，也可以自由聊天。")
+        _ev = discord.ui.View(timeout=None)
+        _ev.add_item(EndGameButton(gid, rlang))
+        await public.send(i18n.t("thread.chat_hint", rlang), view=_ev)
         board_msg = None
 
     private: dict[str, discord.Thread] = {}
@@ -336,13 +340,7 @@ def _deletable_surfaces(th: dict) -> list:
 
 async def _delete_threads(th: dict) -> int:
     """刪除對局的所有討論串／頻道與開局公告（用於 /end 強制結束）。回傳刪除失敗的數量。"""
-    vc = th.get("voice")
-    if vc is not None:                     # 音效：離開語音房
-        try:
-            from . import sfx
-            await sfx.leave(vc.guild)
-        except Exception:
-            pass
+    await _leave_voice_room(th)
     await _delete_announce(th)
     failed = 0
     for t in _deletable_surfaces(th):
@@ -391,15 +389,160 @@ class RoomDeleteButton(discord.ui.Button):
                 pass
 
 
-async def _finish_channels(th: dict, lang: str = i18n.DEFAULT, delay: float = 300.0) -> None:
-    """0.7 類別模式收尾：公開頻道發「對局已結束」＋刪除按鈕，幾分鐘後自動刪全部頻道。"""
+async def _leave_voice_room(th: dict) -> None:
+    """對局結束的語音收尾：離開語音＋（語音配對房）直接刪除語音頻道。"""
     vc = th.get("voice")
-    if vc is not None:                     # 音效：離開語音房
+    if vc is None:
+        return
+    try:
+        from . import sfx
+        await sfx.leave(vc.guild)
+    except Exception:
+        pass
+    try:
+        from . import voice as _voice
+        await _voice.cleanup_room(vc)
+    except Exception:
+        pass
+
+
+async def force_end(gid: str) -> int:
+    """強制結束對局（房主本人或房主同意後）：關 DB、停迴圈、清大廳訊息、
+    各對局面貼「房間已關閉」後全部刪除。回傳刪除失敗數。"""
+    lang  = _room_configs.get(gid, {}).get("lang", i18n.DEFAULT)
+    gs    = _games.get(gid)
+    task  = _game_tasks.get(gid)
+    th    = _threads.get(gid)
+    lobby = _lobbies.get(gid)
+    closed = i18n.t("msg.room_closed", lang)
+    parent_cid = next((c for c, g in _channel_games.items() if g == gid), gid)
+    if gs is not None:
         try:
-            from . import sfx
-            await sfx.leave(vc.guild)
+            db.finish_game(gid, gs.to_dict())
+        except Exception as e:
+            print(f"[end] finish_game 失敗：{e}")
+    if lobby is not None:
+        try:
+            lobby.stop()
         except Exception:
             pass
+        lm = getattr(lobby, "lobby_message", None)
+        if lm:
+            try:
+                await lm.delete()
+            except Exception:
+                pass
+    if th:
+        await _delete_announce(th)
+    if task and not task.done():
+        task.cancel()
+    failed = 0
+    if th:
+        for t in [th.get("public")] + list(th.get("private", {}).values()):
+            if t is None:
+                continue
+            try:
+                await t.send(closed)
+            except Exception:
+                pass
+        if not th.get("is_dm"):
+            await asyncio.sleep(3)
+            failed = await _delete_threads(th)
+    _cleanup(gid, parent_cid)
+    return failed
+
+
+class _EndApproveButton(discord.ui.Button):
+    def __init__(self, gid: str, lang: str):
+        super().__init__(style=discord.ButtonStyle.danger,
+                         label=i18n.t("end.approve", lang))
+        self._gid = gid
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        uid = str(interaction.user.id)
+        if _room_owners.get(self._gid) != uid:
+            await interaction.response.send_message(
+                i18n.t("end.host_only", i18n.get_user_lang(uid)), ephemeral=True)
+            return
+        try:
+            await interaction.response.defer()
+        except Exception:
+            pass
+        try:
+            await interaction.message.delete()
+        except Exception:
+            pass
+        await force_end(self._gid)
+
+
+class _EndDenyButton(discord.ui.Button):
+    def __init__(self, gid: str, lang: str):
+        super().__init__(style=discord.ButtonStyle.secondary,
+                         label=i18n.t("end.deny", lang))
+        self._gid = gid
+        self._lang = lang
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        uid = str(interaction.user.id)
+        if _room_owners.get(self._gid) != uid:
+            await interaction.response.send_message(
+                i18n.t("end.host_only", i18n.get_user_lang(uid)), ephemeral=True)
+            return
+        try:
+            await interaction.response.edit_message(
+                content=i18n.t("end.denied", self._lang), view=None)
+        except Exception:
+            pass
+
+
+def end_request_view(gid: str, lang: str) -> discord.ui.View:
+    """非房主請求結束時，附在請求訊息上的「同意結束／繼續打」按鈕（限房主）。"""
+    v = discord.ui.View(timeout=180)
+    v.add_item(_EndApproveButton(gid, lang))
+    v.add_item(_EndDenyButton(gid, lang))
+    return v
+
+
+class EndGameButton(discord.ui.Button):
+    """對局公開面上的「結束遊戲」按鈕：房主按＝直接結束；其他玩家按＝發房主同意請求。"""
+    def __init__(self, gid: str, lang: str):
+        super().__init__(style=discord.ButtonStyle.secondary,
+                         label=i18n.t("end.btn", lang))
+        self._gid = gid
+        self._lang = lang
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        gid  = self._gid
+        uid  = str(interaction.user.id)
+        lg   = i18n.get_user_lang(uid)
+        gs   = _games.get(gid)
+        if gs is None and gid not in _waiting:
+            await interaction.response.send_message(i18n.t("msg.no_game", lg), ephemeral=True)
+            return
+        if gs is not None:
+            participants = {p.user_id for p in gs.players if not p.is_bot}
+        else:
+            participants = {w["user_id"] for w in _waiting.get(gid, []) if not w.get("is_bot")}
+        if uid not in participants:
+            await interaction.response.send_message(i18n.t("end.players_only", lg), ephemeral=True)
+            return
+        host = _room_owners.get(gid)
+        if uid == host:
+            try:
+                await interaction.response.defer()
+            except Exception:
+                pass
+            await force_end(gid)
+            return
+        await interaction.response.send_message(
+            i18n.t("end.request", self._lang,
+                   name=interaction.user.display_name, host=f"<@{host}>"),
+            view=end_request_view(gid, self._lang))
+
+
+async def _finish_channels(th: dict, lang: str = i18n.DEFAULT, delay: float = 300.0) -> None:
+    """0.7 類別模式收尾：公開頻道發「對局已結束」＋刪除按鈕，幾分鐘後自動刪全部頻道。"""
+    await _leave_voice_room(th)
     await _delete_announce(th)
     pub = th.get("public")
     if pub is not None:
@@ -870,7 +1013,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
         add_btn(i18n.t("action.tsumogiri", lang), discord.ButtonStyle.secondary,
                 ("discard", player.drawn_tile), row=action_row)
     if kita_ok:   # 拔北：常駐整回合（回合本身有倒數），可直接打牌不理它
-        add_btn(f"🀀 {i18n.t('action.kita', lang)}", discord.ButtonStyle.success, ("kita", None), row=action_row)
+        add_btn(f"🀃 {i18n.t('action.kita', lang)}", discord.ButtonStyle.success, ("kita", None), row=action_row)
     if ankan_opts:
         add_btn(i18n.t("action.ankan", lang), discord.ButtonStyle.secondary, ("ankan", ankan_opts[0]), row=action_row)
     if kakan_opts:
@@ -1181,8 +1324,9 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 turn_time   = thinking_time
 
             _mention = player.username if is_dm else f"<@{player.user_id}>"
+            _rel_wind = (player.seat - gs.dealer_seat) % len(gs.players)   # 自風相對莊家
             await render_board("feed.your_turn", log=False,
-                               mention=_mention, wind=f"wind.{player.seat}")
+                               mention=_mention, wind=f"wind.{_rel_wind}")
 
             pt = private.get(player.user_id)
             hm = hand_msg.get(player.user_id)

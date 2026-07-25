@@ -3,6 +3,47 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.7.1] - 2026-07-24
+
+### 修正
+- **副露手「幻影聽牌」（重大）**：`rules.hand_waits()`／`tenpai_advice()` 原本把副露牌
+  （`m.tiles[:3]`）併回手牌湊 14 張再丟給 `engine.is_complete()`——等於允許副露拆開重組，
+  算出實際不成立的待牌；這些待牌再被 `_wait_flags()` 的 `evaluate_win()`（副露固定、正確）
+  判為和不了 → 進聽提示整排「無役」（回報案例：副露清一色）。**同一套待牌也餵給榮和判定
+  （`flow` 兩處 `in hand_waits(p)`）與流局聽牌費（`tenpai_seats`）**，故影響不只顯示。
+  - `engine.is_complete()` 泛化：`len % 3 == 2` 且 ≤14 皆可判（2/5/8/11 張＝副露佔幾組面子
+    就少判幾組）；七對子／國士檢查僅在 14 張時執行。門清行為不變（附回歸測試）。
+  - `hand_waits()`／`tenpai_advice()` 改用**純手牌**判定，副露不再併入。
+- **顯示自風不輪轉**：計分自風一直正確（`rules.build_ctx` 相對莊家），但顯示用固定 `p.seat`。
+  `render._wind()` 增加 `gs` 參數改算 `(seat - dealer_seat) % n`，牌桌／牌河／點數／動態
+  ／最終順位 7 處與 `flow` 的「輪到你」動態全部套用。
+- **拔北按鈕牌面**：🀀（東）→ 🀃（北）。
+- **語音房收尾**：對局結束（含 `/end`）直接刪語音配對房（`voice.cleanup_room()`），不等人走光。
+- **三麻語音房**：三麻開局時 `user_limit` 改 3。
+
+### 變更
+- **強制結束改房主同意制**：核心抽成 `flow.force_end()`；公開面常駐 `EndGameButton`
+  （房主按＝直接結束；其他玩家按或 `/end` ＝發 `end_request_view` 請求，房主按同意/繼續）。
+- **語音房設定面板**：開房時把 `RoomSettingsView` 發在語音房文字區；滿員開局取當下值
+  （`voice._config_from_settings()`），開局鎖面板；設定選三麻＝3 人即滿員。
+  `RoomSettingsView.confirm` 改為**確認後刪除面板訊息**（ephemeral 走 `delete_original_response`）。
+
+## [0.7.0] - 2026-07-24
+
+### 新增
+- **類別制大廳**：`/setup create` 建類別（`hub.category_name`）＋唯讀大廳（打字即刪，
+  `run.on_message` 查 `state._lobby_channels` 快取）＋💬文字頻道（自動 `set_play_channel`）
+  ＋🔊配對語音；id 存 `guild_settings`（`category_id`/`lobby_channel_id`/`hub_voice_id`）。
+- **對局頻道化**：`flow.setup_channels()`——伺服器有類別時公開房＋私人手牌頻道
+  （overwrites 僅本人＋bot）開在類別下；結束 `_finish_channels()` 發結束訊息＋刪除按鈕、
+  5 分鐘自動刪；無類別沿用討論串。`_deletable_surfaces()` 統一清理（略過 DM）。
+- **逐場 DM**：大廳「📩 DM」按鈕寫入 `_room_configs[gid]["dm_uids"]`，開局時該玩家面板走 DM。
+- **語音配對**：`mahjong/voice.py`＋`run.on_voice_state_update`——進 hub 語音→開 4 人房→
+  滿員自動開局；3 人「三人先開（三麻）」按鈕；空房自刪。
+- **全域音效框架**：`mahjong/sfx.py`——家伺服器（`SOUND_GUILD_ID`）soundboard 跨伺服器代發；
+  `story_` 前綴限家伺服器；掛點：開局／立直／自摸／榮和；`/setup sounds` 批次上傳；
+  需 discord.py≥2.5＋PyNaCl，不足時靜默停用。
+
 ## [0.6.0] - 2026-07-07
 
 ### 新增

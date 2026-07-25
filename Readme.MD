@@ -29,7 +29,9 @@
 - **段位賽（跨伺服器）**：`/mahjong rank` 全域匹配（**段位相近才配對**），對局走私訊；天鳳風段位（新人→…→血月）與 R 值。
 - **隨機匹配（休閒）**：`/mahjong match` 跨伺服器湊人、不計段位；私訊裡 `/mahjong join` 也可。
 - **跟電腦打**：私訊機器人 `/mahjong start` 直接 AI 補滿開打。
-- **遊戲大廳**：`/setup create` 建立唯讀按鈕面板（段位／休閒／簽到／個資／倉庫／牌譜／回放／役種／語言／公告／網頁）。
+- **類別制大廳（0.7）**：`/setup create` 建立「雀月麻將」**類別**——唯讀大廳按鈕面板（打字即刪）、💬 文字頻道（開房與聊天，自動設為指定遊玩頻道）、🔊「建立友人場」配對語音；**對局頻道也都開在類別裡**，結束後自動刪除（未建類別的伺服器沿用討論串模式）。
+- **語音配對（0.7）**：加入「建立友人場」語音自動開 4 人語音房；**房間設定面板就發在語音房文字區**，滿員自動開局（設定選三麻＝3 人即開；否則 3 人時可按「三人先開」）；對局結束語音房自動刪除。
+- **手牌面板可走私訊（0.7）**：房間等待畫面按「📩 DM」，該場你的手牌面板改用私訊。
 - **牌譜與回放**：`/mahjong replay <房號>` 像對局中逐格播放（含手牌、和牌儀式、視角切換）。
 - **戰績與任務**：`/mahjong stats`、`/mahjong profile`、每日簽到與活躍度。
 - **公平性**：密碼學安全洗牌、牌山編碼 + SHA-256，可逐局自行驗證。
@@ -45,7 +47,9 @@ Suzume Tsuk/
 ├── run.py                 # 啟動入口：建立 bot/tree、事件（on_ready/on_message/on_guild_join）
 ├── mahjong/               # 主套件
 │   ├── commands.py        # 斜線指令（/mahjong、/setup、/help、/language）與大廳／指南面板
-│   ├── flow.py            # 對局流程：討論串/DM、反應、單/多局、和牌儀式、開局與配對開局
+│   ├── flow.py            # 對局流程：頻道/討論串/DM、反應、單/多局、和牌儀式、開局與配對開局
+│   ├── voice.py           # 0.7 語音配對：友人場語音→自動開房→滿員開局
+│   ├── sfx.py             # 0.7 全域音效（soundboard）框架：家伺服器音效跨伺服器代發
 │   ├── matchmaking.py     # 段位／休閒全域匹配佇列（跨伺服器、同段配對、逾時清掃）
 │   ├── rating.py          # 段位階梯（月蝕主題）＋ R 值計算
 │   ├── replay.py          # 由牌譜重建逐格回放
@@ -120,13 +124,14 @@ python tools/build_and_upload_emojis.py black    # 黑色 38 張（段位獎勵�
 | `/mahjong join` | 加入此頻道房間；私訊裡＝跨伺服器隨機匹配 |
 | `/mahjong rank` | 段位賽全域匹配（對局走私訊） |
 | `/mahjong match` | 休閒隨機匹配（不計段位） |
-| `/mahjong end` | 房主強制結束 |
+| `/mahjong end` | 強制結束（房主直接結束；其他玩家需房主按鈕同意）|
 | `/mahjong stats` · `/mahjong profile` | 統計 · 個人資訊卡 |
 | `/mahjong history` · `/mahjong replay <房號>` | 牌譜列表 · 回放 |
 | `/mahjong daily` · `/mahjong tasks` | 每日簽到 · 任務 |
 | `/mahjong yaku` · `/mahjong rankinfo` | 役種表 · 段位說明 |
 | `/mahjong skin` · `/mahjong notify` | 牌風切換 · 排隊通知開關 |
-| `/setup create` · `/setup channel` | 建遊戲大廳 · 指定遊玩頻道（管理員） |
+| `/setup create` · `/setup channel` | 建雀月類別（大廳＋文字頻道＋配對語音）· 指定遊玩頻道（管理員） |
+| `/setup sounds` | 上傳音效包到本伺服器音效板（機器人擁有者） |
 | `/help` · `/language` | 使用說明 · 語言 |
 
 > 加入伺服器時會自動建立一個**僅管理員可見**的「設定指南」頻道，照著做即可開始。

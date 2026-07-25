@@ -26,7 +26,8 @@ from .render import make_board_text
 from . import tiles as T
 from .ui import HelpButton, help_text
 from .views import RoomSettingsView
-from .flow import launch_game, launch_ranked_game, launch_dm_game, _cleanup, _delete_threads, _delete_announce
+from .flow import (launch_game, launch_ranked_game, launch_dm_game, _cleanup,
+                   _delete_threads, _delete_announce, force_end, end_request_view)
 from . import matchmaking
 from .state import (
     _games, _channel_games, _waiting, _room_owners, _room_configs, _user_game,
@@ -321,7 +322,7 @@ async def cmd_join(interaction: discord.Interaction, host: discord.Member = None
         await lobby.push_update()
 
 
-@mahjong.command(name="end", description="強制結束牌局（房主）")
+@mahjong.command(name="end", description="強制結束牌局（房主直接結束；其他玩家需房主同意）")
 async def cmd_end(interaction: discord.Interaction) -> None:
     channel_id = str(interaction.channel_id)
     user_id    = str(interaction.user.id)
@@ -332,68 +333,32 @@ async def cmd_end(interaction: discord.Interaction) -> None:
         await interaction.response.send_message(i18n.t("msg.no_game", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
         return
     lang = i18n.get_user_lang(interaction.user.id)
-    if _room_owners.get(gid) != user_id:
-        await interaction.response.send_message(i18n.t("msg.only_host_end", lang), ephemeral=True)
+    host = _room_owners.get(gid)
+    if host != user_id:
+        # 0.7：非房主也能發起，但要房主按「同意結束」；非本局玩家不行
+        gs = _games.get(gid)
+        if gs is not None:
+            participants = {p.user_id for p in gs.players if not p.is_bot}
+        else:
+            participants = {w["user_id"] for w in _waiting.get(gid, []) if not w.get("is_bot")}
+        if user_id not in participants:
+            await interaction.response.send_message(i18n.t("msg.only_host_end", lang), ephemeral=True)
+            return
+        rlang = _room_configs.get(gid, {}).get("lang", i18n.DEFAULT)
+        await interaction.response.send_message(
+            i18n.t("end.request", rlang,
+                   name=interaction.user.display_name, host=f"<@{host}>"),
+            view=end_request_view(gid, rlang))
         return
-    # 找出主頻道 id（給 _cleanup 用）
-    parent_cid = next((c for c, g in _channel_games.items() if g == gid), channel_id)
-    gs    = _games.get(gid)
-    task  = _game_tasks.get(gid)
-    th    = _threads.get(gid)
-    lobby = _lobbies.get(gid)
-    closed = i18n.t("msg.room_closed", lang)
 
-    # 先回覆房主（要在 3 秒內回應 interaction，避免後續 await 拖過時限）
-    await interaction.response.send_message(closed, ephemeral=True)
-
-    # 1) DB 標記為結束，避免機器人重啟時被當成「中斷的對局」要求回復
-    if gs is not None:
+    # 房主：先回覆（要在 3 秒內回應 interaction），再走共用的強制結束
+    await interaction.response.send_message(i18n.t("msg.room_closed", lang), ephemeral=True)
+    failed = await force_end(gid)
+    if failed:
         try:
-            db.finish_game(gid, gs.to_dict())
-        except Exception as e:
-            print(f"[end] finish_game 失敗：{e}")
-
-    # 2) 等人中的大廳訊息 → 直接刪除（不留殘影）
-    if lobby is not None:
-        try:
-            lobby.stop()
+            await interaction.followup.send(i18n.t("msg.thread_delete_fail", lang), ephemeral=True)
         except Exception:
             pass
-        lm = getattr(lobby, "lobby_message", None)
-        if lm:
-            try:
-                await lm.delete()
-            except Exception:
-                pass
-
-    # 3) 主頻道開局公告 → 刪除
-    if th:
-        await _delete_announce(th)
-
-    # 4) 停掉對局迴圈
-    if task and not task.done():
-        task.cancel()
-
-    # 5) 每個討論串貼「房間已關閉」，稍候再刪除
-    #    DM 對局沒有討論串（private 是 DM 頻道，不能刪也不用刪），跳過刪除與權限警告
-    if th:
-        for t in [th.get("public")] + list(th.get("private", {}).values()):
-            if t is None:
-                continue
-            try:
-                await t.send(closed)
-            except Exception:
-                pass
-        if not th.get("is_dm"):
-            await asyncio.sleep(3)
-            failed = await _delete_threads(th)
-            if failed:
-                try:
-                    await interaction.followup.send(i18n.t("msg.thread_delete_fail", lang), ephemeral=True)
-                except Exception:
-                    pass
-
-    _cleanup(gid, parent_cid)
 
 
 @mahjong.command(name="status", description="查看當前牌局狀態")
