@@ -3,6 +3,54 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.7.2] - 未發布（開發中）
+
+### 新增
+- **語音房「與電腦開始」按鈕**：`voice.CpuStartButton`——掛在語音房設定面板（`handle_voice_update`
+  建面板時 `sv.add_item(CpuStartButton(vc.id, lang))`）。按下取房內在座且未在別局的真人為 `free`，
+  呼叫 `_start_voice_game(vc, free, fill_ai=True)`。`_start_voice_game` 新增 `fill_ai` 參數：
+  依 `_room_configs[gid]["max_players"]` 用 `config.AI_NAMES` 補滿剩餘座位（`is_bot=True`）。
+  文案 `voice.cpu_btn`（zh_tw／ja／en）。
+- **音效改「直接播檔（FFmpeg）＋資料夾語音包」**：整檔重寫 `sfx.py`，捨棄 Soundboard
+  （移除 `send_sound`／`upload_pack`／`remove_pack`／`_cache`／`_scope`／`SOUND_GUILD_ID`／`story_` scope）。
+  - **檔案解析**：`_resolve(pack, name)` 先找 `SOUNDS_DIR/<pack>/<name>.<ext>`、再退根目錄；副檔名試
+    `AUDIO_EXTS`（mp3/ogg/opus/wav/m4a/flac/…）。`list_packs()`＝子資料夾；`pack_coverage(pack)` 對
+    `ALL_SOUND_NAMES`（事件 9＋階級 7＋役名 51＝67）算齊全度／缺少清單。
+  - **播放**：每台伺服器一條 `asyncio.Queue`＋背景 `_consume` 依序播（`play()` 只 `_enqueue` 即返回、
+    不擋遊戲流程；閒置 `CONSUMER_IDLE` 收工）。`_play_path` 用 `discord.FFmpegPCMAudio`＋
+    `client.play(after=…)`＋`asyncio.Event` 等播完。`_ensure_client` 回 `VoiceClient`
+    （`connect(self_deaf=False, self_mute=False)`，順帶解 error 50167）。`leave()` 取消消費者＋清佇列＋斷線。
+  - **語音包選擇**：`db.get_voice_pack`／`set_voice_pack`（`guild_settings.voice_pack` 欄，per-guild）；
+    指令 `commands.cmd_setup_voice`（`/setup voice [pack] [clear]`，需 `manage_guild`／admin）列出／切換／
+    顯示齊全度。**移除** `/setup sounds`、`/setup sounds_remove`。
+  - `sfx.load(bot)` 改為 `shutil.which("ffmpeg")` 檢查設 `_ready`＋列語音包（不再抓音效板）。
+  - `sfx.join(vc)`＝進語音待命（`voice._start_voice_game` 開局呼叫）。
+- **碰／吃／槓＋事件音效觸發**：`flow.play_hand_t` 在暗槓／加槓／大明槓／碰／吃五處各
+  `await sfx.play(gid,"kan"/"pon"/"chi")`；立直宣言 `riichi`、開局 `start`、自摸／榮和 `tsumo`/`ron`、流局
+  沿用。事件音效名列 `sfx.EVENT_SOUNDS`。
+- **和了語音（逐役唸名＋打點階級）**：`sfx.tier_sound(name)` 把 `ScoreResult.name` 對應到階級名
+  （空＝`han`；含「役滿」＝`yakuman`，`累計役滿`＝`kazoe`；三倍滿→倍滿→跳滿→滿貫 依序判，
+  `流局滿貫`＝`mangan`）。役名清單 `sfx.YAKU_SOUNDS`（frozenset，51 名，與 scoring.py 一致，供
+  `pack_coverage` 用；播放僅憑檔案是否存在）。`sfx.play_win(gid, result)`（背景任務）`WIN_INTRO_GAP`
+  後逐一 `play(gid, 役名)` 唸 `result.yakuman`／`result.yaku`，最後播階級——實際依佇列序播。
+  `flow` 單一和牌分支在自摸／榮和音效後 `asyncio.create_task(sfx.play_win(gid, result))`；
+  多家榮和分支補上 `ron` 音效＋取最高 `points` 的 result 觸發。
+
+### 變更
+- **立直後可拔北（剛摸到的那張）**：
+  - `rules.has_kita_drawn(player)`：新判斷——`player.drawn_tile` 是否為北（`Suit.WIND` value 4）。
+    立直前就在手裡的北會改變聽牌不可拔，剛摸到的北抽走後手牌組成不變故可拔。
+  - `flow.play_hand_t`：`already_riichi` 分支原 `kita_ok=False` → `kita_ok = gs.is_sanma and
+    has_kita_drawn(player)`；`turn_time` 由 `can_tsumo` → `can_tsumo or kita_ok`（不再縮成 3 秒）。
+    AI 摸切分支 `has_kita(player)` → `has_kita_drawn(player) if player.riichi else has_kita(player)`（防呆）。
+  - `flow.wait_turn_action`：`riichi_locked` 打字分支新增例外——`kita_ok` 時解析出 `("kita", …)` 放行，
+    其餘打字仍擋。
+
+### 修正
+- **語音局無法結束／房主不明**：`voice._start_voice_game` 開局訊息改附 `flow.EndGameButton`＋房主標示
+  （`voice.host`，host＝`members[0]`＝東家／起家）；`_thread_game[vc.id] = gid` 登記語音頻道，
+  讓語音房文字區的 `/end` 找得到對局。`flow._cleanup` 清理時一併 `_thread_game.pop(vc.id, None)`。
+
 ## [0.7.1] - 2026-07-24
 
 ### 修正

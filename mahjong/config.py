@@ -33,10 +33,8 @@ WEB_BASE_URL = os.getenv("WEB_BASE_URL", "").strip()
 # ── 支援伺服器邀請連結（指南／大廳按鈕用）──
 SUPPORT_URL = os.getenv("SUPPORT_URL", "https://discord.gg/QNJMBhDrcj").strip()
 
-# ── 0.7 全域音效（Soundboard）──
-# 音效包上傳到這個「家」伺服器（支援伺服器），對局時跨伺服器代發；留空＝音效功能停用。
-SOUND_GUILD_ID = os.getenv("SOUND_GUILD_ID", "").strip()
-# 音效檔資料夾（/setup sounds 批次上傳用）
+# ── 0.7.2 音效（FFmpeg 直接播檔 + 資料夾語音包）──
+# 音效檔根目錄；底下每個子資料夾＝一個語音包（見 sfx.py）。
 SOUNDS_DIR = os.getenv("SOUNDS_DIR", "assets/sounds")
 
 # ── 遊戲常數 ──────────────────────────────────────────────────

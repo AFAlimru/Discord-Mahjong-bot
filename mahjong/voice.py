@@ -24,6 +24,7 @@ import uuid
 import discord
 
 from .state import _waiting, _room_owners, _room_configs, _user_game
+from .config import AI_NAMES
 from . import db
 from . import i18n
 from . import rooms
@@ -124,8 +125,42 @@ class SanmaStartButton(discord.ui.Button):
         await _start_voice_game(vc, free, sanma=True)
 
 
+class CpuStartButton(discord.ui.Button):
+    """語音房「與電腦開始」按鈕：用 AI 補滿剩下座位，立刻開一場休閒對局。"""
+    def __init__(self, vc_id: int, lang: str):
+        super().__init__(style=discord.ButtonStyle.secondary,
+                         label=i18n.t("voice.cpu_btn", lang))
+        self._vc_id = vc_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        lang = i18n.get_user_lang(str(interaction.user.id))
+        vc   = interaction.guild.get_channel(self._vc_id)
+        info = _voice_rooms.get(self._vc_id)
+        if vc is None or info is None:
+            await interaction.response.send_message(i18n.t("msg.no_open_room", lang),
+                                                    ephemeral=True)
+            return
+        humans = [m for m in vc.members if not m.bot]
+        free   = [m for m in humans if str(m.id) not in _user_game]
+        if not any(m.id == interaction.user.id for m in free):
+            await interaction.response.send_message(i18n.t("voice.not_in_room", lang),
+                                                    ephemeral=True)
+            return
+        if info.get("starting"):
+            await interaction.response.send_message(i18n.t("voice.sanma_stale", lang),
+                                                    ephemeral=True)
+            return
+        info["starting"] = True
+        try:
+            await interaction.response.defer()
+        except Exception:
+            pass
+        await _clear_sanma_prompt(info)
+        await _start_voice_game(vc, free, fill_ai=True)
+
+
 async def _start_voice_game(vc: discord.VoiceChannel, members: list,
-                            sanma: bool | None = None) -> None:
+                            sanma: bool | None = None, fill_ai: bool = False) -> None:
     from .flow import launch_game
     guild = vc.guild
     setup = db.get_guild_setup(str(guild.id))
@@ -137,6 +172,7 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
             pass
         _voice_rooms[vc.id]["starting"] = False
         return
+    # 語音局沒有「開房者」→ 房主固定給**東家**（起家＝members[0]＝seat 0＝莊家）
     host = members[0]
     lang = i18n.get_user_lang(str(host.id))
     gid  = str(uuid.uuid4())[:8]
@@ -145,6 +181,12 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
     _room_owners[gid]  = str(host.id)
     sv = _voice_rooms.get(vc.id, {}).get("settings")
     _room_configs[gid] = _config_from_settings(sv, lang, sanma_override=sanma)
+    if fill_ai:                            # 用電腦補滿剩下的座位
+        max_p = _room_configs[gid]["max_players"]
+        for i in range(max_p - len(_waiting[gid])):
+            _waiting[gid].append({"user_id": f"ai_{gid}_{i}",
+                                  "username": AI_NAMES[i % len(AI_NAMES)],
+                                  "is_bot": True})
     try:                                   # 設定面板鎖起來（開局後不能再改）
         if sv is not None:
             sv.stop()
@@ -166,19 +208,26 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
             k.pop(gid, None)
         _voice_rooms.get(vc.id, {})["starting"] = False
         return
-    # 開局成功：語音房掛上牌桌頻道連結；綁定語音房供音效播放（sfx）
+    # 開局成功：語音房掛上牌桌頻道連結＋房主資訊＋結束按鈕；綁定語音房供音效播放（sfx）
     try:
-        from .state import _threads
+        from .state import _threads, _thread_game
+        from .flow import EndGameButton
         th = _threads.get(gid)
         if th is not None:
             th["voice"] = vc
+        _thread_game[vc.id] = gid          # 讓 /end 等指令能在語音房文字區使用
         pub = (th or {}).get("public")
         if pub is not None:
-            await vc.send(i18n.t("voice.started", lang, channel=pub.mention))
-    except Exception:
-        pass
+            v = discord.ui.View(timeout=None)
+            v.add_item(EndGameButton(gid, lang))
+            await vc.send(
+                i18n.t("voice.started", lang, channel=pub.mention) + "\n" +
+                i18n.t("voice.host", lang, host=host.mention), view=v)
+    except Exception as e:
+        print(f"[voice] 開局訊息發送失敗：{e!r}")
     try:
         from . import sfx
+        await sfx.join(vc)               # 開局即進語音（不必等第一個音效）
         await sfx.play(gid, "start")
     except Exception:
         pass
@@ -228,6 +277,7 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
             try:
                 from .views import RoomSettingsView
                 sv = RoomSettingsView(gid=f"vc{vc.id}", lang=lang, timeout=None)
+                sv.add_item(CpuStartButton(vc.id, lang))
                 msg = await vc.send(i18n.t("voice.settings_hint", lang), view=sv)
                 _voice_rooms[vc.id]["settings"] = sv
                 _voice_rooms[vc.id]["settings_msg"] = msg

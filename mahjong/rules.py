@@ -65,6 +65,13 @@ def has_kita(player: PlayerState) -> bool:
     return any(t.suit == Suit.WIND and t.value == 4 for t in full)
 
 
+def has_kita_drawn(player: PlayerState) -> bool:
+    """立直後可拔北的條件：**剛摸到的**那張是北。
+    立直前就在手裡的北不可拔（會改變聽牌，違反立直鎖手）；摸到的北抽走後手牌組成不變，故可拔。"""
+    d = player.drawn_tile
+    return d is not None and d.suit == Suit.WIND and d.value == 4
+
+
 def get_shouminkan_options(player: PlayerState) -> list[Tile]:
     """加槓候選：已碰過的牌，且手中（或剛摸）持有第 4 張。"""
     pon_keys = {(int(m.tiles[0].suit), m.tiles[0].value)

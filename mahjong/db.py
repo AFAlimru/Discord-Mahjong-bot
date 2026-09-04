@@ -181,7 +181,8 @@ def init_db() -> None:
             " play_channel_id TEXT)"
         )
         # 0.7：類別制大廳（category + 大廳頻道 + 配對語音）
-        for col in ("category_id", "lobby_channel_id", "hub_voice_id"):
+        # 0.7.2：voice_pack＝該伺服器選用的語音包（assets/sounds 下的資料夾名）
+        for col in ("category_id", "lobby_channel_id", "hub_voice_id", "voice_pack"):
             try:
                 conn.execute(f"ALTER TABLE guild_settings ADD COLUMN {col} TEXT")
             except Exception:
@@ -467,6 +468,23 @@ def set_play_channel(guild_id: str, channel_id: str | None) -> None:
             "INSERT INTO guild_settings (guild_id, play_channel_id) VALUES (?, ?) "
             "ON CONFLICT(guild_id) DO UPDATE SET play_channel_id=excluded.play_channel_id",
             (guild_id, channel_id)
+        )
+
+
+def get_voice_pack(guild_id: str) -> str | None:
+    """該伺服器選用的語音包資料夾名（None＝用根目錄預設）。"""
+    with get_connection() as conn:
+        row = conn.execute("SELECT voice_pack FROM guild_settings WHERE guild_id=?",
+                           (guild_id,)).fetchone()
+    return row["voice_pack"] if row else None
+
+
+def set_voice_pack(guild_id: str, pack: str | None) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO guild_settings (guild_id, voice_pack) VALUES (?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET voice_pack=excluded.voice_pack",
+            (guild_id, pack)
         )
 
 

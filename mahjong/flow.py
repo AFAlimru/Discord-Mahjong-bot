@@ -24,7 +24,7 @@ from .engine import (
     new_game, is_complete, is_tenpai, get_tenpai_waits,
 )
 from .rules import (
-    count_tiles, get_chi_options, get_ankan_options, has_kita,
+    count_tiles, get_chi_options, get_ankan_options, has_kita, has_kita_drawn,
     get_shouminkan_options, parse_tile, ai_choose_discard, ai_should_pon,
     evaluate_win, hand_waits, tenpai_advice, tenpai_note_text,
     is_furiten, ai_should_ron, is_menzen, is_kyuushu_kyuuhai, wait_status,
@@ -293,6 +293,9 @@ def _cleanup(gid: str, channel_id: str) -> None:
             _thread_game.pop(pub.id, None)
         for pt in th.get("private", {}).values():
             _thread_game.pop(pt.id, None)
+        vc = th.get("voice")               # 語音房文字區（供 /end 用）的對照也要清
+        if vc is not None:
+            _thread_game.pop(vc.id, None)
     _waiting.pop(gid, None)
     _room_owners.pop(gid, None)
     _room_configs.pop(gid, None)
@@ -1057,6 +1060,13 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
             except Exception:
                 pass
             if riichi_locked:
+                # 立直後打字一律無效——例外：拔北（僅剛摸到北時）
+                if kita_ok:
+                    ok, val, _e = _parse_turn_input(raw, player, False, False, True, [])
+                    if ok and isinstance(val, tuple) and val[0] == "kita":
+                        if not fut.done():
+                            fut.set_result(val)
+                        return
                 await _warn(pt, i18n.t("msg.riichi_locked_warn", lang))
                 continue
             if state["riichi"]:
@@ -1251,7 +1261,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 hs = format_winning_hand(player, player.drawn_tile)
                 await render_board("feed.tsumo", name=f"🤖 {player.username}")
                 return ("tsumo", player.seat, res, hs)
-            if gs.is_sanma and has_kita(player):
+            # 立直後只能拔「剛摸到的北」（AI 目前不立直，防呆用）
+            if gs.is_sanma and (has_kita_drawn(player) if player.riichi else has_kita(player)):
                 if player.drawn_tile is not None:
                     player.hand.append(player.drawn_tile); player.drawn_tile = None
                 for i, t in enumerate(player.hand):
@@ -1299,15 +1310,17 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
 
             kyuushu_ok = False
             if already_riichi:
-                # 立直後：鎖手，只能摸切或自摸，不可立直／暗槓／加槓／拔北
+                # 立直後：鎖手，只能摸切或自摸，不可立直／暗槓／加槓
+                # 例外：**剛摸到的北**可以拔（抽走後手牌組成不變，不影響聽牌）；
+                #       立直前就在手裡的北不可拔。
                 adv = []
                 can_riichi  = False
                 ankan_opts  = []
                 kakan_opts  = []
-                kita_ok     = False
+                kita_ok     = gs.is_sanma and has_kita_drawn(player)
                 tenpai_note = ""
                 prompt_base = i18n.t("prompt.riichi_auto", lang_p)
-                turn_time   = thinking_time if can_tsumo else 3
+                turn_time   = thinking_time if (can_tsumo or kita_ok) else 3
             else:
                 adv = tenpai_advice(player)   # 14 張時：打哪張可進聽
                 can_riichi = is_menzen(player) and bool(adv)
@@ -1408,6 +1421,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 rinshan_next = True
                 await render_hand(player)
                 await render_board("feed.ankan", name=player.username, tile=kan_tile)
+                from . import sfx
+                await sfx.play(gid, "kan")
                 continue
 
             # ── 加槓（小明槓）+ 搶槓 ──
@@ -1462,6 +1477,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 rinshan_next = True
                 await render_hand(player)
                 await render_board("feed.kakan", name=player.username, tile=kan_tile)
+                from . import sfx
+                await sfx.play(gid, "kan")
                 continue
 
             # ── 出牌 / 立直 ──
@@ -1603,6 +1620,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     ippatsu[s] = False
                 await render_hand(rp)
                 await render_board("feed.pon", name=rp.username, loser=from_name, tile=discard_tile)
+                from . import sfx
+                await sfx.play(gid, "pon")
                 last_call = ("term.pon", from_name, discard_tile)
                 if not allow_kuikae:
                     kuikae_ban = {(int(discard_tile.suit), discard_tile.value)}
@@ -1622,6 +1641,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     ippatsu[s] = False
                 await render_hand(rp)
                 await render_board("feed.chi", name=rp.username, loser=from_name, tile=discard_tile)
+                from . import sfx
+                await sfx.play(gid, "chi")
                 last_call = ("term.chi", from_name, discard_tile)
                 if not allow_kuikae:
                     kuikae_ban = {(int(discard_tile.suit), discard_tile.value)}
@@ -1653,6 +1674,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 rinshan_next = True
                 await render_hand(rp)
                 await render_board("feed.kan", name=rp.username, loser=from_name, tile=discard_tile)
+                from . import sfx
+                await sfx.play(gid, "kan")
                 last_call = ("term.kan", from_name, discard_tile)
                 continue
 
@@ -1846,6 +1869,14 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             pub_pairs, priv_pairs = [], []
 
             if dbl_winners is not None:
+                try:                       # 音效：多家榮和（榮和音＋最高打點的完整役／階級）
+                    from . import sfx
+                    await sfx.play(gid, "ron")
+                    _best = max((r for _, r, _ in dbl_winners),
+                                key=lambda r: getattr(r, "points", 0), default=None)
+                    asyncio.create_task(sfx.play_win(gid, _best))
+                except Exception:
+                    pass
                 # 雙榮：每個串依序揭曉兩位贏家（最後一位才附上合計分數表）
                 async def run_dbl(ch, lg):
                     out = []
@@ -1866,6 +1897,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 try:                       # 音效：和牌（自摸／榮和；綁語音房才會出聲）
                     from . import sfx
                     await sfx.play(gid, "tsumo" if "tsumo" in header_key else "ron")
+                    asyncio.create_task(sfx.play_win(gid, result))   # 完整役＋打點階級（背景序列）
                 except Exception:
                     pass
                 cer = await asyncio.gather(

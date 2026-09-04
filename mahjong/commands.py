@@ -1268,31 +1268,60 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
         i18n.t("hub.created", lang, channel=ch.mention) + note, ephemeral=True)
 
 
-@setup_group.command(name="sounds",
-                     description="（擁有者）把 assets/sounds/ 的音效包上傳到本伺服器音效板（家伺服器用）")
-async def cmd_setup_sounds(interaction: discord.Interaction) -> None:
+@setup_group.command(name="voice",
+                     description="語音包：不填＝列出可選語音包與目前選用；填 pack＝切換（clear=True 改回預設）")
+@app_commands.describe(pack="要切換的語音包（＝ assets/sounds 底下的資料夾名）；留空＝只列出",
+                       clear="True＝改回根目錄預設（不使用任何語音包資料夾）")
+async def cmd_setup_voice(interaction: discord.Interaction,
+                          pack: str = None, clear: bool = False) -> None:
     lang = i18n.get_user_lang(interaction.user.id)
     if interaction.guild_id is None:
         await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
         return
-    try:
-        is_owner = await interaction.client.is_owner(interaction.user)
-    except Exception:
-        is_owner = False
-    if not is_owner:
+    perms = getattr(interaction.user, "guild_permissions", None)
+    if not (perms and (perms.manage_guild or perms.administrator)):
         await interaction.response.send_message(i18n.t("hub.need_perm", lang), ephemeral=True)
         return
-    await interaction.response.defer(ephemeral=True)
-    from . import sfx
-    ok, errs = await sfx.upload_pack(interaction.guild)
-    msg = f"✅ 上傳 {ok} 個音效。"
-    if errs:
-        msg += "\n" + "\n".join(f"⚠️ {e}" for e in errs[:10])
-    await interaction.followup.send(msg, ephemeral=True)
-    try:                                   # 上傳完重載快取（家伺服器才有意義）
-        await sfx.load(interaction.client)
-    except Exception:
-        pass
+    from . import sfx, db
+    gid   = str(interaction.guild_id)
+    packs = sfx.list_packs()
+    total = len(sfx.ALL_SOUND_NAMES)
+
+    head = None
+    if clear:
+        db.set_voice_pack(gid, None)
+        cur = None
+        head = "✅ 已改回**根目錄預設**語音（不使用語音包資料夾）。"
+    elif pack:
+        if pack not in packs:
+            avail = "、".join(packs) if packs else "（無，請在 assets/sounds/ 下建立資料夾）"
+            await interaction.response.send_message(
+                f"❌ 找不到語音包「{pack}」。可選：{avail}", ephemeral=True)
+            return
+        db.set_voice_pack(gid, pack)
+        cur  = pack
+        head = f"✅ 已切換語音包為 **{pack}**。"
+    else:
+        cur = db.get_voice_pack(gid)
+        if cur and cur not in packs:       # 資料夾被刪 → 視為預設
+            cur = None
+
+    lines = []
+    for p in packs:
+        mark = "▶️" if p == cur else "・"
+        have, _ = sfx.pack_coverage(p)
+        lines.append(f"{mark} **{p}** — {have}/{total} 個音效")
+    listing = "\n".join(lines) if lines else "（尚無語音包資料夾；在 assets/sounds/ 下建立資料夾即可）"
+    cur_txt = f"**{cur}**" if cur else "**根目錄預設**"
+
+    body = (head + "\n\n" if head else "") + f"🔊 **語音包**（目前：{cur_txt}）\n{listing}"
+    have, missing = sfx.pack_coverage(cur)
+    if missing:
+        show = "、".join(missing[:20]) + ("…" if len(missing) > 20 else "")
+        body += f"\n\n目前選用缺少 {len(missing)} 個音效：{show}"
+    if not sfx.available():
+        body += "\n\n⚠️ 主機找不到 FFmpeg，音效目前停用（安裝後重啟）。"
+    await interaction.response.send_message(body, ephemeral=True)
 
 
 @setup_group.command(name="channel", description="指定遊玩頻道（start/join 只能在該頻道用；clear=True 解除）")
