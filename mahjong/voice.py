@@ -159,6 +159,29 @@ class CpuStartButton(discord.ui.Button):
         await _start_voice_game(vc, free, fill_ai=True)
 
 
+class VoicePackSelect(discord.ui.Select):
+    """語音房面板：切換這台伺服器的角色語音（語音包＝assets/sounds 下的資料夾，用選單不用打字）。"""
+    def __init__(self, guild_id: int, lang: str, row: int = 4):
+        from . import sfx
+        packs = sfx.list_packs()
+        opts = [discord.SelectOption(label=i18n.t("voice.pack_off", lang), value=sfx.VOICE_OFF)]
+        opts += [discord.SelectOption(label=p[:100], value=p[:100]) for p in packs[:24]]
+        super().__init__(placeholder=i18n.t("voice.pack_select", lang),
+                         min_values=1, max_values=1, options=opts, row=row)
+        self._gid = str(guild_id)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        from . import sfx
+        ulang = i18n.get_user_lang(str(interaction.user.id))
+        val   = self.values[0]
+        db.set_voice_pack(self._gid, val)          # 包名，或 VOICE_OFF＝關閉語音
+        name  = i18n.t("voice.pack_off", ulang) if val == sfx.VOICE_OFF else val
+        msg   = i18n.t("voice.pack_set", ulang, pack=name)
+        if val == sfx.VOICE_OFF:                    # 關閉是整台伺服器；提示個人靜音做法
+            msg += "\n" + i18n.t("voice.off_hint", ulang)
+        await interaction.response.send_message(msg, ephemeral=True)
+
+
 async def _start_voice_game(vc: discord.VoiceChannel, members: list,
                             sanma: bool | None = None, fill_ai: bool = False) -> None:
     from .flow import launch_game
@@ -187,12 +210,13 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
             _waiting[gid].append({"user_id": f"ai_{gid}_{i}",
                                   "username": AI_NAMES[i % len(AI_NAMES)],
                                   "is_bot": True})
-    try:                                   # 設定面板鎖起來（開局後不能再改）
+    try:                                   # 開局時把設定面板整則刪掉（不留死面板）
         if sv is not None:
             sv.stop()
             msg = _voice_rooms.get(vc.id, {}).get("settings_msg")
             if msg is not None:
-                await msg.edit(view=None)
+                await msg.delete()
+                _voice_rooms.get(vc.id, {}).pop("settings_msg", None)
     except Exception:
         pass
     rooms.register(gid, guild.id, str(lobby.id))
@@ -276,8 +300,10 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
             # 設定面板發在語音房的文字區（開局前都能調；開局時鎖定）
             try:
                 from .views import RoomSettingsView
-                sv = RoomSettingsView(gid=f"vc{vc.id}", lang=lang, timeout=None)
+                sv = RoomSettingsView(gid=f"vc{vc.id}", lang=lang, timeout=None,
+                                      show_confirm=False)   # 語音房不用確認鈕，開局時面板自動消失
                 sv.add_item(CpuStartButton(vc.id, lang))
+                sv.add_item(VoicePackSelect(vc.id, lang))   # 面板上切換角色語音（選單，不用打字）
                 msg = await vc.send(i18n.t("voice.settings_hint", lang), view=sv)
                 _voice_rooms[vc.id]["settings"] = sv
                 _voice_rooms[vc.id]["settings_msg"] = msg

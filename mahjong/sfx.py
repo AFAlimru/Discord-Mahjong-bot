@@ -17,7 +17,8 @@
 直接把檔案播進語音頻道。任何格式（mp3/ogg/wav/…）皆可，無 Soundboard 的數量上限。
 
 - **語音包＝資料夾**：`SOUNDS_DIR` 底下每個子資料夾就是一個語音包，資料夾名＝包名。
-  每台伺服器可用 `/setup voice <包名>` 選一個（存 DB）；未選或包內缺檔時退回根目錄的同名檔。
+  每台伺服器可用 `/setup voice`／面板選一個（存 DB）；**未選＝不出聲**（要有聲才選包），
+  選了語音包後、包內缺某檔時才退回根目錄的同名檔當後備。
 - **名稱**：事件音（start/riichi/ippatsu/pon/chi/kan/tsumo/ron/ryuukyoku）＋和了役名（＝役名本身）
   ＋打點階級（han/mangan/…）。缺檔＝該項靜默略過。
 - **播放**：每台伺服器一條佇列、依序播；`play()` 只排入即返回（不擋遊戲流程），背景消費者逐一播。
@@ -37,7 +38,7 @@ from . import db
 AUDIO_EXTS = (".mp3", ".ogg", ".oga", ".opus", ".wav", ".m4a", ".aac", ".flac", ".webm")
 
 # 事件音效名（動作當下播）
-EVENT_SOUNDS = ("start", "riichi", "ippatsu", "pon", "chi", "kan",
+EVENT_SOUNDS = ("start", "discard", "riichi", "ippatsu", "pon", "chi", "kan",
                 "tsumo", "ron", "ryuukyoku")
 
 # 打點階級音效名（由 tier_sound 依 ScoreResult.name 對應）
@@ -71,6 +72,7 @@ WIN_INTRO_GAP = 1.5   # 和了 → 開始唸役名前的等待（對齊儀式標
 SEQ_GAP       = 0.15  # 佇列中前後音效之間的基本空隙（實際長度由音檔決定）
 CONSUMER_IDLE = 30.0  # 佇列閒置多久後消費者收工（下次播放再自動重啟）
 
+DEBUG = False                                    # 診斷輸出（需要時改 True）
 _ready = False                                   # FFmpeg 就緒
 _queues: dict[int, asyncio.Queue] = {}           # guild_id -> 待播 (vc, path) 佇列
 _consumers: dict[int, asyncio.Task] = {}         # guild_id -> 消費者 task
@@ -82,16 +84,37 @@ def available() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
+def _ensure_opus() -> bool:
+    """確保 libopus 已載入（discord.py 送語音要用它把 PCM 編成 Opus）。已載入＝直接回 True。"""
+    if discord.opus.is_loaded():
+        return True
+    try:                                    # Windows：載入 discord.py 內建的 libopus
+        discord.opus._load_default()
+    except Exception:
+        pass
+    if not discord.opus.is_loaded():        # 其他平台：試常見的系統函式庫名
+        for lib in ("libopus.so.0", "libopus.so", "libopus.0.dylib", "opus"):
+            try:
+                discord.opus.load_opus(lib)
+                break
+            except Exception:
+                continue
+    return discord.opus.is_loaded()
+
+
 async def load(bot=None) -> None:
-    """啟動檢查（on_ready 呼叫）：確認 FFmpeg 可用並列出語音包。"""
+    """啟動檢查（on_ready 呼叫）：確認 FFmpeg 與 libopus 可用並列出語音包。"""
     global _ready
     if not available():
         print("[sfx] 找不到 FFmpeg，音效停用（安裝後重啟；Linux: apt install ffmpeg / Win: 放進 PATH）")
         _ready = False
         return
+    if not _ensure_opus():
+        print("[sfx] libopus 未載入，語音送音會失敗（Linux: apt install libopus0；Win 通常內建）")
     _ready = True
     packs = list_packs()
-    print(f"[sfx] 音效就緒（FFmpeg 直接播檔）。語音包：{'、'.join(packs) or '（無子資料夾，僅用根目錄預設）'}")
+    print(f"[sfx] 音效就緒（FFmpeg 直接播檔；opus={'OK' if discord.opus.is_loaded() else '未載入'}）。"
+          f"語音包：{'、'.join(packs) or '（無子資料夾，僅用根目錄預設）'}")
 
 
 def list_packs() -> list[str]:
@@ -103,15 +126,26 @@ def list_packs() -> list[str]:
         return []
 
 
+VOICE_OFF = "__off__"   # db.voice_pack 存這個＝該伺服器「關閉語音」（完全不出聲）
+
+
 def _guild_pack(guild_id: str) -> str | None:
-    """該伺服器選定的語音包（None＝用根目錄預設）。"""
+    """該伺服器選定的語音包：回傳包名／`VOICE_OFF`（關閉）／None（未選＝不出聲）。"""
     try:
         pack = db.get_voice_pack(guild_id)
     except Exception:
         return None
+    if pack == VOICE_OFF:
+        return VOICE_OFF
     if pack and os.path.isdir(os.path.join(SOUNDS_DIR, pack)):
         return pack
     return None
+
+
+def _guild_muted(guild_id: str) -> bool:
+    """該伺服器是否不出聲：沒選語音包（預設）或選了「關閉語音」都算——有選有效語音包才會播。"""
+    p = _guild_pack(guild_id)
+    return (not p) or p == VOICE_OFF
 
 
 def _resolve(pack: str | None, name: str) -> str | None:
@@ -153,8 +187,10 @@ async def _ensure_client(vc) -> discord.VoiceClient | None:
 
 
 async def join(vc) -> bool:
-    """對局開始時先讓機器人進語音房（不必等第一個音效）。未就緒＝略過。"""
+    """對局開始時先讓機器人進語音房（不必等第一個音效）。未就緒／已關閉語音＝略過。"""
     if not _ready:
+        return False
+    if _guild_muted(str(vc.guild.id)):
         return False
     return (await _ensure_client(vc)) is not None
 
@@ -211,6 +247,7 @@ async def _play_path(vc, path: str) -> None:
     """把單一音檔播進語音頻道並等它播完（FFmpeg → PCM → Opus）。"""
     client = await _ensure_client(vc)
     if client is None:
+        print(f"[sfx] 播放略過：無法連上語音（PyNaCl／連線權限？）")
         return
     try:
         if client.is_playing():
@@ -224,8 +261,12 @@ async def _play_path(vc, path: str) -> None:
                 print(f"[sfx] 播放錯誤：{err!r}")
             loop.call_soon_threadsafe(done.set)
 
+        if DEBUG:
+            print(f"[sfx] ▶ 播放 {os.path.basename(path)}（頻道 {getattr(client.channel,'name','?')}）")
         client.play(source, after=_after)
         await done.wait()
+        if DEBUG:
+            print(f"[sfx] ✔ 播完 {os.path.basename(path)}")
     except Exception as e:
         print(f"[sfx] 播放 {os.path.basename(path)} 失敗：{e!r}")
 
@@ -237,10 +278,21 @@ async def play(gid: str, name: str) -> None:
         return
     vc = (_threads.get(gid) or {}).get("voice")
     if vc is None:
+        if DEBUG:
+            print(f"[sfx] play({name}) 略過：本局未綁語音房")
         return
-    path = _resolve(_guild_pack(str(vc.guild.id)), name)
+    pack = _guild_pack(str(vc.guild.id))
+    if not pack or pack == VOICE_OFF:        # 沒選語音包／關閉語音＝不出聲
+        if DEBUG:
+            print(f"[sfx] play({name}) 略過：未選語音包或已關閉")
+        return
+    path = _resolve(pack, name)
     if path is None:
+        if DEBUG:
+            print(f"[sfx] play({name}) 略過：找不到音效檔")
         return
+    if DEBUG:
+        print(f"[sfx] play({name}) → 排入 {os.path.basename(path)}")
     _enqueue(vc, path)
 
 
@@ -269,7 +321,10 @@ async def play_win(gid: str, result) -> None:
     設計為背景任務呼叫（含 sleep，不擋畫面儀式）；實際播放由佇列依序進行。"""
     if not _ready or result is None:
         return
-    if (_threads.get(gid) or {}).get("voice") is None:   # 沒綁語音就別空跑
+    vc = (_threads.get(gid) or {}).get("voice")
+    if vc is None:                                        # 沒綁語音就別空跑
+        return
+    if _guild_muted(str(vc.guild.id)):                    # 未選語音包／關閉語音
         return
     # 揭曉順序同 win_ceremony：役滿則只列役滿，否則列一般役（含寶牌等懸賞，有錄檔才會出聲）
     if getattr(result, "yakuman", None):

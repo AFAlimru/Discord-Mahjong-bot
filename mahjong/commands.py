@@ -1067,7 +1067,7 @@ class LobbyPanel(discord.ui.View):
         labels = {"rank": "hub.btn.rank", "match": "hub.btn.match", "daily": "hub.btn.daily",
                   "profile": "hub.btn.profile", "skin": "hub.btn.skin", "history": "hub.btn.history",
                   "replay": "hub.btn.replay", "yaku": "hub.btn.yaku", "lang": "hub.btn.lang",
-                  "news": "hub.btn.news", "refresh": "hub.btn.refresh"}
+                  "voice": "hub.btn.voice", "news": "hub.btn.news", "refresh": "hub.btn.refresh"}
         for c in self.children:
             cid = (getattr(c, "custom_id", "") or "").replace("hub:", "")
             if cid in labels:
@@ -1157,6 +1157,19 @@ class LobbyPanel(discord.ui.View):
                        custom_id="hub:news", row=2)
     async def news(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(_latest_changelog(), ephemeral=True)
+
+    @discord.ui.button(label="🎚️ 語音", style=discord.ButtonStyle.secondary,
+                       custom_id="hub:voice", row=1)
+    async def voice_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        lang = i18n.get_user_lang(interaction.user.id)
+        if interaction.guild_id is None:
+            await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
+            return
+        from .voice import VoicePackSelect
+        v = discord.ui.View(timeout=120)
+        v.add_item(VoicePackSelect(interaction.guild_id, lang, row=0))
+        await interaction.response.send_message(i18n.t("voice.pack_prompt", lang),
+                                                view=v, ephemeral=True)
 
     @discord.ui.button(label="🔁 更新面板", style=discord.ButtonStyle.secondary,
                        custom_id="hub:refresh", row=2)
@@ -1271,7 +1284,7 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
 @setup_group.command(name="voice",
                      description="語音包：不填＝列出可選語音包與目前選用；填 pack＝切換（clear=True 改回預設）")
 @app_commands.describe(pack="要切換的語音包（＝ assets/sounds 底下的資料夾名）；留空＝只列出",
-                       clear="True＝改回根目錄預設（不使用任何語音包資料夾）")
+                       clear="True＝清除選擇（不出聲，要有聲請選語音包）")
 async def cmd_setup_voice(interaction: discord.Interaction,
                           pack: str = None, clear: bool = False) -> None:
     lang = i18n.get_user_lang(interaction.user.id)
@@ -1291,7 +1304,7 @@ async def cmd_setup_voice(interaction: discord.Interaction,
     if clear:
         db.set_voice_pack(gid, None)
         cur = None
-        head = "✅ 已改回**根目錄預設**語音（不使用語音包資料夾）。"
+        head = "✅ 已清除語音包選擇（**不出聲**；要有聲請選一個語音包）。"
     elif pack:
         if pack not in packs:
             avail = "、".join(packs) if packs else "（無，請在 assets/sounds/ 下建立資料夾）"
@@ -1303,7 +1316,7 @@ async def cmd_setup_voice(interaction: discord.Interaction,
         head = f"✅ 已切換語音包為 **{pack}**。"
     else:
         cur = db.get_voice_pack(gid)
-        if cur and cur not in packs:       # 資料夾被刪 → 視為預設
+        if cur and cur != sfx.VOICE_OFF and cur not in packs:   # 資料夾被刪 → 視為預設
             cur = None
 
     lines = []
@@ -1312,16 +1325,93 @@ async def cmd_setup_voice(interaction: discord.Interaction,
         have, _ = sfx.pack_coverage(p)
         lines.append(f"{mark} **{p}** — {have}/{total} 個音效")
     listing = "\n".join(lines) if lines else "（尚無語音包資料夾；在 assets/sounds/ 下建立資料夾即可）"
-    cur_txt = f"**{cur}**" if cur else "**根目錄預設**"
+    if cur == sfx.VOICE_OFF:
+        cur_txt = "**🔇 關閉語音**"
+    elif cur:
+        cur_txt = f"**{cur}**"
+    else:
+        cur_txt = "**未選（不出聲）**"
 
     body = (head + "\n\n" if head else "") + f"🔊 **語音包**（目前：{cur_txt}）\n{listing}"
-    have, missing = sfx.pack_coverage(cur)
-    if missing:
-        show = "、".join(missing[:20]) + ("…" if len(missing) > 20 else "")
-        body += f"\n\n目前選用缺少 {len(missing)} 個音效：{show}"
+    if cur and cur != sfx.VOICE_OFF:          # 只有選了有效語音包才顯示齊全度
+        have, missing = sfx.pack_coverage(cur)
+        if missing:
+            show = "、".join(missing[:20]) + ("…" if len(missing) > 20 else "")
+            body += f"\n\n目前選用缺少 {len(missing)} 個音效：{show}"
     if not sfx.available():
         body += "\n\n⚠️ 主機找不到 FFmpeg，音效目前停用（安裝後重啟）。"
     await interaction.response.send_message(body, ephemeral=True)
+
+
+@cmd_setup_voice.autocomplete("pack")
+async def _voice_pack_autocomplete(interaction: discord.Interaction, current: str):
+    from . import sfx
+    cur = (current or "").lower()
+    return [app_commands.Choice(name=p, value=p)
+            for p in sfx.list_packs() if cur in p.lower()][:25]
+
+
+def _fmt_age(s) -> str:
+    if s is None:
+        return "?"
+    s = int(s); h, m = s // 3600, (s % 3600) // 60
+    return f"{h}時{m}分" if h else f"{m}分"
+
+
+@setup_group.command(name="rooms",
+                     description="後台：列出本伺服器的對局／等待房；delete＝ all／waiting／房號(逗號) 可清除")
+@app_commands.describe(delete="留空＝只列出；all＝清全部、waiting＝只清等待房、或房號如 1,3,5")
+async def cmd_setup_rooms(interaction: discord.Interaction, delete: str = None) -> None:
+    lang = i18n.get_user_lang(interaction.user.id)
+    if interaction.guild_id is None:
+        await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
+        return
+    perms = getattr(interaction.user, "guild_permissions", None)
+    if not (perms and (perms.manage_guild or perms.administrator)):
+        await interaction.response.send_message(i18n.t("hub.need_perm", lang), ephemeral=True)
+        return
+    from . import flow
+    await interaction.response.defer(ephemeral=True)
+    rms = flow.list_rooms(str(interaction.guild_id))
+
+    if not delete:                                  # 只列出
+        if not rms:
+            await interaction.followup.send("✅ 目前沒有任何對局或等待房。", ephemeral=True)
+            return
+        lines = []
+        for r in rms:
+            st  = "🎮進行中" if r["status"] == "playing" else "🕓等待中"
+            ch  = f"<#{r['channel_id']}>" if r["channel_id"] else "?"
+            who = "、".join(r["humans"]) or "（無真人）"
+            ai  = f" +{r['ai']}電腦" if r["ai"] else ""
+            lines.append(f"`#{r['room_no'] or '?'}` {st}｜{ch}｜{who}{ai}｜{_fmt_age(r['age_s'])}")
+        await interaction.followup.send(
+            "🗂️ **本伺服器對局／等待房**\n" + "\n".join(lines[:40])
+            + "\n\n刪除：`/setup rooms delete: all`（全部）、`waiting`（只清等待）、或房號 `1,3,5`。",
+            ephemeral=True)
+        return
+
+    sel = delete.strip().lower()                    # 清除
+    if sel == "all":
+        targets = rms
+    elif sel == "waiting":
+        targets = [r for r in rms if r["status"] == "waiting"]
+    else:
+        nums = {int(x) for x in delete.replace("，", ",").split(",") if x.strip().isdigit()}
+        targets = [r for r in rms if r["room_no"] in nums]
+    if not targets:
+        await interaction.followup.send("❌ 沒有符合的房間（用不帶 delete 先列出房號）。", ephemeral=True)
+        return
+    ok = fail = 0
+    for r in targets:
+        try:
+            await flow.force_end(r["gid"]); ok += 1
+        except Exception as e:
+            fail += 1; print(f"[rooms] force_end {r['gid']} 失敗：{e!r}")
+    msg = f"🧹 已清除 {ok} 個房間（含討論串／頻道）。"
+    if fail:
+        msg += f"\n⚠️ {fail} 個刪除失敗（多半是機器人缺管理權限）。"
+    await interaction.followup.send(msg, ephemeral=True)
 
 
 @setup_group.command(name="channel", description="指定遊玩頻道（start/join 只能在該頻道用；clear=True 解除）")

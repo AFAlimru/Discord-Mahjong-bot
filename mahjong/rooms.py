@@ -85,3 +85,8 @@ def set_status(gid: str, status: str) -> None:
 
 def unregister(gid: str) -> None:
     rooms.pop(gid, None)
+
+
+def all_meta() -> dict:
+    """目前註冊的所有房間（gid -> RoomMeta）淺拷貝，供後台列出／清理。"""
+    return dict(rooms)

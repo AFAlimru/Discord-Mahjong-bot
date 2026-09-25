@@ -206,7 +206,8 @@ class RoomSettingsModal(Modal):
 class RoomSettingsView(View):
     """房間設定按鈕菜單"""
     
-    def __init__(self, gid: str, lang: str = i18n.DEFAULT, timeout: float = 300):
+    def __init__(self, gid: str, lang: str = i18n.DEFAULT, timeout: float = 300,
+                 show_confirm: bool = True):
         super().__init__(timeout=timeout)
         self.game_id = gid
         self.lang = lang
@@ -226,6 +227,11 @@ class RoomSettingsView(View):
                                               "settings.kuikae_off", "settings.openriichi_off",
                                               "settings.confirm")):
             child.label = i18n.t(key, lang)
+        if not show_confirm:               # 語音房面板不放確認鈕（開局時面板自動消失）
+            try:
+                self.remove_item(self.confirm)
+            except Exception:
+                pass
 
     @button(label="⚙️ 數值設定", style=discord.ButtonStyle.primary)
     async def modify_time(self, interaction: discord.Interaction, button: Button):

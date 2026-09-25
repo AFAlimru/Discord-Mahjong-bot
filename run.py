@@ -119,6 +119,11 @@ async def on_ready() -> None:
         matchmaking.start_sweeper()
     except Exception as e:
         print(f"⚠️ 排隊清掃器啟動失敗: {e}")
+    try:                                      # 等待房逾時清掃器（開了沒人加入的殘留房）
+        from mahjong import flow as _flow
+        _flow.start_room_sweeper()
+    except Exception as e:
+        print(f"⚠️ 房間清掃器啟動失敗: {e}")
     try:                                      # 0.7 全域音效：載入家伺服器音效板
         from mahjong import sfx
         await sfx.load(bot)

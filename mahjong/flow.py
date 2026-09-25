@@ -15,6 +15,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import time
 from collections import Counter
 import discord
 
@@ -50,6 +51,16 @@ from . import rooms
 
 # 0.7：bot 參考（run.py 啟動時設定）——DM 面板、語音配對需要拿 User 物件
 BOT: discord.Client | None = None
+
+# ── 0.7.2 殘留對局防護 ──
+# 「整局所有真人回合都超時」連續幾局就自動結束（無人在玩的幽靈局）
+AFK_HANDS_TO_END = 1
+# 等待中的房間（開了沒人加入沒開打）超過這麼久就自動刪（秒）
+WAITING_TTL = 3 * 3600
+_hand_human_turns:   dict = {}   # gid -> 本局真人回合數（每局重置）
+_hand_human_timeout: dict = {}   # gid -> 本局真人超時回合數（每局重置）
+_afk_streak:         dict = {}   # gid -> 連續「整局全員超時」的局數
+_room_sweeper_started = False
 
 
 async def _delete_later(msg: discord.Message, delay: float) -> None:
@@ -303,6 +314,9 @@ def _cleanup(gid: str, channel_id: str) -> None:
     _action_logs.pop(gid, None)
     _lobbies.pop(gid, None)
     _threads.pop(gid, None)
+    _hand_human_turns.pop(gid, None)
+    _hand_human_timeout.pop(gid, None)
+    _afk_streak.pop(gid, None)
     rooms.unregister(gid)
     if _channel_games.get(channel_id) == gid:
         del _channel_games[channel_id]
@@ -453,6 +467,76 @@ async def force_end(gid: str) -> int:
             failed = await _delete_threads(th)
     _cleanup(gid, parent_cid)
     return failed
+
+
+def list_rooms(guild_id: str | None = None) -> list[dict]:
+    """列出目前所有對局／等待房（供後台偵測與清理）。guild_id 指定則只列該伺服器。
+    回傳每筆：gid, room_no, status(playing/waiting), channel_id, humans(list), ai(int), age_s。"""
+    now  = time.time()
+    meta = rooms.all_meta()
+    gids = set(_games) | set(_lobbies) | set(_waiting) | set(meta)
+    out  = []
+    for gid in gids:
+        rm = meta.get(gid)
+        if guild_id is not None and (rm is None or rm.guild_id != str(guild_id)):
+            continue
+        playing = gid in _games
+        if playing:
+            humans = [p.username for p in _games[gid].players if not p.is_bot]
+            ai     = sum(1 for p in _games[gid].players if p.is_bot)
+        else:
+            wl     = _waiting.get(gid, [])
+            humans = [w["username"] for w in wl if not w.get("is_bot")]
+            ai     = sum(1 for w in wl if w.get("is_bot"))
+        cid = rm.channel_id if rm else next((c for c, g in _channel_games.items() if g == gid), None)
+        out.append({
+            "gid": gid, "room_no": rm.room_no if rm else None,
+            "status": "playing" if playing else "waiting",
+            "channel_id": cid, "humans": humans, "ai": ai,
+            "age_s": (now - rm.created_at) if rm else None,
+        })
+    out.sort(key=lambda r: (r["room_no"] is None, r["room_no"] or 0))
+    return out
+
+
+async def sweep_stale_rooms() -> int:
+    """刪掉「等待中」超過 WAITING_TTL 沒開打的房（開了沒人加入就擺著的）。回傳刪除數。"""
+    now  = time.time()
+    meta = rooms.all_meta()
+    stale = []
+    for gid in list(_lobbies):
+        if gid in _games:                       # 已開打＝不是等待
+            continue
+        rm  = meta.get(gid)
+        age = (now - rm.created_at) if rm else WAITING_TTL + 1
+        if age > WAITING_TTL:
+            stale.append(gid)
+    for gid in stale:
+        try:
+            await force_end(gid)
+        except Exception as e:
+            print(f"[sweep] 刪除逾時等待房 {gid} 失敗：{e!r}")
+    if stale:
+        print(f"[sweep] 清除 {len(stale)} 個逾時等待房（>{WAITING_TTL//3600} 小時）")
+    return len(stale)
+
+
+def start_room_sweeper(interval: float = 600.0) -> None:
+    """啟動等待房清掃器（重複呼叫只會啟動一次）。由 on_ready 呼叫。"""
+    global _room_sweeper_started
+    if _room_sweeper_started:
+        return
+    _room_sweeper_started = True
+
+    async def _loop():
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await sweep_stale_rooms()
+            except Exception as e:
+                print(f"[sweep] 房間清掃失敗：{e!r}")
+
+    asyncio.create_task(_loop())
 
 
 class _EndApproveButton(discord.ui.Button):
@@ -1128,6 +1212,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
     is_dm         = bool(th.get("is_dm"))   # DM 對局：稱呼一律用名字（私訊看不到別人的 @）
     _river_cache: dict[str, str] = {}   # uid → 上次送出的牌河文字（沒變就不編輯，省 API）
     _action_logs[gid] = []   # 每局開始清空動作記錄
+    _hand_human_turns[gid] = 0      # AFK 偵測：本局真人回合數
+    _hand_human_timeout[gid] = 0    # AFK 偵測：本局真人超時回合數
 
     async def refresh_rivers():
         """把完整牌河同步到每位玩家面板上方的牌河訊息。"""
@@ -1299,6 +1385,11 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             else:
                 await render_board("feed.discard", name=f"🤖 {player.username}",
                                    word="feed.word_discard", tile=discard_tile, giri=giri, nxt=nxt)
+            try:
+                from . import sfx
+                await sfx.play(gid, "discard")
+            except Exception:
+                pass
             await asyncio.sleep(1.0)
 
         # ── Human（打字）────────────────────────────────────
@@ -1369,6 +1460,10 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     pass
 
             timed = result is None
+            if not player.is_bot:            # AFK 偵測：記真人回合是否超時
+                _hand_human_turns[gid] = _hand_human_turns.get(gid, 0) + 1
+                if timed:
+                    _hand_human_timeout[gid] = _hand_human_timeout.get(gid, 0) + 1
             action, arg = ("discard", None) if timed else result
 
             # ── 九種九牌（途中流局）──
@@ -1549,6 +1644,11 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 await render_board("feed.discard", name=player.username, word=word,
                                    tile=discard_tile, giri=giri, nxt=nxt)
 
+        try:
+            from . import sfx
+            await sfx.play(gid, "discard")
+        except Exception:
+            pass
         gs.pending_discard   = discard_tile
         gs.pending_from_seat = player.seat
 
@@ -1725,6 +1825,10 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             if outcome is None:
                 return
             gs = _games[gid]
+            # AFK 偵測：整局真人回合全部超時→累計；有人真的行動就歸零
+            _ht = _hand_human_turns.get(gid, 0)
+            _to = _hand_human_timeout.get(gid, 0)
+            _afk_streak[gid] = (_afk_streak.get(gid, 0) + 1) if (_ht > 0 and _to >= _ht) else 0
             # 一局結束：先刪這局的牌河訊息與手牌面板（結算畫面不殘留舊牌桌），下一局會重發
             for _om in list(th.get("river_msg", {}).values()) + list(th.get("hand_msg", {}).values()):
                 if _om:
@@ -1927,6 +2031,14 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
 
             # 全部顯示完 → 保留完整結果，倒數 5 秒；最後一局改顯示「結束對局」
             over = st.is_game_over(gs, length, tobi)
+            if _afk_streak.get(gid, 0) >= AFK_HANDS_TO_END:   # 整局無人在玩→直接結束
+                over = True
+                for tch, lg in _thread_langs(public, th.get("private", {})):
+                    if tch is not None:
+                        try:
+                            await tch.send(i18n.t("msg.afk_end", lg))
+                        except Exception:
+                            pass
             await _result_countdown(pairs, 5, "countdown.end" if over else "countdown.next_hand")
             if over:
                 break

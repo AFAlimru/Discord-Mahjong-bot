@@ -23,11 +23,26 @@
   - **語音包選擇**：`db.get_voice_pack`／`set_voice_pack`（`guild_settings.voice_pack` 欄，per-guild）；
     指令 `commands.cmd_setup_voice`（`/setup voice [pack] [clear]`，需 `manage_guild`／admin）列出／切換／
     顯示齊全度。**移除** `/setup sounds`、`/setup sounds_remove`。
-  - `sfx.load(bot)` 改為 `shutil.which("ffmpeg")` 檢查設 `_ready`＋列語音包（不再抓音效板）。
+  - `sfx.load(bot)` 改為 `shutil.which("ffmpeg")` 設 `_ready`、`_ensure_opus()` 載入 libopus
+    （送語音編碼必需；預設未載入會靜默無聲，經典雷）、列語音包（不再抓音效板）。
   - `sfx.join(vc)`＝進語音待命（`voice._start_voice_game` 開局呼叫）。
-- **碰／吃／槓＋事件音效觸發**：`flow.play_hand_t` 在暗槓／加槓／大明槓／碰／吃五處各
-  `await sfx.play(gid,"kan"/"pon"/"chi")`；立直宣言 `riichi`、開局 `start`、自摸／榮和 `tsumo`/`ron`、流局
-  沿用。事件音效名列 `sfx.EVENT_SOUNDS`。
+- **打牌／碰／吃／槓＋事件音效觸發**：`flow.play_hand_t` 暗槓／加槓／大明槓／碰／吃五處各
+  `await sfx.play(gid,"kan"/"pon"/"chi")`；打牌（人類與 AI 捨牌各一處）`discard`；立直宣言 `riichi`、
+  開局 `start`、自摸／榮和 `tsumo`/`ron`、流局沿用。事件音效名列 `sfx.EVENT_SOUNDS`。
+- **語音房面板**：`views.RoomSettingsView` 加 `show_confirm` 參數（False → `remove_item(self.confirm)`）；
+  `voice.handle_voice_update` 建面板時 `show_confirm=False` 並 `add_item(VoicePackSelect(vc.id,lang))`；
+  開局 `_start_voice_game` 由 `msg.edit(view=None)` 改 `msg.delete()`（面板整則消失）。
+  `voice.VoicePackSelect`（Select，選項＝`sfx.list_packs()`＋預設，`row` 可指定）callback 寫 `db.set_voice_pack`；
+  `commands.cmd_setup_voice` 的 `pack` 加 autocomplete（`_voice_pack_autocomplete`）。
+  `commands.LobbyPanel` 另加常駐鈕 `hub:voice`（`voice_btn`）：開 ephemeral 視窗放 `VoicePackSelect`，
+  讓大廳也能切語音（persistent view 仍 `is_persistent`）。選單首項＝**🔇 關閉語音**（value＝`sfx.VOICE_OFF`
+  →`db.voice_pack="__off__"`）。**出聲改 opt-in**：`sfx._guild_muted()`＝沒選（None）或 `VOICE_OFF` 皆靜音，
+  `play`／`play_win`／`join` 遇之即略過（選了有效語音包才播；包內缺檔才退根目錄後備）。
+  `/setup voice` 未選顯示「未選（不出聲）」、關閉顯示「🔇 關閉語音」，皆跳過齊全度。
+- **`/setup rooms` 後台清理**：`flow.list_rooms(guild_id)` 彙整 `_games`／`_lobbies`／`_waiting`／
+  `rooms.all_meta()`（新增）→ 每房 room_no／status／channel／humans／ai／age_s（age 取 `RoomMeta.created_at`）。
+  `commands.cmd_setup_rooms`（manage_guild／admin）不帶參數列出；`delete=all/waiting/房號` 逐一 `flow.force_end`
+  （沿用既有完整拆除：關 DB、停迴圈、刪大廳訊息、貼房間已關閉、刪討論串／頻道、離開語音）。
 - **和了語音（逐役唸名＋打點階級）**：`sfx.tier_sound(name)` 把 `ScoreResult.name` 對應到階級名
   （空＝`han`；含「役滿」＝`yakuman`，`累計役滿`＝`kazoe`；三倍滿→倍滿→跳滿→滿貫 依序判，
   `流局滿貫`＝`mangan`）。役名清單 `sfx.YAKU_SOUNDS`（frozenset，51 名，與 scoring.py 一致，供
@@ -45,6 +60,12 @@
     AI 摸切分支 `has_kita(player)` → `has_kita_drawn(player) if player.riichi else has_kita(player)`（防呆）。
   - `flow.wait_turn_action`：`riichi_locked` 打字分支新增例外——`kita_ok` 時解析出 `("kita", …)` 放行，
     其餘打字仍擋。
+- **殘留對局自動清理**：
+  - 等待房逾時：`flow.sweep_stale_rooms()`（`start_room_sweeper` 每 600s，run.py on_ready 啟動）刪 `_lobbies`
+    中未開打（`gid not in _games`）且 `now-created_at > WAITING_TTL`(=3h) 的房，走 `force_end`。
+  - 無人在玩：`play_hand_t` 每局重置 `_hand_human_turns`／`_hand_human_timeout`，真人回合後累加；
+    `match_loop_t` 每局結束更新 `_afk_streak`（整局真人回合全超時→+1，有人行動→歸零），
+    `>= AFK_HANDS_TO_END`(=1) 時強制 `over=True`、發 `msg.afk_end` 後正常結束。三個 dict 於 `_cleanup` 清除。
 
 ### 修正
 - **語音局無法結束／房主不明**：`voice._start_voice_game` 開局訊息改附 `flow.EndGameButton`＋房主標示
