@@ -3,7 +3,7 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
-## [0.7.2] - 未發布（開發中）
+## [0.7.2] - 2026-09-25
 
 ### 新增
 - **語音房「與電腦開始」按鈕**：`voice.CpuStartButton`——掛在語音房設定面板（`handle_voice_update`
