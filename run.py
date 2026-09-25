@@ -124,7 +124,7 @@ async def on_ready() -> None:
         _flow.start_room_sweeper()
     except Exception as e:
         print(f"⚠️ 房間清掃器啟動失敗: {e}")
-    try:                                      # 0.7 全域音效：載入家伺服器音效板
+    try:                                      # 音效：檢查 FFmpeg/opus、列出語音包
         from mahjong import sfx
         await sfx.load(bot)
     except Exception as e:
