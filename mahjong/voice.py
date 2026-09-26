@@ -95,7 +95,7 @@ class SanmaStartButton(discord.ui.Button):
         self._vc_id = vc_id
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        lang = i18n.get_user_lang(str(interaction.user.id))
+        lang = i18n.get_user_lang(str(interaction.user.id), interaction.guild_id)
         vc   = interaction.guild.get_channel(self._vc_id)
         info = _voice_rooms.get(self._vc_id)
         if vc is None or info is None:
@@ -133,7 +133,7 @@ class CpuStartButton(discord.ui.Button):
         self._vc_id = vc_id
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        lang = i18n.get_user_lang(str(interaction.user.id))
+        lang = i18n.get_user_lang(str(interaction.user.id), interaction.guild_id)
         vc   = interaction.guild.get_channel(self._vc_id)
         info = _voice_rooms.get(self._vc_id)
         if vc is None or info is None:
@@ -172,7 +172,7 @@ class VoicePackSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         from . import sfx
-        ulang = i18n.get_user_lang(str(interaction.user.id))
+        ulang = i18n.get_user_lang(str(interaction.user.id), interaction.guild_id)
         val   = self.values[0]
         db.set_voice_pack(self._gid, val)          # 包名，或 VOICE_OFF＝關閉語音
         name  = i18n.t("voice.pack_off", ulang) if val == sfx.VOICE_OFF else val
@@ -197,7 +197,7 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
         return
     # 語音局沒有「開房者」→ 房主固定給**東家**（起家＝members[0]＝seat 0＝莊家）
     host = members[0]
-    lang = i18n.get_user_lang(str(host.id))
+    lang = i18n.get_user_lang(str(host.id), guild.id)
     gid  = str(uuid.uuid4())[:8]
     _waiting[gid] = [{"user_id": str(m.id), "username": m.display_name, "is_bot": False}
                      for m in members]
@@ -282,7 +282,7 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
         if hub and str(after.channel.id) == hub:
             cat = after.channel.category
             _room_seq += 1
-            lang = i18n.get_user_lang(str(member.id))
+            lang = i18n.get_user_lang(str(member.id), member.guild.id)
             try:
                 vc = await guild.create_voice_channel(
                     f"{i18n.t('voice.room_name', lang)}-{_room_seq}",
@@ -332,7 +332,7 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
                 pass
             await _start_voice_game(room, free[:3], sanma=True)
         elif len(free) == 3 and not info["starting"] and info.get("sanma_msg") is None:
-            lang = i18n.get_user_lang(str(member.id))
+            lang = i18n.get_user_lang(str(member.id), member.guild.id)
             try:
                 v = discord.ui.View(timeout=None)
                 v.add_item(SanmaStartButton(room.id, lang))

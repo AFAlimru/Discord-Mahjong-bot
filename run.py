@@ -42,6 +42,43 @@ bot = _dpy.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
 
+async def _global_perm_check(interaction: discord.Interaction) -> bool:
+    """任何指令執行前檢查機器人在該頻道的權限；缺權限就明確告知缺哪些並中止。"""
+    g = interaction.guild
+    if g is None or g.me is None:
+        return True
+    ch = interaction.channel
+    try:
+        perms = ch.permissions_for(g.me)
+    except Exception:
+        return True
+    if perms.administrator:
+        return True
+    need = [("view_channel", "View Channel"), ("send_messages", "Send Messages"),
+            ("embed_links", "Embed Links"), ("add_reactions", "Add Reactions"),
+            ("manage_threads", "Manage Threads")]
+    if isinstance(ch, discord.TextChannel):   # 討論串內不需「建立討論串」權限，避免誤判
+        need += [("create_public_threads", "Create Public Threads"),
+                 ("send_messages_in_threads", "Send Messages in Threads")]
+    missing = [zh for a, zh in need if not getattr(perms, a, True)]
+    if not missing:
+        return True
+    from mahjong import i18n as _i
+    lang = _i.get_user_lang(interaction.user.id, g.id)
+    txt  = _i.t("perm.bot_missing", lang, perms="、".join(missing))
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(txt, ephemeral=True)
+        else:
+            await interaction.response.send_message(txt, ephemeral=True)
+    except Exception:
+        pass
+    return False
+
+
+tree.interaction_check = _global_perm_check
+
+
 @bot.event
 async def on_message(message: discord.Message) -> None:
     """讀取玩家在自己私人討論串打的字；公開牌桌討論串則禁止打字。
@@ -137,6 +174,11 @@ async def on_ready() -> None:
             bot._hub_view_added = True
     except Exception as e:
         print(f"⚠️ 大廳面板掛載失敗: {e}")
+    try:                                      # 啟動檢測：設定各伺服器主要語言＋補建缺少的指南頻道
+        for g in bot.guilds:                  #（已有大廳類別的就跳過指南）
+            await ensure_guild_setup(g)
+    except Exception as e:
+        print(f"⚠️ 伺服器初始化檢測失敗: {e}")
 
 
 @bot.event
@@ -149,21 +191,40 @@ async def on_voice_state_update(member, before, after) -> None:
         print(f"⚠️ 語音配對處理失敗: {e!r}")
 
 
-@bot.event
-async def on_guild_join(guild) -> None:
-    """加入新伺服器：建立「僅管理員可見」的設定指南頻道（含刪除鈕與支援群連結）。"""
+async def ensure_guild_setup(guild, create_guide: bool = True) -> None:
+    """伺服器初始化：依 Discord 地區設定主要語言（未設定時）＋（需要時）建立管理員指南頻道。
+    已建大廳類別、或已有指南頻道的伺服器就不再建指南。"""
+    from mahjong import i18n as _i, db as _db
+    from mahjong.commands import GuideView
+    gid = str(guild.id)
+    if _i.guild_lang(gid) is None:            # 主要語言：未設定→依伺服器地區自動偵測
+        _i.set_guild_lang(gid, _i.detect_locale(getattr(guild, "preferred_locale", "")))
+    lang = _i.guild_lang(gid) or _i.DEFAULT
+    if not create_guide:
+        return
+    try:                                      # 已建大廳類別＝已設定好，不需指南
+        if _db.get_guild_setup(gid).get("category_id"):
+            return
+    except Exception:
+        pass
+    names = {_i.t("guide.channel_name", L) for L in _i.available()}
+    if any(c.name in names for c in getattr(guild, "text_channels", [])):
+        return                                # 已有指南頻道（任一語言）→ 不重建
     try:
-        from mahjong.commands import GuideView
-        from mahjong import i18n as _i
-        loc = str(getattr(guild, "preferred_locale", "") or "")
-        lang = "ja" if loc.startswith("ja") else ("en" if loc.startswith("en") else "zh_tw")
         overwrites = {guild.default_role: discord.PermissionOverwrite(view_channel=False)}
         ch = await guild.create_text_channel(_i.t("guide.channel_name", lang),
                                              overwrites=overwrites,
                                              reason="Suzume Tsuk 設定指南（僅管理員可見）")
         await ch.send(_i.t("guide.text", lang), view=GuideView())
+        print(f"[setup] 已為「{getattr(guild, 'name', '?')}」建立設定指南頻道")
     except Exception as e:
         print(f"⚠️ 指南頻道建立失敗（{getattr(guild, 'name', '?')}）: {e}")
+
+
+@bot.event
+async def on_guild_join(guild) -> None:
+    """加入新伺服器：設定主要語言＋建立「僅管理員可見」的設定指南頻道。"""
+    await ensure_guild_setup(guild)
 
 
 def run() -> None:

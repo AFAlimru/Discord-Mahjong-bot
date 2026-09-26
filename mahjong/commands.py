@@ -79,10 +79,10 @@ class LobbyView(discord.ui.View):
         waiting = _waiting.get(gid, [])
 
         if any(p["user_id"] == uid for p in waiting):
-            await interaction.response.send_message(i18n.t("msg.already_in_room", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.already_in_room", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
             return
         if len(waiting) >= max_p:
-            await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
             return
 
         await _close_owned_waiting_rooms(uid, gid)   # 加入別人的房 → 關掉自己開的房
@@ -94,13 +94,13 @@ class LobbyView(discord.ui.View):
         gid     = self.gid
         uid     = str(interaction.user.id)
         if _room_owners.get(gid) != uid:
-            await interaction.response.send_message(i18n.t("msg.only_host_ai", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.only_host_ai", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
             return
         cfg   = _room_configs.get(gid, {})
         max_p = cfg.get("max_players", 4)
         waiting = _waiting.get(gid, [])
         if len(waiting) >= max_p:
-            await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
             return
 
         ai_uid  = f"ai_{gid}_{self._ai_count}"
@@ -111,7 +111,7 @@ class LobbyView(discord.ui.View):
 
     @discord.ui.button(label="🌐", style=discord.ButtonStyle.secondary)   # 標籤於 __init__ 依房間語言設定
     async def translate_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
         await interaction.response.send_message(self._content(lang), ephemeral=True)
 
     @discord.ui.button(label="📩 DM", style=discord.ButtonStyle.secondary)
@@ -226,7 +226,7 @@ async def cmd_start(interaction: discord.Interaction) -> None:
                 ephemeral=True)
             return
         if channel_id in _channel_games:
-            await interaction.response.send_message(i18n.t("msg.channel_has_game", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.channel_has_game", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
             return
 
     host_lang = i18n.get_user_lang(user_id)
@@ -289,14 +289,14 @@ async def cmd_join(interaction: discord.Interaction, host: discord.Member = None
 
     if not gid:
         await interaction.response.send_message(
-            i18n.t("msg.no_open_room", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+            i18n.t("msg.no_open_room", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
         return
     if gid in _games:
-        await interaction.response.send_message(i18n.t("msg.game_started_nojoin", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.game_started_nojoin", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
         return
     if host is not None and _room_owners.get(gid) != str(host.id):
         await interaction.response.send_message(
-            i18n.t("msg.not_host_named", i18n.get_user_lang(interaction.user.id),
+            i18n.t("msg.not_host_named", i18n.get_user_lang(interaction.user.id, interaction.guild_id),
                    host=host.display_name), ephemeral=True)
         return
 
@@ -305,16 +305,16 @@ async def cmd_join(interaction: discord.Interaction, host: discord.Member = None
     waiting = _waiting.get(gid, [])
 
     if any(p["user_id"] == uid for p in waiting):
-        await interaction.response.send_message(i18n.t("msg.already_in_room", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.already_in_room", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
         return
     if len(waiting) >= max_p:
-        await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
         return
 
     await _close_owned_waiting_rooms(uid, gid)   # 加入別人的房 → 關掉自己開的房
     waiting.append({"user_id": uid, "username": interaction.user.display_name, "is_bot": False})
     await interaction.response.send_message(
-        i18n.t("msg.joined", i18n.get_user_lang(interaction.user.id),
+        i18n.t("msg.joined", i18n.get_user_lang(interaction.user.id, interaction.guild_id),
                cur=len(waiting), max=max_p), ephemeral=True)
 
     lobby = _lobbies.get(gid)
@@ -330,9 +330,9 @@ async def cmd_end(interaction: discord.Interaction) -> None:
     gid = (_channel_games.get(channel_id) or _thread_game.get(int(channel_id))
            or (_user_game.get(user_id) if interaction.guild_id is None else None))
     if not gid:
-        await interaction.response.send_message(i18n.t("msg.no_game", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.no_game", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
         return
-    lang = i18n.get_user_lang(interaction.user.id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     host = _room_owners.get(gid)
     if host != user_id:
         # 0.7：非房主也能發起，但要房主按「同意結束」；非本局玩家不行
@@ -363,7 +363,7 @@ async def cmd_end(interaction: discord.Interaction) -> None:
 
 @mahjong.command(name="status", description="查看當前牌局狀態")
 async def cmd_status(interaction: discord.Interaction) -> None:
-    lang       = i18n.get_user_lang(interaction.user.id)
+    lang       = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     channel_id = str(interaction.channel_id)
     gid        = _channel_games.get(channel_id)
     if not gid:
@@ -452,7 +452,7 @@ class RankQueueView(discord.ui.View):
 
     @discord.ui.button(label="🚪 離開排隊", style=discord.ButtonStyle.danger)
     async def leave_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
         matchmaking.leave(str(interaction.user.id))
         for c in self.children:
             c.disabled = True
@@ -520,7 +520,7 @@ async def cmd_notify(interaction: discord.Interaction) -> None:
 
 async def _do_rank_match(interaction: discord.Interaction, sanma: bool) -> None:
     """段位賽排隊（指令與大廳按鈕共用）。"""
-    lang  = i18n.get_user_lang(interaction.user.id)
+    lang  = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     res   = matchmaking.join(interaction.user, sanma)
     kind = res[0]
     if kind == "in_game":
@@ -541,7 +541,7 @@ async def _do_rank_match(interaction: discord.Interaction, sanma: bool) -> None:
 async def _do_casual_match(interaction: discord.Interaction, sanma: bool) -> None:
     """休閒隨機匹配（跨伺服器、對局走 DM、不計段位）。"""
     from .flow import launch_match_game
-    lang = i18n.get_user_lang(interaction.user.id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     res  = matchmaking.join(interaction.user, sanma, kind="casual")
     kind = res[0]
     if kind == "in_game":
@@ -573,7 +573,7 @@ async def cmd_match(interaction: discord.Interaction,
 @mahjong.command(name="rankinfo", description="段位／R 與段位賽說明")
 async def cmd_rankinfo(interaction: discord.Interaction) -> None:
     from . import rating
-    lang   = i18n.get_user_lang(interaction.user.id)
+    lang   = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     ladder = "　→　".join(rating.DAN_NAMES)
     await interaction.response.send_message(i18n.t("rank.info", lang, ladder=ladder), ephemeral=True)
 
@@ -612,7 +612,7 @@ def _yaku_embed(lang: str) -> discord.Embed:
 
 @mahjong.command(name="yaku", description="役種一覽（飜數表）")
 async def cmd_yaku(interaction: discord.Interaction) -> None:
-    lang = i18n.get_user_lang(interaction.user.id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     await interaction.response.send_message(embed=_yaku_embed(lang), ephemeral=True)
 
 
@@ -661,7 +661,7 @@ async def _set_skin_choice(interaction: discord.Interaction, val: str, label: st
 
 @mahjong.command(name="daily", description="每日簽到，獲得活躍度")
 async def cmd_daily(interaction: discord.Interaction) -> None:
-    lang = i18n.get_user_lang(interaction.user.id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     r = db.checkin(str(interaction.user.id), interaction.user.display_name)
     key = "daily.already" if r["already"] else "daily.done"
     await interaction.response.send_message(
@@ -670,7 +670,7 @@ async def cmd_daily(interaction: discord.Interaction) -> None:
 
 @mahjong.command(name="tasks", description="查看每日任務與活躍度")
 async def cmd_tasks(interaction: discord.Interaction) -> None:
-    lang = i18n.get_user_lang(interaction.user.id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     s    = db.task_status(str(interaction.user.id))
     mk   = lambda b: i18n.t("task.done" if b else "task.todo", lang)
     embed = discord.Embed(title=i18n.t("task.title", lang), color=0x9ECE6A)
@@ -883,7 +883,7 @@ async def cmd_replay(interaction: discord.Interaction, room: int) -> None:
 
 async def _start_replay(interaction: discord.Interaction, room: int) -> None:
     from . import replay
-    lang = i18n.get_user_lang(interaction.user.id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     g = db.get_game_by_room_no(room)
     if not g:
         await interaction.response.send_message(i18n.t("replay.not_found", lang, room=room), ephemeral=True)
@@ -952,7 +952,7 @@ async def cmd_repair(interaction: discord.Interaction) -> None:
 # ═══════════════════════════════════════════════════════════════
 
 async def cmd_help_top(interaction: discord.Interaction) -> None:
-    lang = i18n.get_user_lang(interaction.user.id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     await interaction.response.send_message(i18n.t("help.guide", lang), ephemeral=True)
 
 
@@ -976,7 +976,7 @@ class LanguageView(discord.ui.View):
 
 
 async def cmd_language(interaction: discord.Interaction) -> None:
-    cur = i18n.get_user_lang(interaction.user.id)
+    cur = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     await interaction.response.send_message(
         i18n.t("language.choose", cur, cur=i18n.lang_name(cur)),
         view=LanguageView(), ephemeral=True)
@@ -1081,21 +1081,21 @@ class LobbyPanel(discord.ui.View):
     @discord.ui.button(label="🏅 段位賽", style=discord.ButtonStyle.primary,
                        custom_id="hub:rank", row=0)
     async def rank(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
         await interaction.response.send_message(
             i18n.t("hub.pick_mode", lang), view=_ModePick(True, lang), ephemeral=True)
 
     @discord.ui.button(label="🎲 休閒場", style=discord.ButtonStyle.success,
                        custom_id="hub:match", row=0)
     async def match(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
         await interaction.response.send_message(
             i18n.t("hub.pick_mode", lang), view=_ModePick(False, lang), ephemeral=True)
 
     @discord.ui.button(label="✅ 每日簽到", style=discord.ButtonStyle.secondary,
                        custom_id="hub:daily", row=0)
     async def daily(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
         r = db.checkin(str(interaction.user.id), interaction.user.display_name)
         key = "daily.already" if r["already"] else "daily.done"
         await interaction.response.send_message(
@@ -1137,18 +1137,18 @@ class LobbyPanel(discord.ui.View):
     @discord.ui.button(label="🎞 回放", style=discord.ButtonStyle.secondary,
                        custom_id="hub:replay", row=1)
     async def replay(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(_ReplayModal(i18n.get_user_lang(interaction.user.id)))
+        await interaction.response.send_modal(_ReplayModal(i18n.get_user_lang(interaction.user.id, interaction.guild_id)))
 
     @discord.ui.button(label="📖 役種", style=discord.ButtonStyle.secondary,
                        custom_id="hub:yaku", row=2)
     async def yaku(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
         await interaction.response.send_message(embed=_yaku_embed(lang), ephemeral=True)
 
     @discord.ui.button(label="🗣 語言", style=discord.ButtonStyle.secondary,
                        custom_id="hub:lang", row=2)
     async def lang_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cur = i18n.get_user_lang(interaction.user.id)
+        cur = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
         await interaction.response.send_message(
             i18n.t("language.choose", cur, cur=i18n.lang_name(cur)),
             view=LanguageView(), ephemeral=True)
@@ -1161,7 +1161,7 @@ class LobbyPanel(discord.ui.View):
     @discord.ui.button(label="🎚️ 語音", style=discord.ButtonStyle.secondary,
                        custom_id="hub:voice", row=1)
     async def voice_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
         if interaction.guild_id is None:
             await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
             return
@@ -1176,7 +1176,7 @@ class LobbyPanel(discord.ui.View):
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         # 更新面板到最新版（機器人改版後新按鈕才會出現）；管理員限定、順便切成點按者語言
         perms = getattr(interaction.user, "guild_permissions", None)
-        lang = i18n.get_user_lang(interaction.user.id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
         if not (perms and (perms.manage_channels or perms.administrator)):
             await interaction.response.send_message(i18n.t("hub.need_perm", lang), ephemeral=True)
             return
@@ -1190,7 +1190,7 @@ setup_group = app_commands.Group(name="setup", description="伺服器設定（�
 @setup_group.command(name="create",
                      description="建立雀月類別（大廳頻道＋配對語音；對局頻道也會開在裡面；需管理頻道權限）")
 async def cmd_setup_create(interaction: discord.Interaction) -> None:
-    lang = i18n.get_user_lang(interaction.user.id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     if interaction.guild_id is None:
         await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
         return
@@ -1287,7 +1287,7 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
                        clear="True＝清除選擇（不出聲，要有聲請選語音包）")
 async def cmd_setup_voice(interaction: discord.Interaction,
                           pack: str = None, clear: bool = False) -> None:
-    lang = i18n.get_user_lang(interaction.user.id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     if interaction.guild_id is None:
         await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
         return
@@ -1362,7 +1362,7 @@ def _fmt_age(s) -> str:
                      description="後台：列出本伺服器的對局／等待房；delete＝ all／waiting／房號(逗號) 可清除")
 @app_commands.describe(delete="留空＝只列出；all＝清全部、waiting＝只清等待房、或房號如 1,3,5")
 async def cmd_setup_rooms(interaction: discord.Interaction, delete: str = None) -> None:
-    lang = i18n.get_user_lang(interaction.user.id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     if interaction.guild_id is None:
         await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
         return
@@ -1414,12 +1414,50 @@ async def cmd_setup_rooms(interaction: discord.Interaction, delete: str = None) 
     await interaction.followup.send(msg, ephemeral=True)
 
 
+@setup_group.command(name="lang",
+                     description="伺服器主要語言：未自訂語言的成員預設用它；留空＝顯示目前／偵測結果")
+@app_commands.describe(language="語言碼（如 zh_tw／ja／en）；auto＝依 Discord 伺服器地區自動偵測；留空＝只顯示")
+async def cmd_setup_lang(interaction: discord.Interaction, language: str = None) -> None:
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    if interaction.guild_id is None:
+        await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
+        return
+    perms = getattr(interaction.user, "guild_permissions", None)
+    if not (perms and (perms.manage_guild or perms.administrator)):
+        await interaction.response.send_message(i18n.t("hub.need_perm", lang), ephemeral=True)
+        return
+    cur      = i18n.guild_lang(interaction.guild_id)
+    detected = i18n.detect_locale(getattr(interaction.guild, "preferred_locale", ""))
+    avail    = "、".join(i18n.available())
+    if not language:
+        c = cur or f"未設定（用母本 {i18n.DEFAULT}）"
+        await interaction.response.send_message(
+            f"🌐 伺服器主要語言：**{c}**\nDiscord 伺服器地區偵測：**{detected}**\n"
+            f"可設定：{avail}（或 `auto` 依地區自動）。", ephemeral=True)
+        return
+    code = detected if language.strip().lower() == "auto" else language.strip()
+    if code not in i18n.available():
+        await interaction.response.send_message(
+            f"❌ 不支援的語言碼「{code}」。可用：{avail}", ephemeral=True)
+        return
+    i18n.set_guild_lang(interaction.guild_id, code)
+    await interaction.response.send_message(
+        f"✅ 伺服器主要語言已設為 **{code}**（未自訂語言的成員會預設用它）。", ephemeral=True)
+
+
+@cmd_setup_lang.autocomplete("language")
+async def _guild_lang_autocomplete(interaction: discord.Interaction, current: str):
+    cur = (current or "").lower()
+    opts = list(i18n.available()) + ["auto"]
+    return [app_commands.Choice(name=o, value=o) for o in opts if cur in o.lower()][:25]
+
+
 @setup_group.command(name="channel", description="指定遊玩頻道（start/join 只能在該頻道用；clear=True 解除）")
 @app_commands.describe(channel="要指定的頻道（不選＝目前頻道）", clear="True＝解除限制")
 async def cmd_setup_channel(interaction: discord.Interaction,
                             channel: discord.TextChannel = None,
                             clear: bool = False) -> None:
-    lang = i18n.get_user_lang(interaction.user.id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     if interaction.guild_id is None:
         await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
         return
@@ -1438,22 +1476,47 @@ async def cmd_setup_channel(interaction: discord.Interaction,
         i18n.t("setup.channel_set", lang, channel=ch.mention), ephemeral=True)
 
 
+class GuideLangSelect(discord.ui.Select):
+    """指南頻道語言切換：改指南顯示語言，並設為伺服器主要語言。"""
+    def __init__(self, lang: str = None):
+        lang = lang or i18n.DEFAULT
+        opts = [discord.SelectOption(label=i18n.lang_name(c), value=c, default=(c == lang))
+                for c in i18n.available()]
+        super().__init__(placeholder=i18n.t("guide.lang_select", lang),
+                         min_values=1, max_values=1, options=opts, custom_id="guide:lang", row=1)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        ulang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        perms = getattr(interaction.user, "guild_permissions", None)
+        if not (perms and (perms.manage_guild or perms.administrator)):
+            await interaction.response.send_message(i18n.t("hub.need_perm", ulang), ephemeral=True)
+            return
+        code = self.values[0]
+        if interaction.guild_id is not None:
+            i18n.set_guild_lang(interaction.guild_id, code)
+        await interaction.response.edit_message(
+            content=i18n.t("guide.text", code), view=GuideView(code))
+
+
 class GuideView(discord.ui.View):
-    """加入伺服器時的管理員指南（persistent）：刪除頻道＋支援伺服器連結。"""
-    def __init__(self):
+    """加入伺服器時的管理員指南（persistent）：切換語言＋刪除頻道＋支援伺服器連結。"""
+    def __init__(self, lang: str = None):
         super().__init__(timeout=None)
+        lang = lang or i18n.DEFAULT
+        self.delete_btn.label = i18n.t("guide.delete_btn", lang)
+        self.add_item(GuideLangSelect(lang))
         from .config import SUPPORT_URL
         if SUPPORT_URL:
             self.add_item(discord.ui.Button(label="💬 支援伺服器",
                                             style=discord.ButtonStyle.link, url=SUPPORT_URL))
 
     @discord.ui.button(label="🗑 刪除指南頻道", style=discord.ButtonStyle.danger,
-                       custom_id="guide:delete")
+                       custom_id="guide:delete", row=0)
     async def delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         perms = getattr(interaction.user, "guild_permissions", None)
         if not (perms and (perms.manage_channels or perms.administrator)):
             await interaction.response.send_message(
-                i18n.t("hub.need_perm", i18n.get_user_lang(interaction.user.id)), ephemeral=True)
+                i18n.t("hub.need_perm", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
             return
         try:
             await interaction.channel.delete(reason="管理員刪除指南頻道")

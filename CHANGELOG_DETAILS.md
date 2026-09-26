@@ -3,6 +3,24 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.7.3] - 未發布（開發中）
+
+### 新增
+- **伺服器主要語言**：`db.guild_lang` 欄＋`get_guild_lang`／`set_guild_lang`；`i18n.guild_lang()`／
+  `set_guild_lang()`／`detect_locale(preferred_locale)`；`i18n.get_user_lang(uid, guild_id=None)`——
+  無個人設定時退伺服器語言、再退母本（只快取個人設定）。commands／ui／voice 的 `get_user_lang(...)` 補傳 guild_id。
+  `run.ensure_guild_setup` 於 on_guild_join＋on_ready 依 `preferred_locale` 設定未設定的伺服器語言。
+  `/setup lang [language|auto]`（manage_guild）＋autocomplete。`commands.GuideLangSelect`（custom_id `guide:lang`）
+  改指南顯示語言並 `set_guild_lang`；`GuideView(lang)` 依語言重繪標籤。
+- **啟動檢測指南頻道**：`run.ensure_guild_setup(guild, create_guide=True)`——有 `category_id` 或已存在指南頻道
+  （比對各語言的 `guide.channel_name`）就跳過，否則建立僅管理員可見的指南頻道；on_ready 對所有 guild 執行。
+
+### 變更
+- **缺權限即時提示**：`run._global_perm_check` 指派給 `tree.interaction_check`——檢查
+  `channel.permissions_for(guild.me)` 的 view_channel／send_messages／embed_links／add_reactions／manage_threads
+  （TextChannel 另加 create_public_threads／send_messages_in_threads），缺則回 `perm.bot_missing`（英文權限名）
+  並 return False 中止；administrator 直接放行、DM 略過。
+
 ## [0.7.2] - 2026-09-25
 
 ### 新增

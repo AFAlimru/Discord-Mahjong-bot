@@ -104,8 +104,50 @@ def yaku(name: str, lang: str | None = None) -> str:
     return name
 
 
-def get_user_lang(user_id) -> str:
-    """玩家語言（無設定回母本）。快取 + DB。"""
+_guild_cache: dict[str, str | None] = {}   # guild_id -> code 或 None（無設定）
+
+
+def detect_locale(locale) -> str:
+    """把 Discord 的 preferred_locale 對應到支援語言碼（無對應回母本）。"""
+    loc = str(locale or "")
+    if loc.startswith("ja"):
+        return "ja"
+    if loc.startswith("en"):
+        return "en"
+    if loc.startswith(("zh", "zh-TW", "zh-CN")):
+        return "zh_tw"
+    return DEFAULT
+
+
+def guild_lang(guild_id) -> str | None:
+    """該伺服器主要語言（未設定回 None）。快取 + DB。"""
+    if guild_id is None:
+        return None
+    gid = str(guild_id)
+    if gid in _guild_cache:
+        return _guild_cache[gid]
+    from . import db
+    try:
+        gl = db.get_guild_lang(gid)
+    except Exception:
+        gl = None
+    if gl not in available():
+        gl = None
+    _guild_cache[gid] = gl
+    return gl
+
+
+def set_guild_lang(guild_id, lang: str | None) -> None:
+    _guild_cache[str(guild_id)] = lang
+    from . import db
+    try:
+        db.set_guild_lang(str(guild_id), lang)
+    except Exception as e:
+        print(f"[i18n] 儲存伺服器語言失敗：{e}")
+
+
+def get_user_lang(user_id, guild_id=None) -> str:
+    """玩家語言：個人設定優先；無個人設定則用伺服器主要語言，再無則母本。快取 + DB。"""
     uid = str(user_id)
     if uid in _user_cache:
         return _user_cache[uid]
@@ -114,10 +156,10 @@ def get_user_lang(user_id) -> str:
         lang = db.get_user_lang(uid)
     except Exception:
         lang = None
-    if lang not in available():
-        lang = DEFAULT
-    _user_cache[uid] = lang
-    return lang
+    if lang in available():
+        _user_cache[uid] = lang         # 只快取「使用者明確設定」
+        return lang
+    return guild_lang(guild_id) or DEFAULT   # 伺服器語言可能變動，不快取到個人
 
 
 def set_user_lang(user_id, lang: str) -> None:
