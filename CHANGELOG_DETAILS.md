@@ -3,17 +3,24 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
-## [0.7.3] - 未發布（開發中）
+## [0.7.3] - 2026-09-30
 
 ### 新增
 - **伺服器主要語言**：`db.guild_lang` 欄＋`get_guild_lang`／`set_guild_lang`；`i18n.guild_lang()`／
   `set_guild_lang()`／`detect_locale(preferred_locale)`；`i18n.get_user_lang(uid, guild_id=None)`——
   無個人設定時退伺服器語言、再退母本（只快取個人設定）。commands／ui／voice 的 `get_user_lang(...)` 補傳 guild_id。
   `run.ensure_guild_setup` 於 on_guild_join＋on_ready 依 `preferred_locale` 設定未設定的伺服器語言。
-  `/setup lang [language|auto]`（manage_guild）＋autocomplete。`commands.GuideLangSelect`（custom_id `guide:lang`）
-  改指南顯示語言並 `set_guild_lang`；`GuideView(lang)` 依語言重繪標籤。
+  `/setup lang [language|auto]`（manage_guild）＋autocomplete。指南頻道兩個下拉：`GuideDisplaySelect`
+  （`guide:disp`，只重繪指南、不改設定）與 `GuideServerLangSelect`（`guide:srvlang`，`set_guild_lang`＋重繪＋確認）；
+  `GuideView(lang)` 依語言重繪標籤／placeholder。
 - **啟動檢測指南頻道**：`run.ensure_guild_setup(guild, create_guide=True)`——有 `category_id` 或已存在指南頻道
   （比對各語言的 `guide.channel_name`）就跳過，否則建立僅管理員可見的指南頻道；on_ready 對所有 guild 執行。
+- **AFK →電腦接手＋重連**（取代 0.7.2 的「整局全超時就結束」）：`flow.play_hand_t` 每個真人回合累加
+  `player.afk_count`（有得選卻超時＋非立直鎖手才算，做動作歸零），達 `AFK_TURNS_TO_AI`(=2) 且非段位賽
+  →`player.is_bot=True`＋`player.afk_ai=True`，發 `msg.afk_takeover`。`deal_next_hand` 依 `afk_ai` 續接手並帶
+  `afk_count`。`match_loop_t` 改判 `not any(not p.is_bot …)`（沒真人了）才 `over` 並發 `msg.afk_end`。
+  `flow.AfkBackButton`（發在該玩家私人串的「接回座位」按鈕，驗證按者＝本人）把 `afk_ai` 座位
+  `is_bot=False` 交回＋公開通知 `msg.player_back`。
 
 ### 變更
 - **缺權限即時提示**：`run._global_perm_check` 指派給 `tree.interaction_check`——檢查

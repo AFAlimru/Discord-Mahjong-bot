@@ -52,14 +52,11 @@ from . import rooms
 # 0.7：bot 參考（run.py 啟動時設定）——DM 面板、語音配對需要拿 User 物件
 BOT: discord.Client | None = None
 
-# ── 0.7.2 殘留對局防護 ──
-# 「整局所有真人回合都超時」連續幾局就自動結束（無人在玩的幽靈局）
-AFK_HANDS_TO_END = 1
+# ── 0.7.2/0.7.3 殘留對局防護 ──
+# 真人「有得選卻連續超時」幾回合就交給電腦接手（可用 /mahjong back 拿回；段位賽不接手）
+AFK_TURNS_TO_AI = 2
 # 等待中的房間（開了沒人加入沒開打）超過這麼久就自動刪（秒）
 WAITING_TTL = 3 * 3600
-_hand_human_turns:   dict = {}   # gid -> 本局真人回合數（每局重置）
-_hand_human_timeout: dict = {}   # gid -> 本局真人超時回合數（每局重置）
-_afk_streak:         dict = {}   # gid -> 連續「整局全員超時」的局數
 _room_sweeper_started = False
 
 
@@ -314,9 +311,6 @@ def _cleanup(gid: str, channel_id: str) -> None:
     _action_logs.pop(gid, None)
     _lobbies.pop(gid, None)
     _threads.pop(gid, None)
-    _hand_human_turns.pop(gid, None)
-    _hand_human_timeout.pop(gid, None)
-    _afk_streak.pop(gid, None)
     rooms.unregister(gid)
     if _channel_games.get(channel_id) == gid:
         del _channel_games[channel_id]
@@ -588,6 +582,42 @@ def end_request_view(gid: str, lang: str) -> discord.ui.View:
     v.add_item(_EndApproveButton(gid, lang))
     v.add_item(_EndDenyButton(gid, lang))
     return v
+
+
+class AfkBackButton(discord.ui.Button):
+    """被電腦代打時，本人按此接回座位（發在該玩家的私人手牌串）。"""
+    def __init__(self, gid: str, uid: str, lang: str):
+        super().__init__(style=discord.ButtonStyle.success, label=i18n.t("msg.back_btn", lang))
+        self._gid = gid
+        self._uid = str(uid)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        ulang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        if str(interaction.user.id) != self._uid:
+            await interaction.response.send_message(i18n.t("msg.back_not_yours", ulang), ephemeral=True)
+            return
+        gs = _games.get(self._gid)
+        p  = next((pp for pp in gs.players if pp.user_id == self._uid), None) if gs else None
+        if p is None or not getattr(p, "afk_ai", False):
+            await interaction.response.send_message(i18n.t("msg.back_not_afk", ulang), ephemeral=True)
+            return
+        p.is_bot = False
+        p.afk_ai = False
+        p.afk_count = 0
+        try:
+            await interaction.response.edit_message(view=None)   # 拿掉按鈕
+        except Exception:
+            pass
+        try:
+            await interaction.followup.send(i18n.t("msg.back_ok", ulang), ephemeral=True)
+        except Exception:
+            pass
+        pub = (_threads.get(self._gid) or {}).get("public")
+        if pub is not None:
+            try:
+                await pub.send(i18n.t("msg.player_back", i18n.DEFAULT, name=p.username))
+            except Exception:
+                pass
 
 
 class EndGameButton(discord.ui.Button):
@@ -1212,8 +1242,6 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
     is_dm         = bool(th.get("is_dm"))   # DM 對局：稱呼一律用名字（私訊看不到別人的 @）
     _river_cache: dict[str, str] = {}   # uid → 上次送出的牌河文字（沒變就不編輯，省 API）
     _action_logs[gid] = []   # 每局開始清空動作記錄
-    _hand_human_turns[gid] = 0      # AFK 偵測：本局真人回合數
-    _hand_human_timeout[gid] = 0    # AFK 偵測：本局真人超時回合數
 
     async def refresh_rivers():
         """把完整牌河同步到每位玩家面板上方的牌河訊息。"""
@@ -1460,10 +1488,32 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     pass
 
             timed = result is None
-            if not player.is_bot:            # AFK 偵測：記真人回合是否超時
-                _hand_human_turns[gid] = _hand_human_turns.get(gid, 0) + 1
-                if timed:
-                    _hand_human_timeout[gid] = _hand_human_timeout.get(gid, 0) + 1
+            # AFK →電腦接手：真人「有得選卻超時」連續 AFK_TURNS_TO_AI 回合就交給電腦
+            # （立直鎖手的超時不算，那是正常自動打；段位賽為公平不接手）
+            if not player.is_bot:
+                if timed and not already_riichi:
+                    player.afk_count = getattr(player, "afk_count", 0) + 1
+                elif not timed:
+                    player.afk_count = 0
+                if (player.afk_count >= AFK_TURNS_TO_AI
+                        and not config.get("ranked")):
+                    player.is_bot = True
+                    player.afk_ai = True         # 標記：真人被電腦代打
+                    lang_p = i18n.get_user_lang(player.user_id)
+                    pub = th.get("public")
+                    if pub is not None:          # 公開面：純通知（母本）
+                        try:
+                            await pub.send(i18n.t("msg.afk_takeover", i18n.DEFAULT, name=player.username))
+                        except Exception:
+                            pass
+                    ppt = private.get(player.user_id)
+                    if ppt is not None:          # 私人串：附「接回座位」按鈕
+                        try:
+                            _bv = discord.ui.View(timeout=None)
+                            _bv.add_item(AfkBackButton(gid, player.user_id, lang_p))
+                            await ppt.send(i18n.t("msg.afk_takeover", lang_p, name=player.username), view=_bv)
+                        except Exception:
+                            pass
             action, arg = ("discard", None) if timed else result
 
             # ── 九種九牌（途中流局）──
@@ -1825,10 +1875,6 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             if outcome is None:
                 return
             gs = _games[gid]
-            # AFK 偵測：整局真人回合全部超時→累計；有人真的行動就歸零
-            _ht = _hand_human_turns.get(gid, 0)
-            _to = _hand_human_timeout.get(gid, 0)
-            _afk_streak[gid] = (_afk_streak.get(gid, 0) + 1) if (_ht > 0 and _to >= _ht) else 0
             # 一局結束：先刪這局的牌河訊息與手牌面板（結算畫面不殘留舊牌桌），下一局會重發
             for _om in list(th.get("river_msg", {}).values()) + list(th.get("hand_msg", {}).values()):
                 if _om:
@@ -2031,7 +2077,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
 
             # 全部顯示完 → 保留完整結果，倒數 5 秒；最後一局改顯示「結束對局」
             over = st.is_game_over(gs, length, tobi)
-            if _afk_streak.get(gid, 0) >= AFK_HANDS_TO_END:   # 整局無人在玩→直接結束
+            if not any(not p.is_bot for p in gs.players):   # 沒有真人在玩了（都離開/被接手）→ 結束
                 over = True
                 for tch, lg in _thread_langs(public, th.get("private", {})):
                     if tch is not None:
@@ -2218,6 +2264,10 @@ def deal_next_hand(gid: str, players_info: list[dict], prev: GameState) -> GameS
     for p, pp in zip(gs.players, prev.players):
         p.score     = pp.score
         p.is_dealer = (p.seat == prev.dealer_seat)
+        p.afk_count = getattr(pp, "afk_count", 0)
+        if getattr(pp, "afk_ai", False):     # 上一局被電腦接手→續接手（可用 /mahjong back 拿回）
+            p.is_bot = True
+            p.afk_ai = True
     gs.current_seat = prev.dealer_seat   # 莊家先摸
     return gs
 

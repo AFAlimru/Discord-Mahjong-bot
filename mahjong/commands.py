@@ -1476,35 +1476,61 @@ async def cmd_setup_channel(interaction: discord.Interaction,
         i18n.t("setup.channel_set", lang, channel=ch.mention), ephemeral=True)
 
 
-class GuideLangSelect(discord.ui.Select):
-    """指南頻道語言切換：改指南顯示語言，並設為伺服器主要語言。"""
+def _guide_admin_ok(interaction) -> bool:
+    perms = getattr(interaction.user, "guild_permissions", None)
+    return bool(perms and (perms.manage_guild or perms.administrator))
+
+
+class GuideDisplaySelect(discord.ui.Select):
+    """指南顯示語言：只重繪這則指南方便閱讀，不動伺服器設定。"""
     def __init__(self, lang: str = None):
         lang = lang or i18n.DEFAULT
-        opts = [discord.SelectOption(label=i18n.lang_name(c), value=c, default=(c == lang))
-                for c in i18n.available()]
-        super().__init__(placeholder=i18n.t("guide.lang_select", lang),
-                         min_values=1, max_values=1, options=opts, custom_id="guide:lang", row=1)
+        opts = [discord.SelectOption(label=i18n.lang_name(c), value=c) for c in i18n.available()]
+        super().__init__(placeholder=i18n.t("guide.disp_select", lang),
+                         min_values=1, max_values=1, options=opts, custom_id="guide:disp", row=1)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not _guide_admin_ok(interaction):
+            await interaction.response.send_message(
+                i18n.t("hub.need_perm", i18n.get_user_lang(interaction.user.id, interaction.guild_id)),
+                ephemeral=True)
+            return
+        code = self.values[0]
+        await interaction.response.edit_message(content=i18n.t("guide.text", code), view=GuideView(code))
+
+
+class GuideServerLangSelect(discord.ui.Select):
+    """設定伺服器主要語言：沒自訂語言的成員預設用它（同時把指南重繪成該語言）。"""
+    def __init__(self, lang: str = None):
+        lang = lang or i18n.DEFAULT
+        opts = [discord.SelectOption(label=i18n.lang_name(c), value=c) for c in i18n.available()]
+        super().__init__(placeholder=i18n.t("guide.srv_select", lang),
+                         min_values=1, max_values=1, options=opts, custom_id="guide:srvlang", row=2)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         ulang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
-        perms = getattr(interaction.user, "guild_permissions", None)
-        if not (perms and (perms.manage_guild or perms.administrator)):
+        if not _guide_admin_ok(interaction):
             await interaction.response.send_message(i18n.t("hub.need_perm", ulang), ephemeral=True)
             return
         code = self.values[0]
         if interaction.guild_id is not None:
             i18n.set_guild_lang(interaction.guild_id, code)
-        await interaction.response.edit_message(
-            content=i18n.t("guide.text", code), view=GuideView(code))
+        await interaction.response.edit_message(content=i18n.t("guide.text", code), view=GuideView(code))
+        try:
+            await interaction.followup.send(
+                i18n.t("guide.srv_set", ulang, lang=i18n.lang_name(code)), ephemeral=True)
+        except Exception:
+            pass
 
 
 class GuideView(discord.ui.View):
-    """加入伺服器時的管理員指南（persistent）：切換語言＋刪除頻道＋支援伺服器連結。"""
+    """加入伺服器時的管理員指南（persistent）：指南顯示語言＋伺服器主要語言＋刪除頻道＋支援連結。"""
     def __init__(self, lang: str = None):
         super().__init__(timeout=None)
         lang = lang or i18n.DEFAULT
         self.delete_btn.label = i18n.t("guide.delete_btn", lang)
-        self.add_item(GuideLangSelect(lang))
+        self.add_item(GuideDisplaySelect(lang))
+        self.add_item(GuideServerLangSelect(lang))
         from .config import SUPPORT_URL
         if SUPPORT_URL:
             self.add_item(discord.ui.Button(label="💬 支援伺服器",
