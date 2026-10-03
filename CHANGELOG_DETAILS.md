@@ -3,6 +3,35 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.7.4] - 2026-10-03
+
+### 新增
+- **退出伺服器前清理**：`commands.teardown_hub(guild)` 刪除機器人建立的語音配對房、大廳／配對語音頻道、
+  建在大廳類別內的開房頻道與指南頻道；類別只有在 `fetch_channels()` 確認裡面沒有其他頻道時才刪
+  （管理員自己的頻道、用 `/setup channel` 指定在類別外的遊玩頻道一律不動）；最後
+  `db.delete_guild_settings()` 清掉該伺服器設定。供（私有）後台「讓機器人退出」選用。
+  有刪不掉的（多半權限不足）→ 以伺服器語言發 `leave.notice` 到系統頻道或第一個可發言的文字頻道，
+  列出殘留頻道請管理員手動刪；全部刪乾淨則不留言。
+
+### 變更
+- **設定指南**：`guide.text`（zh_tw／ja／en）改寫為三步驟、語音開局為主（`/setup create` → 🔊 配對語音
+  開局／三麻／🤖 與電腦開始 → 🎚️ 語音包），選用項目收成一行。
+- **指南語言選單**：`commands._all_langs(key)` 把 `guide.disp_select`／`guide.srv_select` 在 `i18n.available()`
+  全部語言的文字以「 / 」串成 placeholder（≤150 字），兩個鍵改為短句。
+- **英文聽牌用語**：en.json 的 `term.tenpai`／`term.noten`／`feed.tenpai_note`／`msg.riichi_not_tenpai`／
+  `result.tenpai_list`／`tenpai.advice_title` 改為 Tenpai (ready)／Noten (not ready)。
+- **大廳 DM 按鈕**：`LobbyView.dm_btn` 標籤改 `lobby.dm_btn`（📩 手牌改私訊）；`_content` 尾端加
+  `-# lobby.dm_hint` 說明，名單中 `dm_uids` 內的玩家標 📩；切換後即時 `lobby_message.edit` 更新名單。
+
+### 修正
+- **大廳離開鈕**：`LobbyView.leave_btn`（`lobby.leave_btn`，緊接在加入鈕後）——不在房內回 `msg.not_in_room`；
+  一般玩家從 `_waiting` 移除（含 `dm_uids`）並重繪；房主離開：仍有真人→`_room_owners` 交給最早加入者並在頻道
+  發 `lobby.host_transferred`（@提及），無真人→`_cleanup` 關房、訊息改 `lobby.closed_host_left`。
+  `_content` 名單以 👑 標房主。
+- **權限規格集中**：新增 `mahjong/perms.py`（`CORE`／`THREADS`／`VOICE`／`FEATURES`、`channel_missing()`、
+  `guild_report()`），`run._global_perm_check` 改用 `perms.channel_missing`。修正原檢查漏了
+  `create_private_threads`（手牌私人串）、誤含未使用的 `add_reactions`。
+
 ## [0.7.3] - 2026-09-30
 
 ### 新增

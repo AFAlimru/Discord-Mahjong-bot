@@ -47,20 +47,8 @@ async def _global_perm_check(interaction: discord.Interaction) -> bool:
     g = interaction.guild
     if g is None or g.me is None:
         return True
-    ch = interaction.channel
-    try:
-        perms = ch.permissions_for(g.me)
-    except Exception:
-        return True
-    if perms.administrator:
-        return True
-    need = [("view_channel", "View Channel"), ("send_messages", "Send Messages"),
-            ("embed_links", "Embed Links"), ("add_reactions", "Add Reactions"),
-            ("manage_threads", "Manage Threads")]
-    if isinstance(ch, discord.TextChannel):   # 討論串內不需「建立討論串」權限，避免誤判
-        need += [("create_public_threads", "Create Public Threads"),
-                 ("send_messages_in_threads", "Send Messages in Threads")]
-    missing = [zh for a, zh in need if not getattr(perms, a, True)]
+    from mahjong import perms as _perms
+    missing = _perms.channel_missing(interaction.channel, g.me)
     if not missing:
         return True
     from mahjong import i18n as _i

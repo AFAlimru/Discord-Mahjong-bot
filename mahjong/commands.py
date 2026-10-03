@@ -48,6 +48,8 @@ class LobbyView(discord.ui.View):
         for c in self.children:
             if getattr(c, "label", None) and str(c.label).startswith("🌐"):
                 c.label = i18n.translate_label(self.lang)
+        self.dm_btn.label = i18n.t("lobby.dm_btn", self.lang)
+        self.leave_btn.label = i18n.t("lobby.leave_btn", self.lang)
         # 等待加入時也能看出牌說明
         self.add_item(HelpButton())
 
@@ -59,15 +61,20 @@ class LobbyView(discord.ui.View):
         length    = i18n.t("len.hanchan" if cfg.get("length") == "hanchan" else "len.tonpuu", lang)
         tobi      = i18n.t("toggle.on" if cfg.get("tobi", True) else "toggle.off", lang)
         players   = _waiting.get(self.gid, [])
+        dm_uids   = cfg.get("dm_uids", set())
+        host      = _room_owners.get(self.gid)
         plist     = "\n".join(
             f"• {'🤖' if p.get('is_bot') else ''}{p['username']}"
+            f"{' 👑' if p['user_id'] == host else ''}"
+            f"{' 📩' if p['user_id'] in dm_uids else ''}"
             for p in players
         )
         return (
             f"**{i18n.t('lobby.title', lang)}**\n"
             f"{i18n.t('lobby.info', lang, mode=mode, length=length, tobi=tobi, tt=tt)}\n"
             f"{i18n.t('lobby.players', lang, cur=len(players), max=max_p)}\n{plist}\n\n"
-            f"{i18n.t('lobby.join_hint', lang)}"
+            f"{i18n.t('lobby.join_hint', lang)}\n"
+            f"-# {i18n.t('lobby.dm_hint', lang)}"
         )
 
     @discord.ui.button(label="加入遊戲", style=discord.ButtonStyle.success)
@@ -88,6 +95,40 @@ class LobbyView(discord.ui.View):
         await _close_owned_waiting_rooms(uid, gid)   # 加入別人的房 → 關掉自己開的房
         _waiting[gid].append({"user_id": uid, "username": interaction.user.display_name, "is_bot": False})
         await self._update(interaction)
+
+    @discord.ui.button(label="🚪 離開", style=discord.ButtonStyle.danger)
+    async def leave_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """離開等待中的房間。房主離開：還有其他真人就交棒給最早加入的那位，沒有就關房。"""
+        gid     = self.gid
+        uid     = str(interaction.user.id)
+        ulang   = i18n.get_user_lang(uid, interaction.guild_id)
+        waiting = _waiting.get(gid, [])
+        if not any(p["user_id"] == uid for p in waiting):
+            await interaction.response.send_message(i18n.t("msg.not_in_room", ulang), ephemeral=True)
+            return
+        _waiting[gid] = [p for p in waiting if p["user_id"] != uid]
+        (_room_configs.get(gid, {}).get("dm_uids") or set()).discard(uid)
+        if _room_owners.get(gid) == uid:
+            humans = [p for p in _waiting[gid] if not p.get("is_bot")]
+            if not humans:                              # 沒有其他真人 → 關房
+                self.stop()
+                _cleanup(gid, str(self.channel.id))
+                await interaction.response.edit_message(
+                    content=i18n.t("lobby.closed_host_left", self.lang), view=None)
+                return
+            _room_owners[gid] = humans[0]["user_id"]    # 交棒給最早加入的真人
+            await interaction.response.edit_message(content=self._content(self.lang), view=self)
+            try:
+                await interaction.followup.send(i18n.t("lobby.host_transferred", self.lang,
+                                                       mention=f"<@{humans[0]['user_id']}>"))
+            except Exception:
+                pass
+            return
+        await interaction.response.edit_message(content=self._content(self.lang), view=self)
+        try:
+            await interaction.followup.send(i18n.t("lobby.left", ulang), ephemeral=True)
+        except Exception:
+            pass
 
     @discord.ui.button(label="加入 AI", style=discord.ButtonStyle.secondary)
     async def ai_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -118,7 +159,7 @@ class LobbyView(discord.ui.View):
     async def dm_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         """本場對局的手牌面板走私訊（每人各自切換；只影響這一場）。"""
         uid  = str(interaction.user.id)
-        lang = i18n.get_user_lang(uid)
+        lang = i18n.get_user_lang(uid, interaction.guild_id)
         cfg  = _room_configs.get(self.gid)
         if cfg is None:
             await interaction.response.send_message(i18n.t("msg.no_open_room", lang), ephemeral=True)
@@ -130,6 +171,11 @@ class LobbyView(discord.ui.View):
         else:
             dm_uids.add(uid)
             await interaction.response.send_message(i18n.t("lobby.dm_on", lang), ephemeral=True)
+        if self.lobby_message is not None:           # 大廳名單即時標上 📩
+            try:
+                await self.lobby_message.edit(content=self._content(self.lang), view=self)
+            except Exception:
+                pass
 
     async def _update(self, interaction: discord.Interaction):
         gid   = self.gid
@@ -1476,6 +1522,95 @@ async def cmd_setup_channel(interaction: discord.Interaction,
         i18n.t("setup.channel_set", lang, channel=ch.mention), ephemeral=True)
 
 
+async def teardown_hub(guild) -> dict:
+    """機器人退出前清掉自己建立的東西：語音配對房、大廳／開房／配對語音頻道、指南頻道；
+    類別只有在裡面沒有別人的頻道時才刪。最後移除該伺服器的資料庫設定。
+    回傳 {"deleted": [...], "kept": [...], "failed": [...]}（頻道名稱）。"""
+    from .state import _lobby_channels
+    from . import voice as _voice
+    gid    = str(guild.id)
+    lang   = i18n.guild_lang(gid) or i18n.detect_locale(getattr(guild, "preferred_locale", ""))
+    setup  = db.get_guild_setup(gid) or {}
+    cat_id = setup.get("category_id")
+    deleted, kept, failed, done = [], [], [], set()
+    deleted_ids, failed_chs = set(), []
+
+    def _get(cid):
+        try:
+            return guild.get_channel(int(cid)) if cid else None
+        except (TypeError, ValueError):
+            return None
+
+    async def _del(ch):
+        if ch is None or ch.id in done:
+            return
+        done.add(ch.id)
+        try:
+            await ch.delete(reason="Suzume Tsuk 退出伺服器前清理")
+            deleted.append(ch.name)
+            deleted_ids.add(ch.id)
+        except Exception:
+            failed.append(ch.name)
+            failed_chs.append(ch)
+
+    for vcid in list(_voice._voice_rooms):            # 還沒開局的語音配對房
+        ch = guild.get_channel(vcid)
+        if ch is not None:
+            _voice._voice_rooms.pop(vcid, None)
+            await _del(ch)
+    await _del(_get(setup.get("lobby_channel_id")))
+    await _del(_get(setup.get("hub_voice_id")))
+    play = _get(db.get_play_channel(gid))              # 只刪建在大廳類別裡的開房頻道；管理員自己指定的不動
+    if play is not None and cat_id and str(getattr(play, "category_id", "")) == str(cat_id):
+        await _del(play)
+    guide_names = {i18n.t("guide.channel_name", L) for L in i18n.available()}
+    for ch in list(guild.text_channels):
+        if ch.name in guide_names:
+            await _del(ch)
+
+    cat = _get(cat_id)
+    if cat is not None:
+        try:                                           # 向 API 重抓，避免快取裡還留著剛刪掉的頻道
+            rest = [c for c in await guild.fetch_channels()
+                    if getattr(c, "category_id", None) == cat.id and c.id not in done]
+        except Exception:
+            rest = [c for c in cat.channels if c.id not in done]
+        if rest:
+            kept.append(f"{cat.name}（裡面還有 {len(rest)} 個其他頻道）")
+        else:
+            await _del(cat)
+
+    # 有刪不掉的（多半是權限不足）→ 在文字頻道留言請管理員手動刪；全部刪乾淨就不打擾
+    notified = None
+    if failed_chs:
+        items = "\n".join(f"・**{c.name}**" if isinstance(c, discord.CategoryChannel) else f"・<#{c.id}>"
+                          for c in failed_chs)
+        me = guild.me
+        cands = ([guild.system_channel] if guild.system_channel else []) + list(guild.text_channels)
+        for ch in cands:
+            if ch is None or ch.id in deleted_ids:
+                continue
+            try:
+                p = ch.permissions_for(me)
+                if not (p.view_channel and p.send_messages):
+                    continue
+                await ch.send(i18n.t("leave.notice", lang, channels=items))
+                notified = ch.name
+                break
+            except Exception:
+                continue
+
+    db.delete_guild_settings(gid)
+    _lobby_channels.pop(gid, None)
+    i18n._guild_cache.pop(gid, None)
+    return {"deleted": deleted, "kept": kept, "failed": failed, "notified": notified}
+
+
+def _all_langs(key: str) -> str:
+    """把某個鍵在所有語言的文字串起來（語言選單要讓每個人都看得懂）。"""
+    return "🌐 " + " / ".join(dict.fromkeys(i18n.t(key, L) for L in i18n.available()))
+
+
 def _guide_admin_ok(interaction) -> bool:
     perms = getattr(interaction.user, "guild_permissions", None)
     return bool(perms and (perms.manage_guild or perms.administrator))
@@ -1486,7 +1621,7 @@ class GuideDisplaySelect(discord.ui.Select):
     def __init__(self, lang: str = None):
         lang = lang or i18n.DEFAULT
         opts = [discord.SelectOption(label=i18n.lang_name(c), value=c) for c in i18n.available()]
-        super().__init__(placeholder=i18n.t("guide.disp_select", lang),
+        super().__init__(placeholder=_all_langs("guide.disp_select")[:150],
                          min_values=1, max_values=1, options=opts, custom_id="guide:disp", row=1)
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -1504,7 +1639,7 @@ class GuideServerLangSelect(discord.ui.Select):
     def __init__(self, lang: str = None):
         lang = lang or i18n.DEFAULT
         opts = [discord.SelectOption(label=i18n.lang_name(c), value=c) for c in i18n.available()]
-        super().__init__(placeholder=i18n.t("guide.srv_select", lang),
+        super().__init__(placeholder=_all_langs("guide.srv_select")[:150],
                          min_values=1, max_values=1, options=opts, custom_id="guide:srvlang", row=2)
 
     async def callback(self, interaction: discord.Interaction) -> None:

@@ -530,6 +530,19 @@ def set_guild_setup(guild_id: str, category_id: str | None,
         )
 
 
+def get_all_guild_settings() -> dict:
+    """一次讀出全部伺服器設定（後台列表用，避免逐台查詢）。guild_id -> dict。"""
+    with get_connection() as conn:
+        rows = conn.execute("SELECT * FROM guild_settings").fetchall()
+    return {r["guild_id"]: dict(r) for r in rows}
+
+
+def delete_guild_settings(guild_id: str) -> None:
+    """移除該伺服器的全部設定（大廳、遊玩頻道、主要語言、語音包）。機器人退出並清理後用。"""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM guild_settings WHERE guild_id=?", (guild_id,))
+
+
 def get_total_games(user_id: str) -> int:
     """某玩家所有模式的總對局場數。"""
     with get_connection() as conn:
