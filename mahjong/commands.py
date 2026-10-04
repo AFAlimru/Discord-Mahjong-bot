@@ -19,6 +19,7 @@ import discord
 from discord import app_commands
 
 from .config import AI_NAMES
+from .numfmt import compact, signed as signed_num
 from . import db
 from . import i18n
 from . import rooms
@@ -501,7 +502,7 @@ async def cmd_stats(interaction: discord.Interaction) -> None:
         dan = db.get_rating(uid, mode)
         if dan and dan["games"]:
             from . import rating as _rt
-            lines.insert(0, f"🏅 **{_rt.dan_name(dan['dan_idx'])}**（{dan['dan_pt']}pt）"
+            lines.insert(0, f"🏅 **{_rt.dan_name(dan['dan_idx'])}**（{_rt.pt_text(dan['dan_idx'], dan['dan_pt'])}pt）"
                             f"　`R` {dan['rate']:.0f}　`{L('stats.games')}` {dan['games']}")
         rt = db.get_hand_rates(uid, mode)
         if rt["hands"]:
@@ -517,7 +518,7 @@ async def cmd_stats(interaction: discord.Interaction) -> None:
         lines.append(
             f"`{L('stats.tsumo')}` {summ['tsumo'] or 0}　`{L('stats.ron')}` {summ['ron'] or 0}"
             f"　`{L('stats.houju')}` {summ['houju'] or 0}　`{L('stats.riichi')}` {summ['riichi'] or 0}")
-        lines.append(f"`{L('stats.gain')}` {signed(summ['gain_points'])}　`{L('stats.lost')}` {summ['houju_points'] or 0}")
+        lines.append(f"`{L('stats.gain')}` {signed_num(summ['gain_points'])}　`{L('stats.lost')}` {compact(summ['houju_points'])}")
         embed.add_field(name=i18n.t("mode.yonma" if is4 else "mode.sanma", lang),
                         value="\n".join(lines), inline=False)
     await interaction.response.send_message(embed=embed, view=_web_stats_view(lang))   # 公開顯示（非 ephemeral）
@@ -653,8 +654,12 @@ async def cmd_match(interaction: discord.Interaction,
 async def cmd_rankinfo(interaction: discord.Interaction) -> None:
     from . import rating
     lang   = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
-    ladder = "　→　".join(rating.DAN_NAMES)
-    await interaction.response.send_message(i18n.t("rank.info", lang, ladder=ladder), ephemeral=True)
+    ladder = rating.ladder_text()
+    table  = i18n.t("rank.pt_table", lang,
+                    m4=i18n.t("mode.yonma", lang), t4=rating.place_table(False),
+                    m3=i18n.t("mode.sanma", lang), t3=rating.place_table(True))
+    await interaction.response.send_message(
+        i18n.t("rank.info", lang, ladder=ladder) + "\n\n" + table, ephemeral=True)
 
 
 # 役種一覽（與 scoring.py 實作一致）；※＝副露減 1 飜
@@ -731,7 +736,7 @@ async def _set_skin_choice(interaction: discord.Interaction, val: str, label: st
                 unlocked = False
         if not unlocked:
             await interaction.response.send_message(
-                i18n.t("skin.locked", lang, dan=_rt.DAN_NAMES[_rt.BLACK_SKIN_IDX]), ephemeral=True)
+                i18n.t("skin.locked", lang, dan=_rt.dan_name(_rt.BLACK_SKIN_IDX)), ephemeral=True)
             return
     db.set_user_skin(uid, None if val == "default" else val)
     _skin_cache.pop(uid, None)   # 對局中的快取立即失效，下一次渲染就換
@@ -744,7 +749,7 @@ async def cmd_daily(interaction: discord.Interaction) -> None:
     r = db.checkin(str(interaction.user.id), interaction.user.display_name)
     key = "daily.already" if r["already"] else "daily.done"
     await interaction.response.send_message(
-        i18n.t(key, lang, reward=r["reward"], streak=r["streak"], activity=r["activity"]))
+        i18n.t(key, lang, reward=compact(r["reward"]), streak=r["streak"], activity=compact(r["activity"])))
 
 
 @mahjong.command(name="tasks", description="查看每日任務與活躍度")
@@ -756,7 +761,7 @@ async def cmd_tasks(interaction: discord.Interaction) -> None:
     embed.description = (
         f"{mk(s['checkin'])} {i18n.t('task.checkin', lang)}\n"
         f"{mk(s['played'])} {i18n.t('task.play', lang)}\n\n"
-        f"{i18n.t('task.activity', lang)} **{s['activity']}**　"
+        f"{i18n.t('task.activity', lang)} **{compact(s['activity'])}**　"
         f"{i18n.t('task.streak', lang)} **{s['streak']}**"
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -785,7 +790,7 @@ def _profile_embed(u) -> discord.Embed:
         lines.append(f"{L('profile.dan')}：" + "　/　".join(dans))
 
     act = db.get_activity(uid) or {}
-    lines.append(f"{L('profile.activity')}：**{act.get('activity', 0)}**"
+    lines.append(f"{L('profile.activity')}：**{compact(act.get('activity', 0))}**"
                  f"　{L('profile.streak')}：{act.get('streak', 0)}")
 
     y = db.get_mode_summary(uid, "yonma")
@@ -1303,7 +1308,8 @@ class LobbyPanel(discord.ui.View):
         r = db.checkin(str(interaction.user.id), interaction.user.display_name)
         key = "daily.already" if r["already"] else "daily.done"
         await interaction.response.send_message(
-            i18n.t(key, lang, reward=r["reward"], streak=r["streak"], activity=r["activity"]),
+            i18n.t(key, lang, reward=compact(r["reward"]), streak=r["streak"],
+                   activity=compact(r["activity"])),
             ephemeral=True)
 
     @discord.ui.button(label="🔔 通知", style=discord.ButtonStyle.secondary,
@@ -1392,6 +1398,11 @@ setup_group = app_commands.Group(
 @setup_group.command(name="create",
                      description="建立雀月類別（大廳頻道＋配對語音；對局頻道也會開在裡面；需管理頻道權限）")
 async def cmd_setup_create(interaction: discord.Interaction) -> None:
+    await _do_setup_create(interaction)
+
+
+async def _do_setup_create(interaction: discord.Interaction) -> None:
+    """建立雀月類別＋大廳＋開房頻道＋配對語音（/setup create 與指南的「建立大廳」按鈕共用）。"""
     lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
     if interaction.guild_id is None:
         await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
@@ -1400,8 +1411,16 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
     if not (perms and (perms.manage_channels or perms.administrator)):
         await interaction.response.send_message(i18n.t("hub.need_perm", lang), ephemeral=True)
         return
-    await interaction.response.defer(ephemeral=True)
     guild = interaction.guild
+    try:                                   # 大廳還在 → 不重複建（要重建請先刪掉舊大廳）
+        old = guild.get_channel(int(db.get_guild_setup(str(guild.id)).get("lobby_channel_id") or 0))
+    except (TypeError, ValueError):
+        old = None
+    if old is not None:
+        await interaction.response.send_message(
+            i18n.t("hub.already", lang, channel=old.mention), ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
     # 0.7：建「類別」→ 裡面放大廳文字頻道＋配對語音；之後對局頻道全開在此類別下
     cat = None
     try:
@@ -1793,6 +1812,7 @@ class GuideView(discord.ui.View):
     def __init__(self, lang: str = None):
         super().__init__(timeout=None)
         lang = lang or i18n.DEFAULT
+        self.create_btn.label = i18n.t("guide.create_btn", lang)
         self.delete_btn.label = i18n.t("guide.delete_btn", lang)
         self.add_item(GuideDisplaySelect(lang))
         self.add_item(GuideServerLangSelect(lang))
@@ -1800,6 +1820,11 @@ class GuideView(discord.ui.View):
         if SUPPORT_URL:
             self.add_item(discord.ui.Button(label="💬 支援伺服器",
                                             style=discord.ButtonStyle.link, url=SUPPORT_URL))
+
+    @discord.ui.button(label="🏗️ 建立大廳", style=discord.ButtonStyle.success,
+                       custom_id="guide:create", row=0)
+    async def create_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _do_setup_create(interaction)       # 等同 /setup create（權限檢查在裡面）
 
     @discord.ui.button(label="🗑 刪除指南頻道", style=discord.ButtonStyle.danger,
                        custom_id="guide:delete", row=0)

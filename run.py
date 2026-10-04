@@ -221,6 +221,18 @@ async def ensure_guild_setup(guild, create_guide: bool = True) -> None:
                     print(f"[setup] 已補發「{getattr(guild, 'name', '?')}」的設定指南")
                 except Exception as e:
                     print(f"⚠️ 補發指南失敗（{getattr(guild, 'name', '?')}）: {e}")
+            else:                             # 舊版指南訊息沒有「建立大廳」鈕 → 換上新的按鈕
+                try:
+                    async for m in c.history(limit=10):
+                        if m.author.id != me.id or not m.components:
+                            continue
+                        ids = {getattr(x, "custom_id", None)
+                               for row in m.components for x in getattr(row, "children", [])}
+                        if "guide:delete" in ids and "guide:create" not in ids:
+                            await m.edit(view=GuideView(lang))
+                        break
+                except Exception:
+                    pass
             return
     for c in guides:                          # 只剩機器人看不到的舊指南頻道（舊版建錯的）→ 試著刪掉
         try:

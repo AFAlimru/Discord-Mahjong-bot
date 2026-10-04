@@ -62,13 +62,13 @@ def in_queue(uid: str):
     return None
 
 
-DAN_BAND = 2       # 段位賽可配對的段位跨度：同一場最高與最低段相差 ≤ 2（＝各人上下一段）
+DAN_BAND = 2       # 段位賽可配對的段位跨度（以「階」計，不看 1～3 級）：同場最高與最低階相差 ≤ 2
 
 
 def _dan_of(uid: str, mode: str) -> int:
-    from . import db
+    from . import db, rating
     r = db.get_rating(uid, mode)
-    return r["dan_idx"] if r else 0
+    return rating.tier_of(r["dan_idx"]) if r else 0
 
 
 def _try_match(kind: str, m: str, n: int):

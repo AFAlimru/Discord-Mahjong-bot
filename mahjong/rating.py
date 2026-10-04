@@ -15,71 +15,159 @@
 
 只有「段位賽」對局會套用。本檔不碰資料庫、不依賴 discord，方便單獨測試。
 
-- 段位（門面）：新人 → 九級…一級 → 初段…十段 → 天鳳位。依順位加減段位點 (pt)，
-  累積足夠即升段；初段（含）以上點數歸零會降段（級位不降）。
+- 段位（門面）：新人 → 新月 → … → 日全食 → 血月；除了最高的血月，每階分 1～3 級（同雀魂「雀聖 1／2／3」）。
+  依順位加減段位點 (pt)，達到該級所需 pt 就升一級，升級後從新級所需 pt 的**一半**開始（同天鳳、雀魂）。
+  每一級的所需 pt 都比前一級多：同一階 1→2→3 級各多 25%，下一階的 1 級是上一階 1 級的兩倍。
+  第一階（新人）例外：所需 pt 另訂、從 0 開始、不會降級。
+  上弦月起 pt 低於 0 會降一級，同樣從該級所需 pt 的一半開始。
 - R 值（實力）：類天鳳 Rate，依「順位 + 與對手平均 R 的差」加權，對局數越多變動越小。
 
-所有常數集中在最上方，方便日後調整。
+資料庫存的 dan_idx＝攤平後的「級」索引（LEVELS），所有常數集中在最上方，方便日後調整。
 """
 from __future__ import annotations
+from .numfmt import compact
 
 # ─── 段位階梯（月蝕主題）──────────────────────────────────────────────────
-# (顯示名, 升段所需點數)；最後一階為頂點，無升段門檻。資料庫存的是索引，改名不影響舊資料。
-DAN_LADDER: list[tuple[str, int | None]] = [
-    ("新人",    30),
-    ("新月",   100),
-    ("殘月",   200),
-    ("上弦月", 400),
-    ("下弦月", 600),
-    ("月偏食", 800),
-    ("日全食", 1000),
+# (階名, [1 級, 2 級, 3 級 各自升級所需 pt])；None＝頂點（不分級、無升級門檻）。
+# 規則：每一級都比前一級多——同一階裡 ×1／×1.25／×1.5，下一階 1 級＝上一階 1 級 ×2（新人例外）。
+TIERS: list[tuple[str, list[int] | None]] = [
+    ("新人",   [20, 30, 40]),          # 第一階：另訂、從 0 開始、不降級
+    ("新月",   [100, 125, 150]),
+    ("殘月",   [200, 250, 300]),
+    ("上弦月", [400, 500, 600]),
+    ("下弦月", [800, 1000, 1200]),
+    ("月偏食", [1600, 2000, 2400]),
+    ("日全食", [3200, 4000, 4800]),
     ("血月",   None),
 ]
-DAN_NAMES = [n for n, _ in DAN_LADDER]
-DAN_NEED  = [need for _, need in DAN_LADDER]
-TOP_IDX   = len(DAN_LADDER) - 1
-DEMOTABLE_FROM = 3         # idx>=3（上弦月）起，點數歸零會降階；新人～殘月不降
-BLACK_SKIN_IDX = DAN_NAMES.index("日全食")   # 達「日全食」解鎖黑色牌風
+DEMOTABLE_TIER = 3         # 上弦月（含）起 pt 低於 0 會降級；新人～殘月不降
+TOP_START_PT   = 10_000    # 升上血月時的起始 pt（血月不分級、pt 往上累積，掉到 0 以下回日全食 3）
 
+# 攤平成「級」：[(階索引, 級 1～3；頂點為 0), …]，dan_idx 就是這個列表的索引
+LEVELS: list[tuple[int, int]] = [
+    (t, sub) for t, (_, needs) in enumerate(TIERS)
+    for sub in (range(1, len(needs) + 1) if needs else (0,))
+]
+TOP_IDX  = len(LEVELS) - 1
 START_RATE = 1500.0        # R 初始值
 
 
+def _clamp(idx: int) -> int:
+    return max(0, min(int(idx or 0), TOP_IDX))
+
+
+def tier_of(idx: int) -> int:
+    """級 → 所屬階索引（配對用的段位跨度以階計）。"""
+    return LEVELS[_clamp(idx)][0]
+
+
+def level_index(tier: int, sub: int = 1) -> int:
+    """(階, 級) → dan_idx；頂點忽略級。"""
+    for i, (t, s) in enumerate(LEVELS):
+        if t == tier and (s == sub or s == 0):
+            return i
+    return TOP_IDX
+
+
+def need_pt(idx: int) -> int | None:
+    """這一級升級所需 pt（頂點＝None）。"""
+    t, sub = LEVELS[_clamp(idx)]
+    needs = TIERS[t][1]
+    return needs[sub - 1] if needs else None
+
+
+def start_pt(idx: int) -> int:
+    """升／降到這一級時的起始 pt：新人＝0，血月＝TOP_START_PT，其他＝所需 pt 的一半。"""
+    idx = _clamp(idx)
+    if tier_of(idx) == 0:
+        return 0
+    if idx == TOP_IDX:
+        return TOP_START_PT
+    return (need_pt(idx) or 0) // 2
+
+
 def dan_name(idx: int) -> str:
-    return DAN_NAMES[max(0, min(idx, TOP_IDX))]
+    """顯示名，如「上弦月 2」；頂點只有階名。"""
+    t, sub = LEVELS[_clamp(idx)]
+    return f"{TIERS[t][0]} {sub}" if sub else TIERS[t][0]
+
+
+def pt_text(idx: int, pt: int) -> str:
+    """pt 進度，如「250/400」「2.4k/4.8k」；頂點只顯示累積 pt（如「12.3k」）。"""
+    need = need_pt(idx)
+    return f"{compact(pt)}/{compact(need)}" if need is not None else compact(pt)
+
+
+def ladder_text() -> str:
+    """段位說明用：每階一行「新人　20／30／40」，頂點只有階名。"""
+    return "\n".join(f"{n}　" + "／".join(compact(x) for x in needs) if needs
+                     else f"{n}　（{compact(TOP_START_PT)} 起）" for n, needs in TIERS)
+
+
+def place_table(is_sanma: bool) -> str:
+    """段位說明用：各階依順位的 pt 增減（相同的相鄰階合併成「新人～殘月」）。"""
+    places = (1, 2, 3) if is_sanma else (1, 2, 3, 4)
+    fmt = lambda v: f"+{v}" if v > 0 else (str(v) if v < 0 else "0")
+    rows: list[list] = []                       # [[起始階名, 結束階名, 數值列], …]
+    for t, (name, _) in enumerate(TIERS):
+        vals = tuple(dan_place_pt(r, level_index(t, 1), is_sanma) for r in places)
+        if rows and rows[-1][2] == vals:
+            rows[-1][1] = name
+        else:
+            rows.append([name, name, vals])
+    return "\n".join((a if a == b else f"{a}～{b}") + "　" + "／".join(fmt(v) for v in vals)
+                     for a, b, vals in rows)
+
+
+BLACK_SKIN_IDX = level_index([n for n, _ in TIERS].index("日全食"), 1)   # 達「日全食 1」解鎖黑色牌風
 
 
 # ─── 段位點數（依順位）─────────────────────────────────────────────────────────
+# 各階依順位的 pt（與 TIERS 同順序）。所需 pt 每階 ×2，加分也跟著放大（上弦月起約每階 ×1.4）——
+# 越高階越難爬，但不會慢到爬不動（估算中上水準打完日全食約 90 場）；墊底扣分同步加重，
+# 讓高階的「整桌加總」偏小（平均水準的人會停在自己的階附近，強的人才往上）。
+PLACE_PT_4: list[tuple[int, int, int, int]] = [     # 四麻：一位／二位／三位／四位
+    (40,  20,  10,    0),    # 新人（不扣分）
+    (60,  30,   0,  -20),    # 新月
+    (80,  40,   0,  -50),    # 殘月
+    (120, 60,   0, -110),    # 上弦月
+    (180, 90, -15, -190),    # 下弦月
+    (260, 130, -30, -290),   # 月偏食
+    (380, 190, -50, -420),   # 日全食
+    (480, 240, -70, -540),   # 血月
+]
+PLACE_PT_3: list[tuple[int, int, int]] = [          # 三麻：一位／二位／三位
+    (40,  10,    0),         # 新人（不扣分）
+    (60,   0,  -20),         # 新月
+    (80,   0,  -40),         # 殘月
+    (120,  0,  -90),         # 上弦月
+    (180,  0, -150),         # 下弦月
+    (260,  0, -235),         # 月偏食
+    (380,  0, -350),         # 日全食
+    (480,  0, -465),         # 血月
+]
+
+
 def dan_place_pt(rank: int, dan_idx: int, is_sanma: bool) -> int:
-    """一場段位賽依終局順位得到的段位點數。高段位墊底扣得更兇。"""
-    penalty = 75 + max(0, dan_idx - (DEMOTABLE_FROM - 1)) * 15   # 初段起每段 +15
-    if is_sanma:   # 三麻：1/2/3 位
-        return {1: 90, 2: 0}.get(rank, -penalty)
-    # 四麻：1/2/3/4 位
-    if rank == 1:
-        return 90
-    if rank == 2:
-        return 45
-    if rank == 3:
-        return 0 if dan_idx < 5 else -15       # 月偏食起三位也微扣
-    return -penalty
+    """一場段位賽依終局順位得到的段位點數（依所在的階查 PLACE_PT_4／PLACE_PT_3）。"""
+    row = (PLACE_PT_3 if is_sanma else PLACE_PT_4)[tier_of(dan_idx)]
+    return row[max(1, min(rank, len(row))) - 1]
 
 
 def apply_dan(dan_idx: int, dan_pt: int, rank: int, is_sanma: bool) -> tuple[int, int]:
-    """套用一場段位賽，回傳新的 (dan_idx, dan_pt)。"""
+    """套用一場段位賽，回傳新的 (dan_idx, dan_pt)。一場最多升／降一級，溢出的 pt 不帶走。"""
+    dan_idx = _clamp(dan_idx)
     dan_pt += dan_place_pt(rank, dan_idx, is_sanma)
-    # 升段（可連升；點數溢出帶到下一階）
-    while dan_idx < TOP_IDX and DAN_NEED[dan_idx] is not None and dan_pt >= DAN_NEED[dan_idx]:
-        dan_pt -= DAN_NEED[dan_idx]
+    need = need_pt(dan_idx)
+    if need is not None and dan_pt >= need:            # 升一級，從新級所需 pt 的一半開始
         dan_idx += 1
-    # 降段（初段以上；級位點數最低 0）。一場最多降一階，落在配給（半條），不連環掉。
-    if dan_pt < 0:
-        if dan_idx >= DEMOTABLE_FROM:
+        dan_pt = start_pt(dan_idx)
+    elif dan_pt < 0:
+        if tier_of(dan_idx) >= DEMOTABLE_TIER:         # 降一級，同樣從一半開始
             dan_idx -= 1
-            dan_pt = (DAN_NEED[dan_idx] or 0) // 2       # 降段配給：半條
+            dan_pt = start_pt(dan_idx)
         else:
             dan_pt = 0
-    if dan_idx >= TOP_IDX:        # 已達頂點，點數不再累積
-        dan_idx, dan_pt = TOP_IDX, max(0, dan_pt)
     return dan_idx, dan_pt
 
 

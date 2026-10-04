@@ -3,6 +3,39 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.8.1] - 2026-10-04
+
+### 變更
+- **段位分級（參考天鳳、雀魂）**：`rating.py` 改以 `TIERS`（階名, [1／2／3 級所需 pt]）攤平成 `LEVELS`
+  （[(階, 級)]，頂點級＝0），`dan_idx` 改存 `LEVELS` 索引（共 22 級）。所需 pt 每一級嚴格遞增：同一階 ×1／×1.25／×1.5，
+  下一階 1 級＝上一階 1 級 ×2（新月 100 起到日全食 3200／4000／4800）；新人另訂 20／30／40；血月無上限。
+  新增 `tier_of()`／`level_index()`／`need_pt()`／`start_pt()`（新人＝0、其他＝所需的一半、血月用日全食 3 的一半）／
+  `pt_text()`（「250/400」）／`ladder_text()`（每階一行列出三級所需）／`place_table(is_sanma)`（由 `dan_place_pt`
+  逐階產生依順位的增減，相同的相鄰階合併成「新人～殘月」）。
+  `dan_place_pt` 改查表 `PLACE_PT_4`／`PLACE_PT_3`（與 `TIERS` 同序），取代原本固定 +90／+45 加「墊底按階加扣」公式：
+  四麻一位 40／60／80／120／180／260／380／480、二位為一位的一半、三位從下弦月起 −15／−30／−50／−70、
+  四位 0／−20／−50／−110／−190／−290／−420／−540；三麻一位同四麻、二位 0（新人 +10）、
+  三位 0／−20／−40／−90／−150／−235／−350／−465。低階整桌加總為正（新手容易往上），高階偏小。
+  估算打完一整階（1～3 級）：中上水準（30／25／25／20%）上弦月約 26 場、下弦月 43、月偏食 67、日全食 92
+  （新人到血月約 260 場）；平均水準日全食約 240 場。
+- **指南「🏗️ 建立大廳」**：`/setup create` 本體抽成 `_do_setup_create(interaction)`，`GuideView` 加 persistent 按鈕
+  `guide:create`（`guide.create_btn`）呼叫它；開頭先查 `get_guild_setup().lobby_channel_id`，頻道還在就回 `hub.already`
+  不重建。`guide.text` 第 ① 步改為「按下方 🏗️ 建立大廳（或 /setup create）」。`run.ensure_guild_setup` 對已有訊息的
+  指南頻道掃最近 10 則，找到機器人的指南（有 `guide:delete`、沒 `guide:create`）就 `edit(view=GuideView(lang))`。`/mahjong rankinfo` 在 `rank.info` 後附 `rank.pt_table`。`apply_dan` 一場最多升／降一級、溢出不帶走，
+  升降後都從 `start_pt`；`DEMOTABLE_TIER = 3`（上弦月起才降級）；`dan_place_pt` 的墊底加扣與三位微扣改以「階」計，
+  數值不變。移除 `DAN_LADDER`／`DAN_NAMES`／`DAN_NEED`／`DEMOTABLE_FROM`；`BLACK_SKIN_IDX`＝日全食 1。
+- **血月起始**：`rating.TOP_START_PT = 10_000`，`start_pt(TOP_IDX)` 回傳它（原為日全食 3 的一半）；
+  舊資料轉換時原本的血月也會拿到 10,000。`ladder_text` 的血月列顯示「（10k 起）」。
+- **數字縮寫**：新增 `mahjong/numfmt.py`——`compact(n)`（<1000 照原樣；以上 k／M／B，依大小留 2／1／0 位小數、
+  無條件捨去避免出現「1000k」）與 `signed(n)`。套用到 `/mahjong daily`／大廳簽到的獎勵與活躍度、`/mahjong tasks`、
+  個人資訊卡活躍度、`/mahjong stats` 的獲得／失點、`rating.pt_text`／`ladder_text`、（私有）網站活躍度榜。
+  終局分數、和了打點不縮寫。
+- **配對**：`matchmaking._dan_of` 改回傳階（`tier_of`），`DAN_BAND = 2` 以階計、不看 1～3 級。
+- **顯示**：`/mahjong stats`、段位賽結算（`rank.result`）、（私有）網站個人頁／排行榜／後台都改顯示 `pt_text`；
+  `/mahjong rankinfo` 的階梯附每級所需 pt，`rank.info` 三語說明改寫（分級、翻倍、一半起始、新人例外）。
+- **舊資料轉換**：`db.init_db` 以 `PRAGMA user_version` 標記，<1 時把 `user_rating.dan_idx`（舊＝階）換成該階 1 級、
+  `dan_pt` 設為起始值，再設 `user_version = 1`（只跑一次）。以舊格式資料庫實測轉換與重跑皆正確。
+
 ## [0.8.0] - 2026-10-04
 
 ### 新增

@@ -136,6 +136,14 @@ def init_db() -> None:
             conn.execute("ALTER TABLE user_prefs ADD COLUMN voice_pack TEXT")
         except Exception:
             pass
+        if conn.execute("PRAGMA user_version").fetchone()[0] < 1:
+            # 0.8.1 段位改成每階 1～3 級：舊的 dan_idx 是「階」→ 換成該階的 1 級，pt 從起始值開始
+            from . import rating
+            for r in conn.execute("SELECT user_id, mode, dan_idx FROM user_rating").fetchall():
+                idx = rating.level_index(min(int(r["dan_idx"] or 0), len(rating.TIERS) - 1), 1)
+                conn.execute("UPDATE user_rating SET dan_idx=?, dan_pt=? WHERE user_id=? AND mode=?",
+                             (idx, rating.start_pt(idx), r["user_id"], r["mode"]))
+            conn.execute("PRAGMA user_version = 1")
     print(f"[DB] Database initialised at: {DATABASE_PATH}")
 
 

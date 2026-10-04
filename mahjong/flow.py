@@ -2306,7 +2306,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     try:
                         await pt.send(i18n.t(
                             "rank.result", lg, dan=_rt.dan_name(v["dan_idx"]),
-                            pt=v["dan_pt"], rate=v["rate"],
+                            pt=_rt.pt_text(v["dan_idx"], v["dan_pt"]), rate=v["rate"],
                             dr=(f"+{dr:.1f}" if dr >= 0 else f"{dr:.1f}")))
                     except Exception:
                         pass
