@@ -17,16 +17,19 @@
 直接把檔案播進語音頻道。任何格式（mp3/ogg/wav/…）皆可，無 Soundboard 的數量上限。
 
 - **語音包＝資料夾**：`SOUNDS_DIR` 底下每個子資料夾就是一個語音包，資料夾名＝包名。
-  每台伺服器可用 `/setup voice`／面板選一個（存 DB）；**未選＝不出聲**（要有聲才選包），
-  選了語音包後、包內缺某檔時才退回根目錄的同名檔當後備。
-- **名稱**：事件音（start/riichi/ippatsu/pon/chi/kan/tsumo/ron/ryuukyoku）＋和了役名（＝役名本身）
-  ＋打點階級（han/mangan/…）。缺檔＝該項靜默略過。
+  **個人設定**：每位玩家在大廳「🎚️ 語音」自選（存 user_prefs）；對局中誰的動作就用誰的包，
+  **沒選＝他的動作不出聲**。開局與 AI 的動作用房主（或其他有選的真人）的包。
+  包內缺某檔時才退回根目錄的同名檔當後備。
+- **名稱**：事件音（start/discard/riichi/pon/chi/kan/tsumo/ron/ryuukyoku）＋和了役名（＝役名本身）
+  ＋途中流局名（九種九牌/四風連打/…，缺檔退回 ryuukyoku）＋打點階級（mangan/haneman/…，滿貫以上才唸）。
+  缺檔＝該項靜默略過。
 - **播放**：每台伺服器一條佇列、依序播；`play()` 只排入即返回（不擋遊戲流程），背景消費者逐一播。
 - **前置**：FFmpeg（需在 PATH）＋ PyNaCl（進語音）。缺 FFmpeg 時整個模組靜默停用，文字對局不受影響。
 """
 from __future__ import annotations
 import asyncio
 import os
+import shlex
 import shutil
 import discord
 
@@ -38,11 +41,14 @@ from . import db
 AUDIO_EXTS = (".mp3", ".ogg", ".oga", ".opus", ".wav", ".m4a", ".aac", ".flac", ".webm")
 
 # 事件音效名（動作當下播）
-EVENT_SOUNDS = ("start", "discard", "riichi", "ippatsu", "pon", "chi", "kan",
+EVENT_SOUNDS = ("start", "discard", "riichi", "pon", "chi", "kan",
                 "tsumo", "ron", "ryuukyoku")
 
-# 打點階級音效名（由 tier_sound 依 ScoreResult.name 對應）
-TIER_SOUNDS = ("han", "mangan", "haneman", "baiman", "sanbaiman", "yakuman", "kazoe")
+# 途中流局語音（音效名＝流局名本身）；包裡沒有專屬檔時退回 ryuukyoku
+ABORT_SOUNDS = ("九種九牌", "四風連打", "四槓散了", "四家立直", "三家和")
+
+# 打點階級音效名（由 tier_sound 依 ScoreResult.name 對應；滿貫以下不唸）
+TIER_SOUNDS = ("mangan", "haneman", "baiman", "sanbaiman", "yakuman", "kazoe")
 
 # 和了役名語音：音效名＝役名本身（結果畫面逐一揭曉的中文名）；play_win 逐一唸出，有檔才響。
 # ⚠️ 此表需與 scoring.py 實際產生的役名一致——新增／改名役種時記得同步補這裡。
@@ -64,8 +70,8 @@ YAKU_SOUNDS: frozenset = frozenset({
     "流局滿貫",
 })
 
-# 一個「完整語音包」預期包含的所有音效名（供 /setup voice 顯示齊全度）
-ALL_SOUND_NAMES: tuple = EVENT_SOUNDS + TIER_SOUNDS + tuple(sorted(YAKU_SOUNDS))
+# 一個「完整語音包」預期包含的所有音效名（供語音包選單顯示齊全度）
+ALL_SOUND_NAMES: tuple = EVENT_SOUNDS + ABORT_SOUNDS + TIER_SOUNDS + tuple(sorted(YAKU_SOUNDS))
 
 # 和了語音序列的時序（秒），可調。
 WIN_INTRO_GAP = 1.5   # 和了 → 開始唸役名前的等待（對齊儀式標題／手牌揭曉）
@@ -74,7 +80,7 @@ CONSUMER_IDLE = 30.0  # 佇列閒置多久後消費者收工（下次播放再�
 
 DEBUG = False                                    # 診斷輸出（需要時改 True）
 _ready = False                                   # FFmpeg 就緒
-_queues: dict[int, asyncio.Queue] = {}           # guild_id -> 待播 (vc, path) 佇列
+_queues: dict[int, asyncio.Queue] = {}           # guild_id -> 待播 (vc, paths) 佇列（多檔＝同時混音）
 _consumers: dict[int, asyncio.Task] = {}         # guild_id -> 消費者 task
 
 
@@ -126,26 +132,57 @@ def list_packs() -> list[str]:
         return []
 
 
-VOICE_OFF = "__off__"   # db.voice_pack 存這個＝該伺服器「關閉語音」（完全不出聲）
-
-
-def _guild_pack(guild_id: str) -> str | None:
-    """該伺服器選定的語音包：回傳包名／`VOICE_OFF`（關閉）／None（未選＝不出聲）。"""
+def _user_pack(uid) -> str | None:
+    """某玩家自己選的語音包（個人設定，存 DB）。沒選／資料夾已不存在＝None（＝他的動作不出聲）。"""
+    if not uid:
+        return None
     try:
-        pack = db.get_voice_pack(guild_id)
+        pack = db.get_user_voice(str(uid))
     except Exception:
         return None
-    if pack == VOICE_OFF:
-        return VOICE_OFF
     if pack and os.path.isdir(os.path.join(SOUNDS_DIR, pack)):
         return pack
     return None
 
 
-def _guild_muted(guild_id: str) -> bool:
-    """該伺服器是否不出聲：沒選語音包（預設）或選了「關閉語音」都算——有選有效語音包才會播。"""
-    p = _guild_pack(guild_id)
-    return (not p) or p == VOICE_OFF
+def _humans(gid: str) -> list[str]:
+    """本局真人的 user_id（對局中取自牌局，開局前取自等待名單）。"""
+    from .state import _games, _waiting
+    gs = _games.get(gid)
+    if gs is not None:
+        return [str(p.user_id) for p in gs.players if not p.is_bot]
+    return [str(p["user_id"]) for p in (_waiting.get(gid) or []) if not p.get("is_bot")]
+
+
+def _in_room(vc, uid) -> bool:
+    """這位玩家還在語音房裡嗎（離開語音的人，他的動作就不出聲）。讀不到成員名單＝當作在。"""
+    try:
+        return any(str(m.id) == str(uid) for m in vc.members)
+    except Exception:
+        return True
+
+
+def _voice_pack(vc, uid) -> str | None:
+    """這個動作要用的語音包：做動作的真人有選、且人還在語音房。電腦／掛機（uid=None）一律不出聲。"""
+    if not uid or not _in_room(vc, uid):
+        return None
+    return _user_pack(uid)
+
+
+def _table_pack(gid: str, vc) -> str | None:
+    """開局音用的語音包：房主的優先，否則任一位有選的真人（都要還在語音房）。"""
+    from .state import _room_owners
+    host = _room_owners.get(gid)
+    for uid in ([host] if host else []) + _humans(gid):
+        pack = _voice_pack(vc, uid)
+        if pack:
+            return pack
+    return None
+
+
+def _any_pack(gid: str, vc) -> bool:
+    """語音房裡是否至少有一位本局真人選了語音包（都沒選＝機器人不必進語音）。"""
+    return any(_voice_pack(vc, u) for u in _humans(gid))
 
 
 def _resolve(pack: str | None, name: str) -> str | None:
@@ -180,17 +217,24 @@ async def _ensure_client(vc) -> discord.VoiceClient | None:
         if cur:
             await cur.move_to(vc)
             return vc.guild.voice_client
+        try:                       # 房間滿了：沒有「移動成員」權限的機器人進不去 → 多開一格
+            p = vc.permissions_for(vc.guild.me)
+            if (vc.user_limit and len(vc.members) >= vc.user_limit
+                    and not (p.administrator or p.move_members)):
+                await vc.edit(user_limit=vc.user_limit + 1, reason="Suzume Tsuk 留位給機器人播音效")
+        except Exception:
+            pass
         return await vc.connect(self_deaf=False, self_mute=False)
     except Exception as e:
         print(f"[sfx] 進語音失敗：{e!r}　← 需要 PyNaCl（pip install PyNaCl）與連線權限")
         return None
 
 
-async def join(vc) -> bool:
-    """對局開始時先讓機器人進語音房（不必等第一個音效）。未就緒／已關閉語音＝略過。"""
+async def join(vc, gid: str) -> bool:
+    """對局開始時先讓機器人進語音房（不必等第一個音效）。未就緒／沒有任何真人選語音包＝略過。"""
     if not _ready:
         return False
-    if _guild_muted(str(vc.guild.id)):
+    if not _any_pack(gid, vc):
         return False
     return (await _ensure_client(vc)) is not None
 
@@ -212,12 +256,13 @@ async def leave(guild) -> None:
 
 
 # ───────────────────────── 播放佇列 ─────────────────────────
-def _enqueue(vc, path: str) -> None:
+def _enqueue(vc, *paths: str) -> None:
+    """排入一則；給多個檔＝這幾個同時播（混音，例如雙榮兩人一起喊「榮」）。"""
     gid = vc.guild.id
     q = _queues.get(gid)
     if q is None:
         q = _queues[gid] = asyncio.Queue()
-    q.put_nowait((vc, path))
+    q.put_nowait((vc, paths))
     t = _consumers.get(gid)
     if t is None or t.done():
         _consumers[gid] = asyncio.create_task(_consume(gid))
@@ -231,10 +276,10 @@ async def _consume(gid: int) -> None:
     try:
         while True:
             try:
-                vc, path = await asyncio.wait_for(q.get(), timeout=CONSUMER_IDLE)
+                vc, paths = await asyncio.wait_for(q.get(), timeout=CONSUMER_IDLE)
             except asyncio.TimeoutError:
                 return
-            await _play_path(vc, path)
+            await _play_path(vc, paths)
             await asyncio.sleep(SEQ_GAP)
     except asyncio.CancelledError:
         pass
@@ -243,8 +288,23 @@ async def _consume(gid: int) -> None:
             _consumers.pop(gid, None)
 
 
-async def _play_path(vc, path: str) -> None:
-    """把單一音檔播進語音頻道並等它播完（FFmpeg → PCM → Opus）。"""
+def _source(paths: tuple) -> discord.FFmpegPCMAudio:
+    """一個檔＝直接播；多個檔＝FFmpeg amix 混成一軌同時播（音量乘回人數免得變小聲，再用 alimiter 防爆音）。"""
+    if len(paths) == 1:
+        return discord.FFmpegPCMAudio(paths[0])
+    n = len(paths)
+    extra = " ".join(f"-i {shlex.quote(p)}" for p in paths[1:])
+    return discord.FFmpegPCMAudio(
+        paths[0], before_options=extra,
+        options=(f"-filter_complex amix=inputs={n}:duration=longest:dropout_transition=0,"
+                 f"volume={n},alimiter=limit=0.9"))
+
+
+async def _play_path(vc, paths) -> None:
+    """把音檔（多個＝混音同時播）播進語音頻道並等它播完（FFmpeg → PCM → Opus）。"""
+    if isinstance(paths, str):
+        paths = (paths,)
+    path = " + ".join(os.path.basename(p) for p in paths)   # 記錄用
     client = await _ensure_client(vc)
     if client is None:
         print(f"[sfx] 播放略過：無法連上語音（PyNaCl／連線權限？）")
@@ -252,7 +312,7 @@ async def _play_path(vc, path: str) -> None:
     try:
         if client.is_playing():
             client.stop()
-        source = discord.FFmpegPCMAudio(path)
+        source = _source(paths)
         done = asyncio.Event()
         loop = asyncio.get_running_loop()
 
@@ -262,17 +322,19 @@ async def _play_path(vc, path: str) -> None:
             loop.call_soon_threadsafe(done.set)
 
         if DEBUG:
-            print(f"[sfx] ▶ 播放 {os.path.basename(path)}（頻道 {getattr(client.channel,'name','?')}）")
+            print(f"[sfx] ▶ 播放 {path}（頻道 {getattr(client.channel,'name','?')}）")
         client.play(source, after=_after)
         await done.wait()
         if DEBUG:
-            print(f"[sfx] ✔ 播完 {os.path.basename(path)}")
+            print(f"[sfx] ✔ 播完 {path}")
     except Exception as e:
-        print(f"[sfx] 播放 {os.path.basename(path)} 失敗：{e!r}")
+        print(f"[sfx] 播放 {path} 失敗：{e!r}")
 
 
-async def play(gid: str, name: str) -> None:
+async def play(gid: str, name: str, uid=None, fallback: str | None = None) -> None:
     """把音效排入該對局語音房的播放佇列（不擋呼叫端）。
+    uid＝做這個動作的真人 → 用他自己選的語音包；他沒選、已離開語音房、或 uid=None（電腦／掛機）＝不出聲。
+    fallback＝包裡沒有 name 時改播的音效名（例：途中流局沒錄專屬檔 → ryuukyoku）。
     沒綁語音、功能未就緒、找不到檔＝靜默略過。"""
     if not _ready:
         return
@@ -281,12 +343,12 @@ async def play(gid: str, name: str) -> None:
         if DEBUG:
             print(f"[sfx] play({name}) 略過：本局未綁語音房")
         return
-    pack = _guild_pack(str(vc.guild.id))
-    if not pack or pack == VOICE_OFF:        # 沒選語音包／關閉語音＝不出聲
+    pack = _table_pack(gid, vc) if uid is _TABLE else _voice_pack(vc, uid)
+    if not pack:
         if DEBUG:
-            print(f"[sfx] play({name}) 略過：未選語音包或已關閉")
+            print(f"[sfx] play({name}) 略過：電腦／掛機／未選語音包／不在語音房")
         return
-    path = _resolve(pack, name)
+    path = _resolve(pack, name) or (_resolve(pack, fallback) if fallback else None)
     if path is None:
         if DEBUG:
             print(f"[sfx] play({name}) 略過：找不到音效檔")
@@ -296,12 +358,43 @@ async def play(gid: str, name: str) -> None:
     _enqueue(vc, path)
 
 
+_TABLE = object()   # play() 內部用：不屬於任何玩家的聲音（開局、流局）
+
+
+async def play_table(gid: str, name: str, fallback: str | None = None) -> None:
+    """不屬於任何玩家的聲音（流局、四風連打…）：用房主（或其他還在語音房、有選語音包的真人）的語音包。"""
+    await play(gid, name, _TABLE, fallback)
+
+
+async def play_together(gid: str, name: str, uids) -> None:
+    """幾位玩家「同時」發出同一個音效（雙榮一起喊「榮」）：各用自己的語音包混成一則播。
+    電腦／掛機／沒選／不在語音房的人略過；同一個檔只播一次。"""
+    if not _ready:
+        return
+    vc = (_threads.get(gid) or {}).get("voice")
+    if vc is None:
+        return
+    paths = []
+    for uid in uids:
+        pack = _voice_pack(vc, uid)
+        path = _resolve(pack, name) if pack else None
+        if path and path not in paths:
+            paths.append(path)
+    if paths:
+        _enqueue(vc, *paths)
+
+
+async def play_start(gid: str) -> None:
+    """開局音（見 `play_table`）。"""
+    await play_table(gid, "start")
+
+
 # ───────────────────────── 和了語音 ─────────────────────────
 def tier_sound(name: str) -> str:
     """把計分等級名（`ScoreResult.name`）對應到音效名。
-    空字串／一般手＝翻；含「役滿」＝役滿（累計役滿另計）；否則依滿貫階梯。"""
+    滿貫以下（空字串）＝""（不唸）；含「役滿」＝役滿（累計役滿另計）；否則依滿貫階梯。"""
     if not name:
-        return "han"
+        return ""
     if "役滿" in name:                 # 役滿／N倍役滿／累計役滿
         return "kazoe" if name == "累計役滿" else "yakuman"
     if "三倍滿" in name:               # 需先於「倍滿」判（三倍滿含「倍滿」子字串）
@@ -312,28 +405,37 @@ def tier_sound(name: str) -> str:
         return "haneman"
     if "滿貫" in name:                 # 含流局滿貫
         return "mangan"
-    return "han"
+    return ""
 
 
-async def play_win(gid: str, result) -> None:
+async def play_win(gid: str, result, uid=None) -> None:
+    """單一和牌者的和牌語音（見 `play_wins`）。"""
+    await play_wins(gid, [(result, uid)])
+
+
+async def play_wins(gid: str, wins) -> None:
     """和牌語音：對齊和牌儀式，逐一「唸出每個役名」（音效名＝役名，如「立直」「平和」「寶牌」），
-    最後公布打點階級（翻／滿貫／…）。役名沒錄音效檔＝該役靜默略過。
+    滿貫以上最後再公布打點階級（滿貫／跳滿／…）。役名沒錄音效檔＝該役靜默略過。
+    wins＝[(ScoreResult, 和牌者 uid), …]，依揭曉順序；雙榮就依序唸兩位，各用自己的語音包
+    （電腦／掛機／沒選／不在語音房的那位略過）。
     設計為背景任務呼叫（含 sleep，不擋畫面儀式）；實際播放由佇列依序進行。"""
-    if not _ready or result is None:
+    if not _ready:
         return
     vc = (_threads.get(gid) or {}).get("voice")
     if vc is None:                                        # 沒綁語音就別空跑
         return
-    if _guild_muted(str(vc.guild.id)):                    # 未選語音包／關閉語音
+    wins = [(r, u) for r, u in wins if r is not None and _voice_pack(vc, u)]
+    if not wins:
         return
-    # 揭曉順序同 win_ceremony：役滿則只列役滿，否則列一般役（含寶牌等懸賞，有錄檔才會出聲）
-    if getattr(result, "yakuman", None):
-        names = [n for n, *_ in result.yakuman]
-    else:
-        names = [n for n, *_ in (result.yaku or [])]
     await asyncio.sleep(WIN_INTRO_GAP)        # 等標題＋手牌揭曉後才開始唸役
-    for n in names:
-        await play(gid, n)                    # 逐一唸役名（排入佇列，依序播）
-    tier = tier_sound(getattr(result, "name", "") or "")
-    if tier:
-        await play(gid, tier)                 # 打點階級
+    for result, uid in wins:
+        # 揭曉順序同 win_ceremony：役滿則只列役滿，否則列一般役（含寶牌等懸賞，有錄檔才會出聲）
+        if getattr(result, "yakuman", None):
+            names = [n for n, *_ in result.yakuman]
+        else:
+            names = [n for n, *_ in (result.yaku or [])]
+        for n in names:
+            await play(gid, n, uid)           # 逐一唸役名（排入佇列，依序播）
+        tier = tier_sound(getattr(result, "name", "") or "")
+        if tier:
+            await play(gid, tier, uid)        # 打點階級

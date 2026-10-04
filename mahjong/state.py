@@ -49,7 +49,7 @@ _action_logs:   dict = {}
 _bg_tasks:      set  = set()
 
 # ── 房間編號（0.3）──
-# game_id -> RoomMeta（房間#0001 等）
+# game_id -> RoomMeta（房號；顯示用代碼見 rooms.code）
 rooms:          dict = {}
 
 # ── 0.7 類別制 ──

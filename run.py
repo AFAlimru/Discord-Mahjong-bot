@@ -167,6 +167,12 @@ async def on_ready() -> None:
             await ensure_guild_setup(g)
     except Exception as e:
         print(f"⚠️ 伺服器初始化檢測失敗: {e}")
+    try:                                      # 上次沒收掉的回放頻道（重啟後按鈕已失效）
+        from mahjong.commands import cleanup_replay_channels
+        for g in bot.guilds:
+            await cleanup_replay_channels(g)
+    except Exception as e:
+        print(f"⚠️ 回放頻道清理失敗: {e}")
 
 
 @bot.event
@@ -195,18 +201,52 @@ async def ensure_guild_setup(guild, create_guide: bool = True) -> None:
             return
     except Exception:
         pass
-    names = {_i.t("guide.channel_name", L) for L in _i.available()}
-    if any(c.name in names for c in getattr(guild, "text_channels", [])):
-        return                                # 已有指南頻道（任一語言）→ 不重建
+    names  = {_i.t("guide.channel_name", L) for L in _i.available()}
+    guides = [c for c in getattr(guild, "text_channels", []) if c.name in names]
+    me     = guild.me
+    text   = _i.t("guide.text", lang)
+
+    def _usable(c) -> bool:
+        try:
+            p = c.permissions_for(me)
+            return p.view_channel and p.send_messages
+        except Exception:
+            return False
+
+    for c in guides:                          # 已有機器人用得了的指南頻道
+        if _usable(c):
+            if c.last_message_id is None:     # 之前發送失敗留下的空頻道 → 補發
+                try:
+                    await c.send(text, view=GuideView(lang))
+                    print(f"[setup] 已補發「{getattr(guild, 'name', '?')}」的設定指南")
+                except Exception as e:
+                    print(f"⚠️ 補發指南失敗（{getattr(guild, 'name', '?')}）: {e}")
+            return
+    for c in guides:                          # 只剩機器人看不到的舊指南頻道（舊版建錯的）→ 試著刪掉
+        try:
+            await c.delete(reason="Suzume Tsuk 重建設定指南")
+        except Exception:
+            pass
+    ch = None
     try:
-        overwrites = {guild.default_role: discord.PermissionOverwrite(view_channel=False)}
+        # 對 @everyone 隱藏，但一定要給機器人自己看得到、發得了言（否則沒管理員權限時會變空頻道）
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            me: discord.PermissionOverwrite(view_channel=True, send_messages=True,
+                                            embed_links=True, read_message_history=True),
+        }
         ch = await guild.create_text_channel(_i.t("guide.channel_name", lang),
                                              overwrites=overwrites,
                                              reason="Suzume Tsuk 設定指南（僅管理員可見）")
-        await ch.send(_i.t("guide.text", lang), view=GuideView())
+        await ch.send(text, view=GuideView(lang))
         print(f"[setup] 已為「{getattr(guild, 'name', '?')}」建立設定指南頻道")
     except Exception as e:
         print(f"⚠️ 指南頻道建立失敗（{getattr(guild, 'name', '?')}）: {e}")
+        if ch is not None:                    # 建了卻發不出去 → 刪掉空頻道，下次啟動再試
+            try:
+                await ch.delete(reason="Suzume Tsuk 指南發送失敗")
+            except Exception:
+                pass
 
 
 @bot.event

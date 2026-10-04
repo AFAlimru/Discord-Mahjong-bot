@@ -39,7 +39,7 @@ FEATURES = [
     ("manage_channels", "Manage Channels", "建大廳、頻道制對局、語音配對房"),
     ("manage_roles", "Manage Roles", "大廳與對局頻道的權限鎖定"),
     ("manage_messages", "Manage Messages", "大廳打字自動刪除"),
-    ("move_members", "Move Members", "語音配對自動把人拉進房"),
+    ("move_members", "Move Members", "語音配對自動把人拉進房；語音房滿時機器人仍能進房"),
     ("connect", "Connect", "語音音效：進語音房"),
     ("speak", "Speak", "語音音效：播放"),
     ("use_external_emojis", "Use External Emojis", "麻將牌表情顯示"),

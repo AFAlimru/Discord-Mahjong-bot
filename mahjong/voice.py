@@ -42,7 +42,7 @@ def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> 
         return {
             "is_sanma": sanma, "thinking_time": 25, "max_players": 3 if sanma else 4,
             "length": "tonpuu", "tobi": True, "ruleset": "mixed", "start_points": None,
-            "kuikae": False, "open_riichi": False,
+            "kuikae": False, "open_riichi": False, "abortive": True,
             "lang": lang, "ranked": False, "open_hand": False,
         }
     sanma = sanma_override if sanma_override is not None else sv.sanma
@@ -51,7 +51,7 @@ def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> 
         "max_players": 3 if sanma else 4,
         "length": "hanchan" if sv.hanchan else "tonpuu",
         "tobi": sv.tobi, "ruleset": sv.ruleset, "start_points": sv.start_points,
-        "kuikae": sv.kuikae, "open_riichi": sv.open_riichi,
+        "kuikae": sv.kuikae, "open_riichi": sv.open_riichi, "abortive": sv.abortive,
         "lang": lang, "ranked": False, "open_hand": sv.open_hand,
     }
 
@@ -160,25 +160,28 @@ class CpuStartButton(discord.ui.Button):
 
 
 class VoicePackSelect(discord.ui.Select):
-    """語音房面板：切換這台伺服器的角色語音（語音包＝assets/sounds 下的資料夾，用選單不用打字）。"""
-    def __init__(self, guild_id: int, lang: str, row: int = 4):
+    """切換**自己的**角色語音（個人設定；語音包＝assets/sounds 下的資料夾，用選單不用打字）。
+    對局中誰的動作就用誰選的聲音；沒選＝他的動作不出聲。uid＝標出這人目前的選擇（共用面板不標）。"""
+    NONE = "__none__"
+
+    def __init__(self, lang: str, row: int = 4, uid: str | None = None):
         from . import sfx
-        packs = sfx.list_packs()
-        opts = [discord.SelectOption(label=i18n.t("voice.pack_off", lang), value=sfx.VOICE_OFF)]
-        opts += [discord.SelectOption(label=p[:100], value=p[:100]) for p in packs[:24]]
+        cur  = db.get_user_voice(str(uid)) if uid else None
+        opts = [discord.SelectOption(label=i18n.t("voice.pack_off", lang), value=self.NONE)]
+        opts += [discord.SelectOption(label=p[:100], value=p[:100], default=(p == cur))
+                 for p in sfx.list_packs()[:24]]
         super().__init__(placeholder=i18n.t("voice.pack_select", lang),
                          min_values=1, max_values=1, options=opts, row=row)
-        self._gid = str(guild_id)
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        from . import sfx
         ulang = i18n.get_user_lang(str(interaction.user.id), interaction.guild_id)
         val   = self.values[0]
-        db.set_voice_pack(self._gid, val)          # 包名，或 VOICE_OFF＝關閉語音
-        name  = i18n.t("voice.pack_off", ulang) if val == sfx.VOICE_OFF else val
-        msg   = i18n.t("voice.pack_set", ulang, pack=name)
-        if val == sfx.VOICE_OFF:                    # 關閉是整台伺服器；提示個人靜音做法
-            msg += "\n" + i18n.t("voice.off_hint", ulang)
+        if val == self.NONE:
+            db.set_user_voice(str(interaction.user.id), None)
+            msg = i18n.t("voice.pack_cleared", ulang)
+        else:
+            db.set_user_voice(str(interaction.user.id), val)
+            msg = i18n.t("voice.pack_set", ulang, pack=f"**{val}**")
         await interaction.response.send_message(msg, ephemeral=True)
 
 
@@ -249,12 +252,32 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
                 i18n.t("voice.host", lang, host=host.mention), view=v)
     except Exception as e:
         print(f"[voice] 開局訊息發送失敗：{e!r}")
+    await fit_room_limit(vc, _room_configs.get(gid, {}).get("max_players", 4))
     try:
         from . import sfx
-        await sfx.join(vc)               # 開局即進語音（不必等第一個音效）
-        await sfx.play(gid, "start")
+        await sfx.join(vc, gid)          # 開局即進語音（有人選了語音包才進）
+        await sfx.play_start(gid)        # 開局音＝房主（或其他有選的真人）的語音包
     except Exception:
         pass
+
+
+async def fit_room_limit(vc, max_players: int, reserve_bot: bool = True) -> None:
+    """語音房人數上限＝這局人數（三麻 3、四麻 4）。
+    Discord 規則：房間滿了，只有「移動成員」（或管理員）權限的人能進——機器人沒有這權限時
+    多留一格給自己，否則開局後機器人進不了房、音效放不出來。"""
+    limit = max_players
+    if reserve_bot:
+        try:
+            p = vc.permissions_for(vc.guild.me)
+            if not (p.administrator or p.move_members):
+                limit += 1
+        except Exception:
+            limit += 1
+    if getattr(vc, "user_limit", None) != limit:
+        try:
+            await vc.edit(user_limit=limit, reason="Suzume Tsuk 依對局人數設定語音房上限")
+        except Exception:
+            pass
 
 
 async def cleanup_room(vc) -> None:
@@ -303,7 +326,7 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
                 sv = RoomSettingsView(gid=f"vc{vc.id}", lang=lang, timeout=None,
                                       show_confirm=False)   # 語音房不用確認鈕，開局時面板自動消失
                 sv.add_item(CpuStartButton(vc.id, lang))
-                sv.add_item(VoicePackSelect(vc.id, lang))   # 面板上切換角色語音（選單，不用打字）
+                sv.add_item(VoicePackSelect(lang))   # 每個人在面板上選自己的角色語音
                 msg = await vc.send(i18n.t("voice.settings_hint", lang), view=sv)
                 _voice_rooms[vc.id]["settings"] = sv
                 _voice_rooms[vc.id]["settings_msg"] = msg

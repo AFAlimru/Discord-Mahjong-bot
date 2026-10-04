@@ -39,6 +39,6 @@ SOUNDS_DIR = os.getenv("SOUNDS_DIR", "assets/sounds")
 
 # ── 遊戲常數 ──────────────────────────────────────────────────
 WIND_LABELS          = ["東", "南", "西", "北"]
-AI_NAMES             = ["小春", "小夏", "小秋", "小冬"]
+AI_NAMES             = ["AI(1)", "AI(2)", "AI(3)", "AI(4)"]
 DEFAULT_POINTS_YONMA = 25000
 DEFAULT_POINTS_SANMA = 35000

@@ -3,6 +3,130 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.8.0] - 2026-10-04
+
+### 新增
+- **個人角色語音**（取代 0.7.2 的伺服器語音包）：
+  - `db`：`user_prefs` 加 `voice_pack TEXT` 欄（ALTER 遷移）、`get_user_voice()`／`set_user_voice()`；
+    移除 `get_voice_pack()`／`set_voice_pack()`，`guild_settings` 不再建立 `voice_pack` 欄。
+  - `sfx`：移除 `VOICE_OFF`／`_guild_pack`／`_guild_muted`。新增 `_user_pack(uid)`（DB 值且資料夾存在才算）、
+    `_in_room(vc, uid)`（`vc.members` 有此人；讀不到＝視為在）、`_voice_pack(vc, uid)`（uid=None／不在房＝None）、
+    `_humans(gid)`（對局中取 `_games`，開局前取 `_waiting`）、`_table_pack(gid, vc)`（房主 → 其他真人，第一個有包且在房的）、
+    `_any_pack(gid, vc)`。`play(gid, name, uid=None)` 以 `_voice_pack` 決定，None＝靜默；內部哨兵 `_TABLE` 改用
+    `_table_pack`，僅供 `play_start(gid)`（開局音）。`play_win(gid, result, uid=None)` 以和牌者的包唸役與階級；
+    `join(vc, gid)` 只有語音房裡有本局真人選了包才進。
+  - **同時播放（混音）**：佇列項目改為 `(vc, paths)`，`_enqueue(vc, *paths)`；`_source(paths)` 多檔時以
+    `before_options` 加入其餘 `-i`（`shlex.quote`，Windows 路徑反斜線／中文安全），`-filter_complex
+    amix=inputs=n:duration=longest:dropout_transition=0,volume=n,alimiter=limit=0.9`（音量補回、防爆音）。
+    `play_together(gid, name, uids)` 各取自己的包、同檔去重後混成一則；`play_wins(gid, [(result, uid), …])`
+    依序唸多位和牌者（只等一次 `WIN_INTRO_GAP`），`play_win` 改為其單人包裝。實測兩檔混音長度＝較長者、峰值不爆。
+  - `flow`：新增 `_voice_uid(p)`（真人＝user_id；電腦或 `afk`＝None），打牌／暗槓／加槓／立直／碰／吃／大明槓的音效
+    都帶當事人；電腦回合不再呼叫 sfx。和牌用 `win_seats[0]`；雙榮 `play_together("ron")`＋`play_wins` 依
+    `dbl_winners` 順序（同揭曉順序）唸兩位。
+  - `voice.VoicePackSelect(lang, row=4, uid=None)`：改寫為個人設定，選項「🔇 不使用語音」(`__none__`→存 None)＋
+    各語音包，有 uid 時以 `default=True` 標出目前選擇；回覆 `voice.pack_set`／`voice.pack_cleared`。
+    語音房設定面板與大廳 `hub:voice` 鈕共用（後者帶點擊者 uid）。開局 `sfx.join(vc, gid)`＋`sfx.play_start(gid)`。
+  - `commands`：移除 `/setup voice`（`cmd_setup_voice`）與 `_voice_pack_autocomplete`。
+  - i18n：`voice.pack_select`／`pack_off`／`pack_set`／`pack_prompt` 改為個人用語，新增 `voice.pack_cleared`，
+    移除 `voice.off_hint`；`guide.text` 第 ③ 步改為「每個人在大廳按 🎚️ 語音選自己的角色語音」。
+  - （私有後台）移除伺服器列表的 🎚️ 標籤與詳細頁「語音包」欄、`_pack_label()`。
+- **`/mahjong fairness`**：`commands.cmd_fairness` 依序從 `_user_game`、`_thread_game`、`_channel_games` 找出
+  使用者所在對局，找不到回 `msg.fairness_no_game`；內容由 `ui.send_fairness(interaction, gid)` 產生
+  （進行中只給 SHA-256；已結束從 `db.get_game` 取 `wall_seed` 完整編碼）。
+- **途中流局開關**：`RoomSettingsView.abortive`（預設 True）＋ `toggle_abortive` 鈕（`settings.abort_on／off`），
+  房間設定 dict 加 `"abortive"`（`commands` 文字開房、`voice._config_from_settings`、匹配局固定 True）。
+  `play_hand_t` 讀 `allow_abort`：關閉時 `kyuushu_ok` 為 False，四風連打／四家立直／四槓散了的檢查略過；
+  `collect_reactions_t(..., kan_ok, sancha_abort)`——`sancha_abort=False` 時三家榮和不回 `sanchahou`，
+  而是以頭跳順序回傳三個 uid 走 `dblron`（`settlement.apply_ron_multi` 本就支援 N 家：本場與供託歸頭跳側）。
+  `feed.dblron` 參數由 `n1`／`n2` 改為 `names`（「a」「b」「c」串接）。
+  另修：場上已四槓（`kan_count >= 4`）時不再提供暗槓／加槓／大明槓（原本四槓散了前的那一打仍可第五槓）。
+  流局滿貫（`_is_nagashi`／`apply_nagashi`）不受開關影響。
+- **網站數據連結**：`commands._web_stats_button(lang, row)`／`_web_stats_view(lang)`——連結按鈕指向
+  `WEB_BASE_URL/me`（`web.more_stats`），沒設定 `WEB_BASE_URL` 就不附。掛在 `/mahjong stats`、`/mahjong profile`、
+  大廳 👤 個人資訊與 `HistoryView` 第二排。
+- **流局語音**：`sfx.ABORT_SOUNDS`（九種九牌／四風連打／四槓散了／四家立直／三家和；`ALL_SOUND_NAMES` 66→71）；
+  `sfx.play(..., fallback=)` 找不到主檔時改播 fallback；新增 `play_table(gid, name, fallback)`（房主的包，
+  `play_start` 改為其包裝）。`flow._draw_sound(gid, name, p=None)`：有 p＝宣告者的包，否則 `play_table`，
+  皆以 `ryuukyoku` 為後備。途中流局在宣告處播；荒牌流局在結果段播 `ryuukyoku`；流局滿貫先 `play_table("ryuukyoku")`
+  再 `play_wins` 各自唸（原本誤播 `ron`）。
+
+### 變更
+- **新 AI（`mahjong/ai.py`）**：取代 `rules.ai_choose_discard`／`ai_should_pon`。
+  - `shanten_counts()`：每種花色以記憶化 DFS 求（面子, 搭子, 雀頭）Pareto 組合再合併，含七對子、國士；
+    與 `engine.is_complete` 交叉驗證 12,000 手（完成／拿一張／隨機）零差異。
+  - `choose_discard(gs, me, banned)` → (牌, 是否立直)：向聽最小 → 有效牌（扣可見張）最多 → 價值最低；
+    有人立直時以 `_danger`（現物＝立直者捨牌＋`riichi_snap` 之後他家通過的牌、筋、字牌已見張數、
+    么九／中張）決定棄和（`_should_fold`：二向聽以上、或一向聽且寶牌少／兩家以上立直）或推（同向聽挑安全）。
+    `_should_riichi`：門清、打完聽牌、有效牌 >0、點數 ≥1000、牌山 ≥4。
+  - `call_choice(gs, me, tile, chi_options)`：立直中不鳴；有人立直且未聽不鳴；門清一向聽以內只碰役牌；
+    鳴後最佳向聽須變小（碰役牌允許不變），且 `_has_yaku_path`（役牌／斷么／一色／對對）成立。
+  - `flow`：AI 反應改用 `call_choice`（可吃）；AI 回合改用 `choose_discard`（含食替禁止），立直時比照真人記帳
+    （供託、扣點、兩立直、一發、`riichi_snap`），立直後摸切並以 `feed.riichi_tsumogiri` 顯示；
+    真人立直也記 `riichi_snap`。
+  - 300 局 AI 對戰模擬：0 非法動作、0 例外；每局平均碰 1.0、吃 0.7、立直 1.1（四家合計）。
+- **掛機＝自動摸切**：`AFK_TURNS_TO_AI` 改名 `AFK_TURNS`（2）。真人回合超時且非立直鎖定時 `afk_count += 1`，
+  達門檻設 `player.afk = True`，公開串發 `msg.afk_takeover`、私人串附 `AfkBackButton`。`afk` 時：不發
+  `feed.your_turn`、不 ping、不呼叫 `wait_turn_action`（結果 None＝摸切）；`collect_reactions_t`／
+  `collect_chankan_t` 跳過 afk 真人。`AfkBackButton` 清 `afk`／`afk_count`。`deal_next_hand` 延續 `afk`／`afk_count`；
+  結束判定改為「沒有任何非 afk 的真人」。`msg.afk_takeover`／`afk_end`／`back_not_afk` 改寫。
+- **電腦名稱**：`config.AI_NAMES = ["AI(1)", "AI(2)", "AI(3)", "AI(4)"]`。
+- **移除 🔐 按鈕**：`ui.FairnessButton` 刪除；`make_board_view` 只剩 🌐 翻譯；終局訊息不再附按鈕。
+- **`/setup` 權限**：`setup_group` 加 `guild_only=True`、`default_permissions=discord.Permissions(manage_guild=True)`
+  （`default_member_permissions=32`，需重新 sync 才生效）；各子指令原本的執行期權限檢查保留。
+- **`/setup clear_room`**（取代 `/setup rooms delete:`）：`ClearRoomView`（`_RoomPick` 多選前 25 間＋
+  「清除勾選的／只清等待房／全部清除」三鈕），按下時重新 `flow.list_rooms()` 以當下狀態篩選再 `flow.force_end()`，
+  結果改寫原訊息並移除按鈕；無房間時只回文字。列表文字抽成 `_room_line()`／`_clear_room_text()`。
+- **不再用布林／自由文字參數**：`/setup channel` 的 `clear: bool` 改為 `action: Choice`（set／clear）；
+  `/setup lang` 的 `language` 由自由文字＋autocomplete 改為 `app_commands.choices`（`i18n.available()`＋auto），
+  移除 `_guild_lang_autocomplete`。檢查後全部指令已無 BOOLEAN 或無選項的字串參數。新描述／選項補上 ja／en 的 `cmdtr.*`。
+- **房號代碼**：`rooms.code(n)`／`rooms.parse(text)`——資料庫仍存遞增整數 `room_no`（不需遷移），顯示時以
+  `(n × 7368787 + 9041533) mod 31⁵` 打散成 5 碼（字母表 `ABCDEFGHJKMNPQRSTUVWXYZ23456789`，去掉 0/O/1/I/L），
+  `parse` 用模反元素還原（只收代碼，不再認舊式數字房號）。驗證 1～20,000 與上界往返一致、20 萬筆無重複。
+  `rooms.label()` 改「房間 XXXXX」，新增 `rooms.tag()`（頻道／手牌討論串名稱）；`flow.setup_channels` 與手牌串名、
+  `/setup clear_room` 列表、（私有）後台 `server.py`／`pages.py` 改用代碼。`replay.*` 的 `{room:04d}` 改 `{room}`。
+- **牌譜檢視改版**：`_history_page(uid, mode, idx, lang)` 一頁一場（`get_recent_records(limit=1, offset=idx)`），
+  內容＝房號代碼＋Discord 時間戳（`_discord_time`，DB 為 UTC）、自己的名次／點數／得失、和了（自摸・榮和）／放銃／立直，
+  以及 `db.get_game()` 存檔 `game_data.players` 排出的全桌最終順位（含電腦、標出自己）。`HistoryView`：◀／頁碼（停用）／▶、
+  「🎞 回放這場」（呼叫 `_start_replay`，無房號時停用）、🔁 切換四麻／三麻；一律附按鈕。`_send_history()` 供
+  `/mahjong history` 與大廳 📜 共用，未指定模式時四麻無對局而三麻有就開三麻。移除 `_history_embed`／`_HIST_PAGE`。
+- **回放指令**：`/mahjong replay room` 改字串＋`_replay_room_ac` 自動完成（`db.get_recent_games_any()`，不分模式最近 25 場，
+  顯示「代碼 · 日期 · 名次 點數」）；大廳回放輸入框改收代碼（`rooms.parse`）。`replay.no_log` 移除「0.4.3 之前」字樣。
+- **清掉不必要的相容程式（beta 資料不需保留）**：
+  - `db`：移除沒在用的 `players`／`stats` 表與其 CRUD（`add_player`／`get_players`／`update_player_score`／
+    `upsert_stats`／`get_stats`／被覆蓋的舊 `get_leaderboard`）、`get_active_game_in_channel`、`repair_game_records`
+    與 `_counts_from_settles`。歷來以 ALTER 補上的欄位全併入 `CREATE TABLE`（`user_prefs` 的 skin／notify_queue／
+    voice_pack，`guild_settings` 整張表），遷移只留 0.7.x → 0.8 的 `user_prefs.voice_pack` 一條。
+    （既有資料庫裡的舊表／舊欄不動，只是不再建立或讀取。）
+  - `commands`：移除 `/mahjong repair`；`stats.rates_note` 不再寫「有牌譜的」。
+  - `rules`：移除舊 AI（`ai_choose_discard`／`ai_should_pon`／`_tile_connectivity`，已由 `ai.py` 取代）。
+  - `views`：移除沒在用的 `DiscardInputModal`／`DiscardView`／`ReactionView`／`DiscardActionView`／
+    `ChiSelectView`／`KanSelectView`／`BoardRefreshView`，只剩房間設定。
+- **回放開頻道**：`_replay_channel()` 在雀月類別（無則目前頻道的類別）建文字頻道，`@everyone` 不可見、
+  請求者唯讀、機器人可發言／管理，`topic=REPLAY_TOPIC`（`suzume-replay`），名稱 `replay.channel_name`；
+  建不了才退回公開討論串，私訊則直接在原處播。`ReplayControl.own` 取代 `thread`，`_drop()` 於 ✖ 與
+  `on_timeout`（3600 秒無操作）刪除；`run.on_ready` 呼叫 `cleanup_replay_channels()` 清掉重啟前遺留、
+  帶標記的回放頻道。`replay.opened` 文案改為頻道；`guide.text` 的 `/setup rooms` 改 `/setup clear_room`。
+- **不唸「翻」**：`sfx.TIER_SOUNDS` 移除 `han`（`ALL_SOUND_NAMES` 68→67）；`tier_sound()` 滿貫以下回 `""`，
+  `play_wins` 因此只唸役名。`語音包音效清單.md` 同步。
+- **移除 `ippatsu` 事件音**：`sfx.EVENT_SOUNDS` 刪掉 `ippatsu`（流程中從未呼叫；`ALL_SOUND_NAMES` 67→66），
+  役名 `一發`（`YAKU_SOUNDS`）不受影響。
+
+### 修正
+- **榮和時誤標振聽／提示不消失**：`play_hand_t` 收完反應後，原本先把「所有聽這張的人」標同巡振聽再處理榮和，
+  贏家面板因此在 `feed.ron` 重繪時顯示振聽。改為 `_mark_pass()` 並排除本次宣告榮和者（`ron`／`dblron`），
+  三家和不標；榮和無效（無役）才補標該人。`collect_reactions_t`／`collect_chankan_t` 的按鈕回呼由
+  `defer()` 改為 `edit_message(content="✅ 選項", view=None)` 立即回饋，倒數迴圈在選定後停止。
+- **指南頻道空白**：`run.ensure_guild_setup` 建指南時 overwrites 只有 `@everyone: view_channel=False`，
+  沒給 `guild.me` 允許 → 機器人無管理員權限時看不到自己的頻道、`send` 403、留下空頻道，且因名稱已存在
+  永不重試。改為加入 `guild.me` 的 view／send／embed／read_history 允許；既有指南若機器人可用但
+  `last_message_id is None` 就補發，若看不到則嘗試刪除並重建；新建後發送失敗則刪掉空頻道。
+  指南改以 `GuideView(lang)` 發送。
+- **語音房滿員／三麻上限**：新增 `voice.fit_room_limit(vc, max_players, reserve_bot=True)`——上限＝本局人數，
+  機器人無 `administrator`／`move_members` 時再 +1（Discord：滿房只有「移動成員」能進）。`_start_voice_game`
+  在開局訊息後呼叫；`views.RoomSettingsView.toggle_sanma` 在語音房（`gid` 以 `vc` 開頭）切換時以 3／4 呼叫
+  （`reserve_bot=False`）。`sfx._ensure_client` 連線前若房已滿且無上述權限，`user_limit + 1` 作為後備。
+  `perms.FEATURES` 的 Move Members 用途補上「語音房滿時機器人仍能進房」。
+
 ## [0.7.4] - 2026-10-03
 
 ### 新增

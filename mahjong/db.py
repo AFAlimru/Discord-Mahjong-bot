@@ -49,34 +49,11 @@ def init_db() -> None:
                 wall_seed   TEXT,
                 -- SHA-256 seed string (fairness transparency)
                 room_no     INTEGER,
-                -- 人類可讀房間流水號（房間#0001）
+                -- 房間流水號（對外顯示成 5 碼代碼，見 rooms.code）
                 room_config TEXT,
                 -- 房間設定 JSON（重連回復對局時用：length/tobi/start_points…）
                 created_at  TEXT NOT NULL,
                 updated_at  TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS players (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                game_id     TEXT NOT NULL REFERENCES games(game_id) ON DELETE CASCADE,
-                user_id     TEXT NOT NULL,
-                username    TEXT NOT NULL,
-                seat        INTEGER NOT NULL,
-                -- 0=East 1=South 2=West 3=North
-                score       INTEGER NOT NULL DEFAULT 25000,
-                is_bot      INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE TABLE IF NOT EXISTS stats (
-                user_id     TEXT PRIMARY KEY,
-                username    TEXT NOT NULL,
-                games_played INTEGER NOT NULL DEFAULT 0,
-                wins         INTEGER NOT NULL DEFAULT 0,
-                tsumo_wins   INTEGER NOT NULL DEFAULT 0,
-                ron_wins     INTEGER NOT NULL DEFAULT 0,
-                riichi_count INTEGER NOT NULL DEFAULT 0,
-                total_score  INTEGER NOT NULL DEFAULT 0,
-                updated_at   TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS game_log (
@@ -111,8 +88,21 @@ def init_db() -> None:
 
             -- 玩家偏好（顯示語言等）
             CREATE TABLE IF NOT EXISTS user_prefs (
-                user_id TEXT PRIMARY KEY,
-                lang    TEXT NOT NULL DEFAULT 'zh_tw'
+                user_id      TEXT PRIMARY KEY,
+                lang         TEXT NOT NULL DEFAULT 'zh_tw',
+                skin         TEXT,                              -- 牌面樣式
+                notify_queue INTEGER NOT NULL DEFAULT 0,        -- 有人排隊時私訊通知
+                voice_pack   TEXT                               -- 個人角色語音（語音包資料夾名）
+            );
+
+            -- 伺服器設定
+            CREATE TABLE IF NOT EXISTS guild_settings (
+                guild_id         TEXT PRIMARY KEY,
+                play_channel_id  TEXT,      -- 指定遊玩頻道
+                category_id      TEXT,      -- 雀月類別
+                lobby_channel_id TEXT,      -- 按鈕大廳
+                hub_voice_id     TEXT,      -- 配對語音
+                guild_lang       TEXT       -- 伺服器主要語言
             );
 
             -- 任務／活躍度（每日簽到、每日對局）
@@ -142,51 +132,10 @@ def init_db() -> None:
                 PRIMARY KEY (user_id, mode)
             );
         """)
-        # 舊資料庫補欄位（已存在則略過）
-        try:
-            conn.execute("ALTER TABLE games ADD COLUMN room_no INTEGER")
+        try:                                       # 0.7.x 資料庫升級到 0.8：個人角色語音
+            conn.execute("ALTER TABLE user_prefs ADD COLUMN voice_pack TEXT")
         except Exception:
             pass
-        try:
-            conn.execute("ALTER TABLE games ADD COLUMN room_config TEXT")
-        except Exception:
-            pass
-        try:
-            conn.execute("ALTER TABLE game_records ADD COLUMN gain_points INTEGER NOT NULL DEFAULT 0")
-        except Exception:
-            pass
-        try:
-            conn.execute("ALTER TABLE user_activity ADD COLUMN best_win INTEGER NOT NULL DEFAULT 0")
-        except Exception:
-            pass
-        try:
-            conn.execute("ALTER TABLE user_activity ADD COLUMN best_win_name TEXT")
-        except Exception:
-            pass
-        try:
-            conn.execute("ALTER TABLE user_activity ADD COLUMN best_win_hand TEXT")
-        except Exception:
-            pass
-        try:
-            conn.execute("ALTER TABLE user_prefs ADD COLUMN skin TEXT")
-        except Exception:
-            pass
-        try:
-            conn.execute("ALTER TABLE user_prefs ADD COLUMN notify_queue INTEGER NOT NULL DEFAULT 0")
-        except Exception:
-            pass
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS guild_settings ("
-            " guild_id TEXT PRIMARY KEY,"
-            " play_channel_id TEXT)"
-        )
-        # 0.7：類別制大廳（category + 大廳頻道 + 配對語音）
-        # 0.7.2：voice_pack＝該伺服器選用的語音包（assets/sounds 下的資料夾名）
-        for col in ("category_id", "lobby_channel_id", "hub_voice_id", "voice_pack", "guild_lang"):
-            try:
-                conn.execute(f"ALTER TABLE guild_settings ADD COLUMN {col} TEXT")
-            except Exception:
-                pass
     print(f"[DB] Database initialised at: {DATABASE_PATH}")
 
 
@@ -256,19 +205,6 @@ def get_game(game_id: str) -> dict | None:
     return d
 
 
-def get_active_game_in_channel(channel_id: str) -> dict | None:
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM games WHERE channel_id=? AND state IN ('waiting','playing')",
-            (channel_id,)
-        ).fetchone()
-    if row is None:
-        return None
-    d = dict(row)
-    d["game_data"] = json.loads(d["game_data"])
-    return d
-
-
 def update_game_state(game_id: str, state: str, game_data: dict) -> None:
     now = datetime.utcnow().isoformat()
     with get_connection() as conn:
@@ -280,77 +216,6 @@ def update_game_state(game_id: str, state: str, game_data: dict) -> None:
 
 def finish_game(game_id: str, game_data: dict) -> None:
     update_game_state(game_id, "finished", game_data)
-
-
-# ─── Player CRUD ──────────────────────────────────────────────────────────────
-
-def add_player(game_id: str, user_id: str, username: str,
-               seat: int, score: int = 25000, is_bot: bool = False) -> None:
-    with get_connection() as conn:
-        conn.execute(
-            "INSERT INTO players (game_id,user_id,username,seat,score,is_bot) VALUES (?,?,?,?,?,?)",
-            (game_id, user_id, username, seat, score, 1 if is_bot else 0)
-        )
-
-
-def get_players(game_id: str) -> list[dict]:
-    with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM players WHERE game_id=? ORDER BY seat", (game_id,)
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-
-def update_player_score(game_id: str, user_id: str, score: int) -> None:
-    with get_connection() as conn:
-        conn.execute(
-            "UPDATE players SET score=? WHERE game_id=? AND user_id=?",
-            (score, game_id, user_id)
-        )
-
-
-# ─── Stats CRUD ───────────────────────────────────────────────────────────────
-
-def upsert_stats(user_id: str, username: str, *,
-                 win: bool = False, tsumo: bool = False,
-                 ron: bool = False, riichi: bool = False,
-                 score_delta: int = 0) -> None:
-    now = datetime.utcnow().isoformat()
-    with get_connection() as conn:
-        existing = conn.execute(
-            "SELECT * FROM stats WHERE user_id=?", (user_id,)
-        ).fetchone()
-        if existing is None:
-            conn.execute(
-                "INSERT INTO stats (user_id,username,games_played,wins,tsumo_wins,ron_wins,"
-                "riichi_count,total_score,updated_at) VALUES (?,?,1,?,?,?,?,?,?)",
-                (user_id, username,
-                 1 if win else 0, 1 if tsumo else 0, 1 if ron else 0,
-                 1 if riichi else 0, score_delta, now)
-            )
-        else:
-            conn.execute(
-                "UPDATE stats SET username=?, games_played=games_played+1, "
-                "wins=wins+?, tsumo_wins=tsumo_wins+?, ron_wins=ron_wins+?, "
-                "riichi_count=riichi_count+?, total_score=total_score+?, updated_at=? "
-                "WHERE user_id=?",
-                (username, 1 if win else 0, 1 if tsumo else 0, 1 if ron else 0,
-                 1 if riichi else 0, score_delta, now, user_id)
-            )
-
-
-def get_stats(user_id: str) -> dict | None:
-    with get_connection() as conn:
-        row = conn.execute("SELECT * FROM stats WHERE user_id=?", (user_id,)).fetchone()
-    return dict(row) if row else None
-
-
-def get_leaderboard(limit: int = 10) -> list[dict]:
-    with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM stats ORDER BY total_score DESC LIMIT ?", (limit,)
-        ).fetchall()
-    return [dict(r) for r in rows]
 
 
 # ─── Game Log ─────────────────────────────────────────────────────────────────
@@ -431,6 +296,23 @@ def set_user_skin(user_id: str, skin: str | None) -> None:
         )
 
 
+def get_user_voice(user_id: str) -> str | None:
+    """玩家選的角色語音（語音包資料夾名）；None＝不使用語音。"""
+    with get_connection() as conn:
+        row = conn.execute("SELECT voice_pack FROM user_prefs WHERE user_id=?",
+                           (user_id,)).fetchone()
+    return row["voice_pack"] if row else None
+
+
+def set_user_voice(user_id: str, pack: str | None) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO user_prefs (user_id, voice_pack) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET voice_pack=excluded.voice_pack",
+            (user_id, pack)
+        )
+
+
 def get_notify_queue(user_id: str) -> bool:
     """是否訂閱「有人排隊」私訊通知。"""
     with get_connection() as conn:
@@ -488,23 +370,6 @@ def set_guild_lang(guild_id: str, lang: str | None) -> None:
         )
 
 
-def get_voice_pack(guild_id: str) -> str | None:
-    """該伺服器選用的語音包資料夾名（None＝用根目錄預設）。"""
-    with get_connection() as conn:
-        row = conn.execute("SELECT voice_pack FROM guild_settings WHERE guild_id=?",
-                           (guild_id,)).fetchone()
-    return row["voice_pack"] if row else None
-
-
-def set_voice_pack(guild_id: str, pack: str | None) -> None:
-    with get_connection() as conn:
-        conn.execute(
-            "INSERT INTO guild_settings (guild_id, voice_pack) VALUES (?, ?) "
-            "ON CONFLICT(guild_id) DO UPDATE SET voice_pack=excluded.voice_pack",
-            (guild_id, pack)
-        )
-
-
 def get_guild_setup(guild_id: str) -> dict:
     """該伺服器的類別制設定（category / 大廳頻道 / 配對語音）。缺者為 None。"""
     with get_connection() as conn:
@@ -538,7 +403,7 @@ def get_all_guild_settings() -> dict:
 
 
 def delete_guild_settings(guild_id: str) -> None:
-    """移除該伺服器的全部設定（大廳、遊玩頻道、主要語言、語音包）。機器人退出並清理後用。"""
+    """移除該伺服器的全部設定（大廳、遊玩頻道、主要語言）。機器人退出並清理後用。"""
     with get_connection() as conn:
         conn.execute("DELETE FROM guild_settings WHERE guild_id=?", (guild_id,))
 
@@ -560,6 +425,18 @@ def get_recent_records(user_id: str, mode: str, limit: int = 20, offset: int = 0
             "LEFT JOIN games g ON gr.game_id = g.game_id "
             "WHERE gr.user_id=? AND gr.mode=? ORDER BY gr.id DESC LIMIT ? OFFSET ?",
             (user_id, mode, limit, offset)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_recent_games_any(user_id: str, limit: int = 25) -> list[dict]:
+    """某玩家最近的對局（不分四麻／三麻），含房號 room_no；回放的房號自動完成用。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT gr.*, g.room_no FROM game_records gr "
+            "LEFT JOIN games g ON gr.game_id = g.game_id "
+            "WHERE gr.user_id=? AND g.room_no IS NOT NULL ORDER BY gr.id DESC LIMIT ?",
+            (user_id, limit)
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -615,33 +492,6 @@ def get_settle_logs(game_id: str) -> list[dict]:
     return out
 
 
-def _counts_from_settles(logs: list[dict]) -> dict[str, dict]:
-    """由結算牌譜重算每位玩家的各項次數（與對局中即時統計的口徑一致）。"""
-    agg: dict[str, dict] = {}
-    for a in logs:
-        deltas  = a.get("deltas", {}) or {}
-        winners = set(a.get("winners", []) or [])
-        loser   = a.get("loser")
-        riichi  = set(a.get("riichi", []) or [])
-        win     = a.get("win", "")
-        uids = set(deltas) | winners | riichi | ({loser} if loser else set())
-        for uid in uids:
-            c = agg.setdefault(uid, dict(tsumo=0, ron=0, houju=0,
-                                         houju_points=0, gain_points=0, riichi=0))
-            if uid in winners:
-                if win in ("tsumo", "nagashi"):
-                    c["tsumo"] += 1
-                elif win in ("ron", "dblron"):
-                    c["ron"] += 1
-            if loser and uid == loser:
-                c["houju"] += 1
-                c["houju_points"] += max(0, -int(deltas.get(uid, 0)))
-            c["gain_points"] += max(0, int(deltas.get(uid, 0)))
-            if uid in riichi:
-                c["riichi"] += 1
-    return agg
-
-
 def get_hand_rates(user_id: str, mode: str) -> dict:
     """由結算牌譜統計某玩家在該模式「有牌譜對局」的逐局數據，供和了率／放銃率／副露率／
     平均和了打點等。回傳 hands（總局數）、agari、agari_pts（和了打點和）、tsumo、ron、
@@ -674,68 +524,6 @@ def get_hand_rates(user_id: str, mode: str) -> dict:
             if user_id in set(a.get("furo", []) or []):
                 o["furo"] += 1
     return o
-
-
-def repair_game_records() -> dict:
-    """掃描並修復 game_records（只動可由現有資料推導的欄位）：
-      1) 去重：同 game_id+user_id 多筆 → 留最後一筆、刪其餘
-      2) 重算次數：對有結算牌譜（settle）的對局，依牌譜重算自摸／榮和／放銃／
-         放銃失點／獲得點數／立直，覆寫回紀錄（順位、終局點數不動，因牌譜含 bot 較完整但
-         順位本就以全員計算正確）
-      3) 收尾：放銃失點／獲得點數的負值歸零
-    回傳統計報告。"""
-    COUNT_COLS = ("tsumo", "ron", "houju", "houju_points", "gain_points", "riichi")
-    rep = {"scanned": 0, "games": 0, "dups": 0, "counter_fixed": 0,
-           "clamp_fixed": 0, "no_log_games": 0}
-    with get_connection() as conn:
-        rows = [dict(r) for r in conn.execute(
-            "SELECT * FROM game_records ORDER BY id").fetchall()]
-        rep["scanned"] = len(rows)
-        by_game: dict[str, list] = {}
-        for r in rows:
-            by_game.setdefault(r["game_id"], []).append(r)
-        rep["games"] = len(by_game)
-
-        for gid, recs in by_game.items():
-            # 1) 去重：同 user_id 多筆 → 留 id 最大者
-            seen: dict[str, list] = {}
-            for r in recs:
-                seen.setdefault(r["user_id"], []).append(r)
-            kept = []
-            for uid, lst in seen.items():
-                lst.sort(key=lambda x: x["id"])
-                for dead in lst[:-1]:
-                    conn.execute("DELETE FROM game_records WHERE id=?", (dead["id"],))
-                    rep["dups"] += 1
-                kept.append(lst[-1])
-
-            # 2) 由結算牌譜重算次數
-            logs = get_settle_logs(gid) if gid else []
-            if logs:
-                agg = _counts_from_settles(logs)
-                for r in kept:
-                    c = agg.get(r["user_id"])
-                    if not c:
-                        continue
-                    if tuple(r[k] for k in COUNT_COLS) != tuple(c[k] for k in COUNT_COLS):
-                        conn.execute(
-                            "UPDATE game_records SET tsumo=?,ron=?,houju=?,houju_points=?,"
-                            "gain_points=?,riichi=? WHERE id=?",
-                            (c["tsumo"], c["ron"], c["houju"], c["houju_points"],
-                             c["gain_points"], c["riichi"], r["id"]))
-                        rep["counter_fixed"] += 1
-                        r.update(c)
-            else:
-                rep["no_log_games"] += 1
-
-            # 3) 負值歸零
-            for r in kept:
-                fixes = {k: 0 for k in ("houju_points", "gain_points") if r[k] < 0}
-                if fixes:
-                    for k, v in fixes.items():
-                        conn.execute(f"UPDATE game_records SET {k}=? WHERE id=?", (v, r["id"]))
-                    rep["clamp_fixed"] += 1
-    return rep
 
 
 # ─── 段位／R（段位賽）─────────────────────────────────────────────────────────

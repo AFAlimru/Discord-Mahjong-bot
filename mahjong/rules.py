@@ -118,39 +118,6 @@ def parse_tile(text: str, hand: list[Tile], drawn: Optional[Tile] = None) -> Opt
 
 
 # ═══════════════════════════════════════════════════════════════
-#  AI logic  (no external API, pure heuristic)
-# ═══════════════════════════════════════════════════════════════
-
-def _tile_connectivity(t: Tile, counts: Counter) -> int:
-    """Score how well a tile connects with others (higher = keep)."""
-    key = (t.suit, t.value)
-    score = 0
-    if counts[key] >= 2:
-        score += 4           # pair / triplet bonus
-    if counts[key] >= 3:
-        score += 4
-    if t.suit in (Suit.MAN, Suit.SOU, Suit.PIN):
-        for d in (-2, -1, 1, 2):
-            nv = t.value + d
-            if 1 <= nv <= 9 and counts[(t.suit, nv)] > 0:
-                score += 2 if abs(d) == 1 else 1
-    return score
-
-
-def ai_choose_discard(hand: list[Tile], drawn: Optional[Tile] = None) -> Optional[Tile]:
-    """Discard the tile with the lowest connectivity score."""
-    full = list(hand) + ([drawn] if drawn else [])
-    if not full:
-        return None
-    counts = Counter((t.suit, t.value) for t in full)
-    return min(full, key=lambda t: _tile_connectivity(t, counts))
-
-
-def ai_should_pon(hand: list[Tile], tile: Tile) -> bool:
-    return count_tiles(hand, tile) >= 2
-
-
-# ═══════════════════════════════════════════════════════════════
 #  和牌評估（接 scoring）
 # ═══════════════════════════════════════════════════════════════
 
