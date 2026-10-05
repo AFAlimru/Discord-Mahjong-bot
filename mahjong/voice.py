@@ -15,7 +15,7 @@
 
 流程：
   1. 管理員 /setup create 建類別時，順便建一個固定的「配對語音」（hub）。
-  2. 玩家進 hub → 在同類別下開「🔊雀月房-N」（限 4 人）並把玩家移過去。
+  2. 玩家進 hub → 在同類別下開「🔊 雀月房 K7Q2M」（房號代碼，開局沿用；限 4 人）並把玩家移過去。
   3. 語音房坐滿 4 個真人 → 自動開一場休閒對局（頻道照類別模式開）。
   4. 語音房沒人了 → 自動刪除。
 """
@@ -31,7 +31,6 @@ from . import rooms
 
 # voice_channel_id -> {"starting": bool}
 _voice_rooms: dict[int, dict] = {}
-_room_seq = 0
 
 
 def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> dict:
@@ -222,7 +221,7 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
                 _voice_rooms.get(vc.id, {}).pop("settings_msg", None)
     except Exception:
         pass
-    rooms.register(gid, guild.id, str(lobby.id))
+    rooms.register(gid, guild.id, str(lobby.id), _voice_rooms.get(vc.id, {}).get("room_no"))
     try:
         await vc.send(i18n.t("voice.starting", lang))
     except Exception:
@@ -293,7 +292,6 @@ async def cleanup_room(vc) -> None:
 
 async def handle_voice_update(member: discord.Member, before, after) -> None:
     """on_voice_state_update 入口（run.py 掛上）。"""
-    global _room_seq
     if member.bot:
         return
     guild = member.guild
@@ -304,17 +302,17 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
         hub = setup.get("hub_voice_id")
         if hub and str(after.channel.id) == hub:
             cat = after.channel.category
-            _room_seq += 1
+            rno  = rooms.next_room_no()          # 先配房號：語音房名稱就用代碼，開局沿用同一個
             lang = i18n.get_user_lang(str(member.id), member.guild.id)
             try:
                 vc = await guild.create_voice_channel(
-                    f"{i18n.t('voice.room_name', lang)}-{_room_seq}",
+                    f"{i18n.t('voice.room_name', lang)} {rooms.code(rno)}",
                     category=cat, user_limit=4,
                     reason="Suzume Tsuk 語音配對房")
             except Exception as e:
                 print(f"[voice] 建語音房失敗：{e!r}")
                 return
-            _voice_rooms[vc.id] = {"starting": False}
+            _voice_rooms[vc.id] = {"starting": False, "room_no": rno}
             try:
                 await member.move_to(vc, reason="Suzume Tsuk 語音配對")
             except Exception:

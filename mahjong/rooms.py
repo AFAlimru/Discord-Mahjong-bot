@@ -79,8 +79,9 @@ def next_room_no() -> int:
     return n
 
 
-def register(gid: str, guild_id, channel_id) -> RoomMeta:
-    rm = RoomMeta(next_room_no(), gid, str(guild_id), str(channel_id))
+def register(gid: str, guild_id, channel_id, room_no: int | None = None) -> RoomMeta:
+    """註冊房間；room_no＝事先配好的房號（語音房建立時就配，開局沿用同一個代碼），None＝現在配。"""
+    rm = RoomMeta(room_no or next_room_no(), gid, str(guild_id), str(channel_id))
     rooms[gid] = rm
     return rm
 

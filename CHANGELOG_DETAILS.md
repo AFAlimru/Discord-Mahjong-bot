@@ -3,6 +3,13 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.8.2] - 2026-10-05
+
+### 修正
+- **語音房名稱改用房號代碼**：`voice.handle_voice_update` 建語音房時先 `rooms.next_room_no()` 配好房號，名稱改為
+  `voice.room_name + 代碼`，存進 `_voice_rooms[vc.id]["room_no"]`；`_start_voice_game` 以 `rooms.register(..., room_no)`
+  沿用（`register` 新增選填 `room_no`）。移除行程內的 `_room_seq` 流水號。沒開成局的語音房會跳過該號，不影響。
+
 ## [0.8.1] - 2026-10-04
 
 ### 變更
