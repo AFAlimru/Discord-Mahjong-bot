@@ -28,6 +28,7 @@ from .config import AI_NAMES
 from . import db
 from . import i18n
 from . import rooms
+from . import hubs
 
 # voice_channel_id -> {"starting": bool}
 _voice_rooms: dict[int, dict] = {}
@@ -55,24 +56,25 @@ def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> 
     }
 
 
-async def _lobby_channel(guild: discord.Guild, setup: dict):
-    """發開局公告用的文字頻道：優先開房頻道（指定遊玩頻道）→ 大廳頻道 → 類別內任一文字頻道。"""
-    pc = db.get_play_channel(str(guild.id))
-    if pc:
-        ch = guild.get_channel(int(pc))
-        if isinstance(ch, discord.TextChannel):
-            return ch
-    lid = setup.get("lobby_channel_id")
-    if lid:
-        ch = guild.get_channel(int(lid))
-        if isinstance(ch, discord.TextChannel):
-            return ch
-    cid = setup.get("category_id")
+async def _lobby_channel(guild: discord.Guild, hub: dict | None):
+    """發開局公告用的文字頻道：這個大廳的開房頻道 → 大廳頻道 → 類別內任一文字頻道 → 伺服器指定遊玩頻道。"""
+    hub = hub or {}
+    for cid in (hub.get("play_channel_id"), hub.get("lobby_channel_id")):
+        if cid:
+            ch = guild.get_channel(int(cid))
+            if isinstance(ch, discord.TextChannel):
+                return ch
+    cid = hub.get("category_id")
     if cid:
         cat = guild.get_channel(int(cid))
         if isinstance(cat, discord.CategoryChannel):
             for ch in cat.text_channels:
                 return ch
+    pc = db.get_play_channel(str(guild.id))
+    if pc:
+        ch = guild.get_channel(int(pc))
+        if isinstance(ch, discord.TextChannel):
+            return ch
     return None
 
 
@@ -94,7 +96,7 @@ class SanmaStartButton(discord.ui.Button):
         self._vc_id = vc_id
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        lang = i18n.get_user_lang(str(interaction.user.id), interaction.guild_id)
+        lang = i18n.get_user_lang(str(interaction.user.id), interaction.guild_id, interaction.channel)
         vc   = interaction.guild.get_channel(self._vc_id)
         info = _voice_rooms.get(self._vc_id)
         if vc is None or info is None:
@@ -132,7 +134,7 @@ class CpuStartButton(discord.ui.Button):
         self._vc_id = vc_id
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        lang = i18n.get_user_lang(str(interaction.user.id), interaction.guild_id)
+        lang = i18n.get_user_lang(str(interaction.user.id), interaction.guild_id, interaction.channel)
         vc   = interaction.guild.get_channel(self._vc_id)
         info = _voice_rooms.get(self._vc_id)
         if vc is None or info is None:
@@ -173,7 +175,7 @@ class VoicePackSelect(discord.ui.Select):
                          min_values=1, max_values=1, options=opts, row=row)
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        ulang = i18n.get_user_lang(str(interaction.user.id), interaction.guild_id)
+        ulang = i18n.get_user_lang(str(interaction.user.id), interaction.guild_id, interaction.channel)
         val   = self.values[0]
         if val == self.NONE:
             db.set_user_voice(str(interaction.user.id), None)
@@ -182,14 +184,23 @@ class VoicePackSelect(discord.ui.Select):
             db.set_user_voice(str(interaction.user.id), val)
             msg = i18n.t("voice.pack_set", ulang, pack=f"**{val}**")
         await interaction.response.send_message(msg, ephemeral=True)
+        if val != self.NONE:                   # 人在配對語音房裡選了語音包 → 機器人先進房
+            room = getattr(getattr(interaction.user, "voice", None), "channel", None)
+            if room is not None and room.id in _voice_rooms:
+                try:
+                    from . import sfx
+                    await sfx.join_room(room, str(interaction.user.id))
+                except Exception as e:
+                    print(f"[voice] 機器人進語音房失敗：{e!r}")
 
 
 async def _start_voice_game(vc: discord.VoiceChannel, members: list,
                             sanma: bool | None = None, fill_ai: bool = False) -> None:
     from .flow import launch_game
     guild = vc.guild
-    setup = db.get_guild_setup(str(guild.id))
-    lobby = await _lobby_channel(guild, setup)
+    hub   = (hubs.by_id(guild.id, _voice_rooms.get(vc.id, {}).get("hub_id"))
+             or hubs.of_channel(guild.id, vc))         # 這間語音房是從哪個大廳開的
+    lobby = await _lobby_channel(guild, hub)
     if lobby is None:
         try:
             await vc.send("❌ 找不到可以開局的文字頻道（大廳被刪了？請重新 /setup create）")
@@ -199,7 +210,7 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
         return
     # 語音局沒有「開房者」→ 房主固定給**東家**（起家＝members[0]＝seat 0＝莊家）
     host = members[0]
-    lang = i18n.get_user_lang(str(host.id), guild.id)
+    lang = hubs.lang_for(guild.id, vc)     # 房間語言＝這個大廳的語言（只有一個大廳＝伺服器語言）
     gid  = str(uuid.uuid4())[:8]
     _waiting[gid] = [{"user_id": str(m.id), "username": m.display_name, "is_bot": False}
                      for m in members]
@@ -298,12 +309,12 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
 
     # 1) 加入配對語音（hub）→ 開一間語音房並移過去
     if after.channel is not None:
-        setup = db.get_guild_setup(str(guild.id))
-        hub = setup.get("hub_voice_id")
-        if hub and str(after.channel.id) == hub:
+        hub = next((h for h in hubs.all_hubs(guild.id)
+                    if h.get("hub_voice_id") == str(after.channel.id)), None)
+        if hub is not None:                      # 進了某個大廳的配對語音
             cat = after.channel.category
             rno  = rooms.next_room_no()          # 先配房號：語音房名稱就用代碼，開局沿用同一個
-            lang = i18n.get_user_lang(str(member.id), member.guild.id)
+            lang = hubs.lang_for(guild.id, after.channel)   # 這個大廳的語言
             try:
                 vc = await guild.create_voice_channel(
                     f"{i18n.t('voice.room_name', lang)} {rooms.code(rno)}",
@@ -312,7 +323,7 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
             except Exception as e:
                 print(f"[voice] 建語音房失敗：{e!r}")
                 return
-            _voice_rooms[vc.id] = {"starting": False, "room_no": rno}
+            _voice_rooms[vc.id] = {"starting": False, "room_no": rno, "hub_id": hub["id"]}
             try:
                 await member.move_to(vc, reason="Suzume Tsuk 語音配對")
             except Exception:
@@ -337,6 +348,12 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
     if after.channel is not None and after.channel.id in _voice_rooms:
         room = after.channel
         info = _voice_rooms[room.id]
+        if before.channel is None or before.channel.id != room.id:   # 剛進房：有選語音包就讓機器人先進來
+            try:
+                from . import sfx
+                await sfx.join_room(room, str(member.id))
+            except Exception as e:
+                print(f"[voice] 機器人進語音房失敗：{e!r}")
         sv   = info.get("settings")
         humans = [m for m in room.members if not m.bot]
         free   = [m for m in humans if str(m.id) not in _user_game]
@@ -353,7 +370,7 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
                 pass
             await _start_voice_game(room, free[:3], sanma=True)
         elif len(free) == 3 and not info["starting"] and info.get("sanma_msg") is None:
-            lang = i18n.get_user_lang(str(member.id), member.guild.id)
+            lang = hubs.lang_for(member.guild.id, room)
             try:
                 v = discord.ui.View(timeout=None)
                 v.add_item(SanmaStartButton(room.id, lang))

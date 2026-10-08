@@ -66,8 +66,8 @@ def channel_missing(channel, me) -> list[str]:
 
 
 def guild_report(guild, settings: dict | None = None) -> dict:
-    """後台用：伺服器層級缺的權限，加上大廳／遊玩頻道／配對語音等關鍵頻道各自的問題。
-    settings＝預先讀好的 guild_settings 列（批次列表用，免逐台查資料庫）；None＝自己查。"""
+    """後台用：伺服器層級缺的權限，加上每個大廳的大廳／開房頻道／配對語音與指定遊玩頻道各自的問題。
+    settings＝預先讀好的 guild_settings 列（批次列表用，省一次查詢）；None＝自己查。"""
     me = guild.me
     if me is None:
         return {"admin": False, "core": [], "features": [], "channels": [], "ok": True}
@@ -76,18 +76,18 @@ def guild_report(guild, settings: dict | None = None) -> dict:
     feats = ([] if gp.administrator else
              [{"perm": n, "use": u} for a, n, u in FEATURES if not getattr(gp, a, True)])
     channels = []
-    if settings is not None:
-        setup, play = settings, settings.get("play_channel_id")
-    else:
-        from . import db
-        try:
-            setup = db.get_guild_setup(str(guild.id))
-            play  = db.get_play_channel(str(guild.id))
-        except Exception:
-            setup, play = {}, None
-    checks = (("大廳", setup.get("lobby_channel_id"), CORE + [("manage_messages", "Manage Messages")]),
-              ("遊玩頻道", play, CORE + THREADS),
-              ("配對語音", setup.get("hub_voice_id"), VOICE))
+    from . import db
+    try:
+        hub_list = db.get_hubs(str(guild.id))
+        play = (settings or {}).get("play_channel_id") if settings is not None             else db.get_play_channel(str(guild.id))
+    except Exception:
+        hub_list, play = [], None
+    checks = [("遊玩頻道", play, CORE + THREADS)]
+    for h in hub_list:                                   # 每個大廳各自檢查
+        tag = f"（{h.get('lang') or '?'}）" if len(hub_list) > 1 else ""
+        checks += [(f"大廳{tag}", h.get("lobby_channel_id"), CORE + [("manage_messages", "Manage Messages")]),
+                   (f"開房頻道{tag}", h.get("play_channel_id"), CORE + THREADS),
+                   (f"配對語音{tag}", h.get("hub_voice_id"), VOICE)]
     for label, cid, spec in checks:
         if not cid:
             continue

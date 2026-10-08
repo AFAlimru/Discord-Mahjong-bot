@@ -3,6 +3,43 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.8.4] - 2026-10-08
+
+### 變更
+- **多語言大廳**：新表 `guild_hubs`（id／guild_id／lang／category_id／lobby_channel_id／hub_voice_id／play_channel_id），
+  `guild_settings` 只剩 `play_channel_id`（/setup channel 指定）與 `guild_lang`。`PRAGMA user_version` 2：把舊
+  `guild_settings` 的大廳欄位搬進 `guild_hubs`（lang 留空），`run.ensure_guild_setup` 啟動時依類別／大廳／配對語音
+  的頻道名稱比對各語言的 `hub.*_name` 補上語言，認不出就用伺服器主要語言。`db.get_hubs`／`add_hub`／`set_hub_lang`／
+  `delete_hub`；`get_guild_setup` 改回傳第一個大廳；`set_guild_setup` 移除；`delete_guild_settings` 一併刪大廳。
+  新模組 `mahjong/hubs.py`：`all_hubs`／`for_lang`／`by_id`／`of_channel`（頻道是大廳／開房頻道／配對語音，或在其類別內，
+  討論串看母頻道）／`lang_for`（多個大廳且頻道屬於其一＝該大廳語言，否則伺服器語言）／`lobby_ids`／`play_ids`。
+  - `i18n.get_user_lang(user, guild, channel=None)`：沒有個人設定時，有 channel 就用 `hubs.lang_for`；commands／voice／ui／flow
+    裡拿得到 interaction 的呼叫一律帶 `interaction.channel`（個人明確設定的語言仍優先）。
+  - `/setup create`：同語言已有大廳（頻道還在）回 `hub.already`；同語言紀錄但頻道被刪＝刪紀錄重建；不同語言就 `_build_hub`
+    再建一套並 `db.add_hub`。建立時不再把開房頻道設成整台伺服器的指定遊玩頻道；`/mahjong start`／`join` 允許的頻道＝
+    指定遊玩頻道 ∪ 每個大廳的開房頻道（`_play_channels`）。移除 `_existing_lobby`／`_remove_hub`／`RebuildHubView` 與
+    `hub.rebuild_*` 語言鍵。
+  - 房間語言：在大廳的頻道 `/mahjong start` ＝ `hubs.lang_for`（其他頻道仍是房主語言），開房時彈出的
+    `RoomSettingsView`（與其 ⚙️ 數值設定 `RoomSettingsModal`）也用這個 `room_lang`，不再用房主個人語言；語音配對以進入的配對語音找大廳
+    （`_voice_rooms[vc]["hub_id"]`），語音房名稱、設定面板、三麻提示與開局後的房間語言都用 `hubs.lang_for`；
+    `_lobby_channel(guild, hub)` 依序找該大廳的開房頻道 → 大廳 → 類別內文字頻道 → 指定遊玩頻道。
+  - 對局頻道類別 `flow._guild_category(guild, channel)`、回放頻道類別都改用開房頻道所屬的大廳；大廳打字即刪的快取改為
+    所有大廳頻道的集合；`teardown_hub` 逐一收掉每個大廳；`perms.guild_report` 逐一檢查每個大廳的三個頻道。
+  - 以假 guild 實測：中文建立 → 英文另建（舊的不刪）→ 再建中文被擋；英文開房頻道／英文類別內對局頻道＝en、
+    中文配對語音＝zh_tw、只剩一個大廳＝伺服器語言；舊資料庫轉換與語言辨識正確。
+- **結束訊息＋刪除按鈕發到每個頻道**：`flow._finish_channels` 除了公開頻道，也對每位玩家的手牌頻道（DM 除外）
+  各用該玩家語言發 `room.ended`＋`RoomDeleteButton`；任一顆按下都刪掉整場的頻道。
+- **語音套件**：discord.py 2.7 的 `VoiceClient` 需要 `davey`（DAVE 語音端對端加密），缺少時 `connect()` 拋
+  `RuntimeError('davey library needed…')`。`requirements.txt` 改為 `discord.py[voice]>=2.7.0`（帶 PyNaCl、davey），
+  拿掉單獨的 PyNaCl 行；`sfx.load` 用 `importlib.util.find_spec` 檢查 `nacl`／`davey`，缺少就印提示；進語音失敗的提示同步改寫。
+- **結束遊戲按鈕競態**：`EndGameButton` 在對局已不存在時的回覆包 `try/except discord.HTTPException`（語音房在對局結束時
+  會被 `cleanup_room` 刪掉，同時按下就會 404 Unknown Channel）。
+- **提早進語音房**：新增 `sfx.join_room(vc, uid)`（未就緒、這人沒選語音包、不在房裡就不進）。`voice.handle_voice_update`
+  在玩家剛進入受管理的語音房時呼叫；`VoicePackSelect` 選了語音包、且選的人正在受管理的語音房裡也呼叫。
+- **一台伺服器只能進一個語音頻道**：新增 `sfx._busy_elsewhere(vc)`——機器人目前所在的語音房若綁著進行中的對局（`_threads[gid]["voice"]`
+  且 `gid in _games`），`_ensure_client` 就不 `move_to` 過來（回 None＝這場不出聲）；只是開局前待著的房間則照常搬。
+  `sfx.leave(guild, vc)` 帶這場的語音房，機器人不在這間就不斷線（`flow._leave_voice_room` 傳入）。
+
 ## [0.8.3] - 2026-10-08
 
 ### 變更

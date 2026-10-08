@@ -137,12 +137,15 @@ def _apply_skin(uid: str) -> None:
     T.set_skin(sk)
 
 
-def _guild_category(guild) -> discord.CategoryChannel | None:
-    """該伺服器若用 /setup create 建過類別，回傳 CategoryChannel（否則 None＝沿用討論串模式）。"""
+def _guild_category(guild, channel=None) -> discord.CategoryChannel | None:
+    """對局頻道要開在哪個大廳類別：開房的頻道屬於哪個大廳就用它的，否則第一個大廳；
+    沒建過大廳＝None（沿用討論串模式）。"""
     if guild is None:
         return None
     try:
-        cid = db.get_guild_setup(str(guild.id)).get("category_id")
+        from . import hubs
+        h = hubs.of_channel(guild.id, channel) or (hubs.all_hubs(guild.id) or [None])[0]
+        cid = (h or {}).get("category_id")
         if cid:
             c = guild.get_channel(int(cid))
             if isinstance(c, discord.CategoryChannel):
@@ -244,7 +247,7 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
     """建立公開討論串 + 每位真人玩家的私人討論串。
     watch=True（觀戰）：公開串當牌桌；否則當聊天/和牌資訊串（牌桌資訊改用按鈕看）。
     0.7：伺服器若建過類別（/setup create），改走類別內文字頻道模式。"""
-    cat = _guild_category(getattr(channel, "guild", None))
+    cat = _guild_category(getattr(channel, "guild", None), channel)
     if cat is not None:
         await setup_channels(gid, cat, gs, watch=watch)
         return
@@ -426,7 +429,7 @@ async def _leave_voice_room(th: dict) -> None:
         return
     try:
         from . import sfx
-        await sfx.leave(vc.guild)
+        await sfx.leave(vc.guild, vc)
     except Exception:
         pass
     try:
@@ -611,7 +614,7 @@ class AfkBackButton(discord.ui.Button):
         self._uid = str(uid)
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        ulang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        ulang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         if str(interaction.user.id) != self._uid:
             await interaction.response.send_message(i18n.t("msg.back_not_yours", ulang), ephemeral=True)
             return
@@ -652,7 +655,10 @@ class EndGameButton(discord.ui.Button):
         lg   = i18n.get_user_lang(uid)
         gs   = _games.get(gid)
         if gs is None and gid not in _waiting:
-            await interaction.response.send_message(i18n.t("msg.no_game", lg), ephemeral=True)
+            try:                         # 對局剛結束：這則訊息所在的語音房／頻道可能正在被刪
+                await interaction.response.send_message(i18n.t("msg.no_game", lg), ephemeral=True)
+            except discord.HTTPException:
+                pass
             return
         if gs is not None:
             participants = {p.user_id for p in gs.players if not p.is_bot}
@@ -676,15 +682,20 @@ class EndGameButton(discord.ui.Button):
 
 
 async def _finish_channels(th: dict, lang: str = i18n.DEFAULT, delay: float = 300.0) -> None:
-    """0.7 類別模式收尾：公開頻道發「對局已結束」＋刪除按鈕，幾分鐘後自動刪全部頻道。"""
+    """0.7 類別模式收尾：公開頻道＋每位玩家自己的手牌頻道都發「對局已結束」＋刪除按鈕（各用自己的語言），
+    幾分鐘後自動刪全部頻道。玩家多半停在自己的手牌頻道，按鈕只放公開頻道會找不到。"""
     await _leave_voice_room(th)
     await _delete_announce(th)
-    pub = th.get("public")
-    if pub is not None:
+    surfaces = [(th.get("public"), lang)] + [
+        (pt, i18n.get_user_lang(uid)) for uid, pt in th.get("private", {}).items()
+        if not isinstance(pt, discord.DMChannel)]
+    for ch, lg in surfaces:
+        if ch is None:
+            continue
         try:
             v = discord.ui.View(timeout=None)
-            v.add_item(RoomDeleteButton(th, lang))
-            await pub.send(i18n.t("room.ended", lang, min=int(delay // 60)), view=v)
+            v.add_item(RoomDeleteButton(th, lg))
+            await ch.send(i18n.t("room.ended", lg, min=int(delay // 60)), view=v)
         except Exception:
             pass
     _schedule_delete_threads(th, delay)

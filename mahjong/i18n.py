@@ -146,8 +146,9 @@ def set_guild_lang(guild_id, lang: str | None) -> None:
         print(f"[i18n] 儲存伺服器語言失敗：{e}")
 
 
-def get_user_lang(user_id, guild_id=None) -> str:
-    """玩家語言：個人設定優先；無個人設定則用伺服器主要語言，再無則母本。快取 + DB。"""
+def get_user_lang(user_id, guild_id=None, channel=None) -> str:
+    """玩家語言：個人設定優先；沒有個人設定時——給了 channel 且伺服器有多個大廳＝那個頻道所屬大廳的語言，
+    否則用伺服器主要語言，再無則母本。快取 + DB。"""
     uid = str(user_id)
     if uid in _user_cache:
         return _user_cache[uid]
@@ -159,6 +160,9 @@ def get_user_lang(user_id, guild_id=None) -> str:
     if lang in available():
         _user_cache[uid] = lang         # 只快取「使用者明確設定」
         return lang
+    if channel is not None and guild_id is not None:
+        from . import hubs
+        return hubs.lang_for(guild_id, channel)
     return guild_lang(guild_id) or DEFAULT   # 伺服器語言可能變動，不快取到個人
 
 

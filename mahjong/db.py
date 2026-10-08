@@ -98,12 +98,23 @@ def init_db() -> None:
             -- 伺服器設定
             CREATE TABLE IF NOT EXISTS guild_settings (
                 guild_id         TEXT PRIMARY KEY,
-                play_channel_id  TEXT,      -- 指定遊玩頻道
-                category_id      TEXT,      -- 雀月類別
-                lobby_channel_id TEXT,      -- 按鈕大廳
-                hub_voice_id     TEXT,      -- 配對語音
+                play_channel_id  TEXT,      -- 管理員用 /setup channel 指定的遊玩頻道
                 guild_lang       TEXT       -- 伺服器主要語言
             );
+
+            -- 大廳（/setup create 建的一套：類別＋按鈕大廳＋開房文字頻道＋配對語音）。
+            -- 一台伺服器可以有好幾個，每種語言一個；從哪個大廳開房就用那個大廳的語言。
+            CREATE TABLE IF NOT EXISTS guild_hubs (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id         TEXT NOT NULL,
+                lang             TEXT,      -- 大廳語言（舊資料轉過來時未知＝NULL，啟動時依頻道名稱補上）
+                category_id      TEXT,
+                lobby_channel_id TEXT,
+                hub_voice_id     TEXT,
+                play_channel_id  TEXT,      -- 這個大廳的開房文字頻道
+                created_at       TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_hubs_guild ON guild_hubs (guild_id);
 
             -- 任務／活躍度（每日簽到、每日對局）
             CREATE TABLE IF NOT EXISTS user_activity (
@@ -144,6 +155,19 @@ def init_db() -> None:
                 conn.execute("UPDATE user_rating SET dan_idx=?, dan_pt=? WHERE user_id=? AND mode=?",
                              (idx, rating.start_pt(idx), r["user_id"], r["mode"]))
             conn.execute("PRAGMA user_version = 1")
+        if conn.execute("PRAGMA user_version").fetchone()[0] < 2:
+            # 0.8.4 多語言大廳：把 guild_settings 裡原本那一個大廳搬到 guild_hubs（語言先留空，啟動時補）
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(guild_settings)").fetchall()}
+            if "category_id" in cols:
+                for r in conn.execute(
+                        "SELECT guild_id, category_id, lobby_channel_id, hub_voice_id, play_channel_id "
+                        "FROM guild_settings WHERE category_id IS NOT NULL").fetchall():
+                    conn.execute(
+                        "INSERT INTO guild_hubs (guild_id, lang, category_id, lobby_channel_id, hub_voice_id,"
+                        " play_channel_id, created_at) VALUES (?, NULL, ?, ?, ?, ?, ?)",
+                        (r["guild_id"], r["category_id"], r["lobby_channel_id"], r["hub_voice_id"],
+                         r["play_channel_id"], datetime.utcnow().isoformat()))
+            conn.execute("PRAGMA user_version = 2")
     print(f"[DB] Database initialised at: {DATABASE_PATH}")
 
 
@@ -378,29 +402,41 @@ def set_guild_lang(guild_id: str, lang: str | None) -> None:
         )
 
 
-def get_guild_setup(guild_id: str) -> dict:
-    """該伺服器的類別制設定（category / 大廳頻道 / 配對語音）。缺者為 None。"""
+def get_hubs(guild_id: str) -> list[dict]:
+    """該伺服器的所有大廳（建立順序），每筆含 id／lang／category_id／lobby_channel_id／hub_voice_id／play_channel_id。"""
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT category_id, lobby_channel_id, hub_voice_id "
-            "FROM guild_settings WHERE guild_id=?", (guild_id,)).fetchone()
-    if not row:
-        return {"category_id": None, "lobby_channel_id": None, "hub_voice_id": None}
-    return {"category_id": row["category_id"],
-            "lobby_channel_id": row["lobby_channel_id"],
-            "hub_voice_id": row["hub_voice_id"]}
+        rows = conn.execute("SELECT * FROM guild_hubs WHERE guild_id=? ORDER BY id",
+                            (str(guild_id),)).fetchall()
+    return [dict(r) for r in rows]
 
 
-def set_guild_setup(guild_id: str, category_id: str | None,
-                    lobby_channel_id: str | None, hub_voice_id: str | None) -> None:
+def add_hub(guild_id: str, lang: str, category_id, lobby_channel_id, hub_voice_id,
+            play_channel_id) -> None:
+    to_s = lambda x: str(x) if x else None
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO guild_settings (guild_id, category_id, lobby_channel_id, hub_voice_id) "
-            "VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(guild_id) DO UPDATE SET category_id=excluded.category_id, "
-            "lobby_channel_id=excluded.lobby_channel_id, hub_voice_id=excluded.hub_voice_id",
-            (guild_id, category_id, lobby_channel_id, hub_voice_id)
-        )
+            "INSERT INTO guild_hubs (guild_id, lang, category_id, lobby_channel_id, hub_voice_id,"
+            " play_channel_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (str(guild_id), lang, to_s(category_id), to_s(lobby_channel_id), to_s(hub_voice_id),
+             to_s(play_channel_id), datetime.utcnow().isoformat()))
+
+
+def set_hub_lang(hub_id: int, lang: str) -> None:
+    with get_connection() as conn:
+        conn.execute("UPDATE guild_hubs SET lang=? WHERE id=?", (lang, hub_id))
+
+
+def delete_hub(hub_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM guild_hubs WHERE id=?", (hub_id,))
+
+
+def get_guild_setup(guild_id: str) -> dict:
+    """第一個大廳的 category / 大廳頻道 / 配對語音（只需要「有沒有大廳」的地方用）。缺者為 None。"""
+    hubs = get_hubs(guild_id)
+    h = hubs[0] if hubs else {}
+    return {"category_id": h.get("category_id"), "lobby_channel_id": h.get("lobby_channel_id"),
+            "hub_voice_id": h.get("hub_voice_id")}
 
 
 def get_all_guild_settings() -> dict:
@@ -411,9 +447,10 @@ def get_all_guild_settings() -> dict:
 
 
 def delete_guild_settings(guild_id: str) -> None:
-    """移除該伺服器的全部設定（大廳、遊玩頻道、主要語言）。機器人退出並清理後用。"""
+    """移除該伺服器的全部設定（所有大廳、遊玩頻道、主要語言）。機器人退出並清理後用。"""
     with get_connection() as conn:
         conn.execute("DELETE FROM guild_settings WHERE guild_id=?", (guild_id,))
+        conn.execute("DELETE FROM guild_hubs WHERE guild_id=?", (guild_id,))
 
 
 def get_total_games(user_id: str) -> int:

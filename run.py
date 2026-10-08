@@ -75,11 +75,12 @@ async def on_message(message: discord.Message) -> None:
         return
     if message.guild is not None:
         gid_s = str(message.guild.id)
-        lid = _lobby_channels.get(gid_s)
-        if lid is None:                       # 尚未查過 → 查一次 DB 進快取
-            lid = db.get_guild_setup(gid_s).get("lobby_channel_id") or "?"
-            _lobby_channels[gid_s] = lid
-        if lid == str(message.channel.id):
+        lids = _lobby_channels.get(gid_s)
+        if lids is None:                      # 尚未查過 → 查一次 DB 進快取（所有大廳頻道）
+            from mahjong import hubs as _hubs
+            lids = _hubs.lobby_ids(gid_s)
+            _lobby_channels[gid_s] = lids
+        if str(message.channel.id) in lids:
             try:
                 await message.delete()
             except Exception:
@@ -194,10 +195,25 @@ async def ensure_guild_setup(guild, create_guide: bool = True) -> None:
     if _i.guild_lang(gid) is None:            # 主要語言：未設定→依伺服器地區自動偵測
         _i.set_guild_lang(gid, _i.detect_locale(getattr(guild, "preferred_locale", "")))
     lang = _i.guild_lang(gid) or _i.DEFAULT
+    try:                                      # 舊資料轉過來、還不知道語言的大廳：依頻道名稱認出語言
+        for h in _db.get_hubs(gid):
+            if h.get("lang"):
+                continue
+            names = set()
+            for cid in (h.get("category_id"), h.get("lobby_channel_id"), h.get("hub_voice_id")):
+                c = guild.get_channel(int(cid)) if cid else None
+                if c is not None:
+                    names.add(c.name)
+            found = next((L for L in _i.available()
+                          if names & {_i.t("hub.category_name", L), _i.t("hub.channel_name", L),
+                                      _i.t("hub.voice_name", L)}), None)
+            _db.set_hub_lang(h["id"], found or lang)
+    except Exception as e:
+        print(f"⚠️ 大廳語言判定失敗（{getattr(guild, 'name', '?')}）: {e}")
     if not create_guide:
         return
-    try:                                      # 已建大廳類別＝已設定好，不需指南
-        if _db.get_guild_setup(gid).get("category_id"):
+    try:                                      # 已建大廳＝已設定好，不需指南
+        if _db.get_hubs(gid):
             return
     except Exception:
         pass

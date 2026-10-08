@@ -120,6 +120,10 @@ async def load(bot=None) -> None:
         return
     if not _ensure_opus():
         print("[sfx] libopus 未載入，語音送音會失敗（Linux: apt install libopus0；Win 通常內建）")
+    import importlib.util
+    missing = [m for m in ("nacl", "davey") if importlib.util.find_spec(m) is None]
+    if missing:                             # 少了就進不了語音（discord.py 2.7 起語音需要 davey）
+        print(f"[sfx] 缺少語音套件 {missing}，機器人進不了語音 → pip install -U \"discord.py[voice]\"")
     _ready = True
     packs = list_packs()
     print(f"[sfx] 音效就緒（FFmpeg 直接播檔；opus={'OK' if discord.opus.is_loaded() else '未載入'}）。"
@@ -226,13 +230,27 @@ def pack_coverage(pack: str | None) -> tuple[int, list[str]]:
 
 
 # ───────────────────────── 語音連線 ─────────────────────────
+def _busy_elsewhere(vc) -> bool:
+    """機器人正在同伺服器另一間「對局進行中」的語音房（一台伺服器只能進一個語音頻道，不搶過來）。"""
+    from .state import _games
+    cur = getattr(vc.guild, "voice_client", None)
+    if not cur or not cur.channel or cur.channel.id == vc.id:
+        return False
+    return any((th.get("voice") is not None and th["voice"].id == cur.channel.id and gid in _games)
+               for gid, th in _threads.items())
+
+
 async def _ensure_client(vc) -> discord.VoiceClient | None:
     """確保機器人在該語音頻道，回傳 VoiceClient；失敗回 None。
-    不可自聾／自靜音（Discord error 50167）。"""
+    機器人正在別間對局中的語音房＝不搬過來（回 None）。不可自聾／自靜音（Discord error 50167）。"""
     try:
         cur = vc.guild.voice_client
         if cur and cur.channel and cur.channel.id == vc.id:
             return cur
+        if _busy_elsewhere(vc):
+            if DEBUG:
+                print(f"[sfx] 略過：機器人正在 {cur.channel.name} 的對局裡")
+            return None
         if cur:
             await cur.move_to(vc)
             return vc.guild.voice_client
@@ -245,7 +263,7 @@ async def _ensure_client(vc) -> discord.VoiceClient | None:
             pass
         return await vc.connect(self_deaf=False, self_mute=False)
     except Exception as e:
-        print(f"[sfx] 進語音失敗：{e!r}　← 需要 PyNaCl（pip install PyNaCl）與連線權限")
+        print(f"[sfx] 進語音失敗：{e!r}　← 需要語音套件（pip install -U \"discord.py[voice]\"，含 PyNaCl 與 davey）與連線權限")
         return None
 
 
@@ -258,8 +276,19 @@ async def join(vc, gid: str) -> bool:
     return (await _ensure_client(vc)) is not None
 
 
-async def leave(guild) -> None:
-    """對局結束：停止佇列、離開語音。"""
+async def join_room(vc, uid) -> bool:
+    """開局前：語音房裡有人選了語音包就先進房（讓大家知道機器人在）。
+    沒選語音包、未就緒、或機器人正在別間對局的語音房＝不進。"""
+    if not _ready or not _user_pack(uid) or not _in_room(vc, uid):
+        return False
+    return (await _ensure_client(vc)) is not None
+
+
+async def leave(guild, vc=None) -> None:
+    """對局結束：停止佇列、離開語音。vc＝這場的語音房：機器人不在這間（在別間對局）就不動它。"""
+    cur = getattr(guild, "voice_client", None)
+    if vc is not None and cur is not None and cur.channel is not None and cur.channel.id != vc.id:
+        return
     gid = getattr(guild, "id", None)
     if gid is not None:
         t = _consumers.pop(gid, None)

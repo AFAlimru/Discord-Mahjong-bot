@@ -23,6 +23,7 @@ from .numfmt import compact, signed as signed_num
 from . import db
 from . import i18n
 from . import rooms
+from . import hubs
 from .render import make_board_text
 from . import tiles as T
 from .ui import HelpButton, help_text
@@ -87,10 +88,10 @@ class LobbyView(discord.ui.View):
         waiting = _waiting.get(gid, [])
 
         if any(p["user_id"] == uid for p in waiting):
-            await interaction.response.send_message(i18n.t("msg.already_in_room", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.already_in_room", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
             return
         if len(waiting) >= max_p:
-            await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
             return
 
         await _close_owned_waiting_rooms(uid, gid)   # 加入別人的房 → 關掉自己開的房
@@ -136,13 +137,13 @@ class LobbyView(discord.ui.View):
         gid     = self.gid
         uid     = str(interaction.user.id)
         if _room_owners.get(gid) != uid:
-            await interaction.response.send_message(i18n.t("msg.only_host_ai", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.only_host_ai", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
             return
         cfg   = _room_configs.get(gid, {})
         max_p = cfg.get("max_players", 4)
         waiting = _waiting.get(gid, [])
         if len(waiting) >= max_p:
-            await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
             return
 
         ai_uid  = f"ai_{gid}_{self._ai_count}"
@@ -153,7 +154,7 @@ class LobbyView(discord.ui.View):
 
     @discord.ui.button(label="🌐", style=discord.ButtonStyle.secondary)   # 標籤於 __init__ 依房間語言設定
     async def translate_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         await interaction.response.send_message(self._content(lang), ephemeral=True)
 
     @discord.ui.button(label="📩 DM", style=discord.ButtonStyle.secondary)
@@ -253,6 +254,15 @@ async def _close_owned_waiting_rooms(uid: str, except_gid: str) -> None:
 mahjong = app_commands.Group(name="mahjong", description="日本麻將遊戲")
 
 
+def _play_channels(guild_id) -> set[str]:
+    """可以開房／加入的文字頻道：/setup channel 指定的＋每個大廳的開房頻道（都沒有＝不限制）。"""
+    out = set(hubs.play_ids(guild_id))
+    pc = db.get_play_channel(str(guild_id))
+    if pc:
+        out.add(str(pc))
+    return out
+
+
 @mahjong.command(name="start", description="開啟新麻將房間")
 async def cmd_start(interaction: discord.Interaction) -> None:
     channel_id = str(interaction.channel_id)
@@ -266,19 +276,24 @@ async def cmd_start(interaction: discord.Interaction) -> None:
                 i18n.t("msg.channel_has_game", i18n.get_user_lang(user_id)), ephemeral=True)
             return
     else:
-        pc = db.get_play_channel(str(interaction.guild_id))
-        if pc and channel_id != pc:   # 伺服器有指定遊玩頻道
+        allowed = _play_channels(interaction.guild_id)
+        if allowed and channel_id not in allowed:   # 伺服器有指定遊玩頻道／大廳的開房頻道
             await interaction.response.send_message(
-                i18n.t("msg.play_channel_only", i18n.get_user_lang(user_id), channel=f"<#{pc}>"),
+                i18n.t("msg.play_channel_only", i18n.get_user_lang(user_id),
+                       channel="、".join(f"<#{c}>" for c in sorted(allowed))),
                 ephemeral=True)
             return
         if channel_id in _channel_games:
-            await interaction.response.send_message(i18n.t("msg.channel_has_game", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+            await interaction.response.send_message(i18n.t("msg.channel_has_game", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
             return
 
-    host_lang = i18n.get_user_lang(user_id)
-    sv = RoomSettingsView(gid="setup", lang=host_lang)
-    await interaction.response.send_message(i18n.t("settings.prompt", host_lang), view=sv, ephemeral=True)
+    # 房間語言（設定面板、公開內容、翻譯按鈕都用它）：在大廳的頻道開＝該大廳的語言（只有一個大廳＝伺服器語言），
+    # 其他頻道＝房主語言
+    room_lang = (hubs.lang_for(interaction.guild_id, interaction.channel)
+                 if interaction.guild_id and hubs.of_channel(interaction.guild_id, interaction.channel)
+                 else i18n.get_user_lang(user_id))
+    sv = RoomSettingsView(gid="setup", lang=room_lang)
+    await interaction.response.send_message(i18n.t("settings.prompt", room_lang), view=sv, ephemeral=True)
     await sv.wait()
 
     is_sanma      = sv.sanma
@@ -297,7 +312,7 @@ async def cmd_start(interaction: discord.Interaction) -> None:
         "is_sanma": is_sanma, "thinking_time": thinking_time, "max_players": max_players,
         "length": length, "tobi": tobi, "ruleset": ruleset, "start_points": start_points,
         "kuikae": sv.kuikae, "open_riichi": sv.open_riichi, "abortive": sv.abortive,
-        "lang": i18n.get_user_lang(user_id),   # 房間顯示語言＝房主語言（公開內容/翻譯按鈕用）
+        "lang": room_lang,
     }
 
     if interaction.guild_id is None:
@@ -326,24 +341,25 @@ async def cmd_join(interaction: discord.Interaction, host: discord.Member = None
     if interaction.guild_id is None:
         await _do_casual_match(interaction, sanma=False)
         return
-    pc = db.get_play_channel(str(interaction.guild_id))
-    if pc and channel_id != pc:   # 伺服器有指定遊玩頻道
+    allowed = _play_channels(interaction.guild_id)
+    if allowed and channel_id not in allowed:   # 伺服器有指定遊玩頻道／大廳的開房頻道
         await interaction.response.send_message(
-            i18n.t("msg.play_channel_only", i18n.get_user_lang(uid), channel=f"<#{pc}>"),
+            i18n.t("msg.play_channel_only", i18n.get_user_lang(uid),
+                   channel="、".join(f"<#{c}>" for c in sorted(allowed))),
             ephemeral=True)
         return
     gid        = _channel_games.get(channel_id)
 
     if not gid:
         await interaction.response.send_message(
-            i18n.t("msg.no_open_room", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+            i18n.t("msg.no_open_room", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
         return
     if gid in _games:
-        await interaction.response.send_message(i18n.t("msg.game_started_nojoin", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.game_started_nojoin", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
         return
     if host is not None and _room_owners.get(gid) != str(host.id):
         await interaction.response.send_message(
-            i18n.t("msg.not_host_named", i18n.get_user_lang(interaction.user.id, interaction.guild_id),
+            i18n.t("msg.not_host_named", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel),
                    host=host.display_name), ephemeral=True)
         return
 
@@ -352,16 +368,16 @@ async def cmd_join(interaction: discord.Interaction, host: discord.Member = None
     waiting = _waiting.get(gid, [])
 
     if any(p["user_id"] == uid for p in waiting):
-        await interaction.response.send_message(i18n.t("msg.already_in_room", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.already_in_room", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
         return
     if len(waiting) >= max_p:
-        await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.room_full", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
         return
 
     await _close_owned_waiting_rooms(uid, gid)   # 加入別人的房 → 關掉自己開的房
     waiting.append({"user_id": uid, "username": interaction.user.display_name, "is_bot": False})
     await interaction.response.send_message(
-        i18n.t("msg.joined", i18n.get_user_lang(interaction.user.id, interaction.guild_id),
+        i18n.t("msg.joined", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel),
                cur=len(waiting), max=max_p), ephemeral=True)
 
     lobby = _lobbies.get(gid)
@@ -377,7 +393,7 @@ async def cmd_fairness(interaction: discord.Interaction) -> None:
     gid  = (_user_game.get(uid) or _thread_game.get(cid) or _thread_game.get(str(cid))
             or _channel_games.get(str(cid)))
     if not gid or gid not in _games:
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         await interaction.response.send_message(i18n.t("msg.fairness_no_game", lang), ephemeral=True)
         return
     await send_fairness(interaction, gid)
@@ -391,9 +407,9 @@ async def cmd_end(interaction: discord.Interaction) -> None:
     gid = (_channel_games.get(channel_id) or _thread_game.get(int(channel_id))
            or (_user_game.get(user_id) if interaction.guild_id is None else None))
     if not gid:
-        await interaction.response.send_message(i18n.t("msg.no_game", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+        await interaction.response.send_message(i18n.t("msg.no_game", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
         return
-    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     host = _room_owners.get(gid)
     if host != user_id:
         # 0.7：非房主也能發起，但要房主按「同意結束」；非本局玩家不行
@@ -424,7 +440,7 @@ async def cmd_end(interaction: discord.Interaction) -> None:
 
 @mahjong.command(name="status", description="查看當前牌局狀態")
 async def cmd_status(interaction: discord.Interaction) -> None:
-    lang       = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang       = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     channel_id = str(interaction.channel_id)
     gid        = _channel_games.get(channel_id)
     if not gid:
@@ -532,7 +548,7 @@ class RankQueueView(discord.ui.View):
 
     @discord.ui.button(label="🚪 離開排隊", style=discord.ButtonStyle.danger)
     async def leave_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         matchmaking.leave(str(interaction.user.id))
         for c in self.children:
             c.disabled = True
@@ -600,7 +616,7 @@ async def cmd_notify(interaction: discord.Interaction) -> None:
 
 async def _do_rank_match(interaction: discord.Interaction, sanma: bool) -> None:
     """段位賽排隊（指令與大廳按鈕共用）。"""
-    lang  = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang  = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     res   = matchmaking.join(interaction.user, sanma)
     kind = res[0]
     if kind == "in_game":
@@ -621,7 +637,7 @@ async def _do_rank_match(interaction: discord.Interaction, sanma: bool) -> None:
 async def _do_casual_match(interaction: discord.Interaction, sanma: bool) -> None:
     """休閒隨機匹配（跨伺服器、對局走 DM、不計段位）。"""
     from .flow import launch_match_game
-    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     res  = matchmaking.join(interaction.user, sanma, kind="casual")
     kind = res[0]
     if kind == "in_game":
@@ -653,7 +669,7 @@ async def cmd_match(interaction: discord.Interaction,
 @mahjong.command(name="rankinfo", description="段位／R 與段位賽說明")
 async def cmd_rankinfo(interaction: discord.Interaction) -> None:
     from . import rating
-    lang   = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang   = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     ladder = rating.ladder_text()
     table  = i18n.t("rank.pt_table", lang,
                     m4=i18n.t("mode.yonma", lang), t4=rating.place_table(False),
@@ -696,7 +712,7 @@ def _yaku_embed(lang: str) -> discord.Embed:
 
 @mahjong.command(name="yaku", description="役種一覽（飜數表）")
 async def cmd_yaku(interaction: discord.Interaction) -> None:
-    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     await interaction.response.send_message(embed=_yaku_embed(lang), ephemeral=True)
 
 
@@ -745,7 +761,7 @@ async def _set_skin_choice(interaction: discord.Interaction, val: str, label: st
 
 @mahjong.command(name="daily", description="每日簽到，獲得活躍度")
 async def cmd_daily(interaction: discord.Interaction) -> None:
-    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     r = db.checkin(str(interaction.user.id), interaction.user.display_name)
     key = "daily.already" if r["already"] else "daily.done"
     await interaction.response.send_message(
@@ -754,7 +770,7 @@ async def cmd_daily(interaction: discord.Interaction) -> None:
 
 @mahjong.command(name="tasks", description="查看每日任務與活躍度")
 async def cmd_tasks(interaction: discord.Interaction) -> None:
-    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     s    = db.task_status(str(interaction.user.id))
     mk   = lambda b: i18n.t("task.done" if b else "task.todo", lang)
     embed = discord.Embed(title=i18n.t("task.title", lang), color=0x9ECE6A)
@@ -1038,7 +1054,7 @@ class ReplayControl(discord.ui.View):
 async def cmd_replay(interaction: discord.Interaction, room: str) -> None:
     n = rooms.parse(room)
     if n is None:
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         await interaction.response.send_message(
             i18n.t("replay.not_found", lang, room=room.strip()[:20]), ephemeral=True)
         return
@@ -1073,7 +1089,8 @@ async def _replay_channel(interaction: discord.Interaction, lang: str, room: str
         return None
     cat = None
     try:
-        cid = db.get_guild_setup(str(guild.id)).get("category_id")
+        h   = hubs.of_channel(guild.id, interaction.channel) or (hubs.all_hubs(guild.id) or [None])[0]
+        cid = (h or {}).get("category_id")
         cat = guild.get_channel(int(cid)) if cid else None
     except Exception:
         cat = None
@@ -1104,7 +1121,7 @@ async def cleanup_replay_channels(guild) -> None:
 
 async def _start_replay(interaction: discord.Interaction, room: int) -> None:
     from . import replay
-    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     code = rooms.code(room)
     g = db.get_game_by_room_no(room)
     if not g:
@@ -1159,7 +1176,7 @@ async def _start_replay(interaction: discord.Interaction, room: int) -> None:
 # ═══════════════════════════════════════════════════════════════
 
 async def cmd_help_top(interaction: discord.Interaction) -> None:
-    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     await interaction.response.send_message(i18n.t("help.guide", lang), ephemeral=True)
 
 
@@ -1183,7 +1200,7 @@ class LanguageView(discord.ui.View):
 
 
 async def cmd_language(interaction: discord.Interaction) -> None:
-    cur = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    cur = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     await interaction.response.send_message(
         i18n.t("language.choose", cur, cur=i18n.lang_name(cur)),
         view=LanguageView(), ephemeral=True)
@@ -1260,7 +1277,7 @@ class _ReplayModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         n = rooms.parse(self.room.value)
         if n is None:
-            lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+            lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
             await interaction.response.send_message(
                 i18n.t("replay.not_found", lang, room=str(self.room.value).strip()[:20]), ephemeral=True)
             return
@@ -1290,21 +1307,21 @@ class LobbyPanel(discord.ui.View):
     @discord.ui.button(label="🏅 段位賽", style=discord.ButtonStyle.primary,
                        custom_id="hub:rank", row=0)
     async def rank(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         await interaction.response.send_message(
             i18n.t("hub.pick_mode", lang), view=_ModePick(True, lang), ephemeral=True)
 
     @discord.ui.button(label="🎲 休閒場", style=discord.ButtonStyle.success,
                        custom_id="hub:match", row=0)
     async def match(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         await interaction.response.send_message(
             i18n.t("hub.pick_mode", lang), view=_ModePick(False, lang), ephemeral=True)
 
     @discord.ui.button(label="✅ 每日簽到", style=discord.ButtonStyle.secondary,
                        custom_id="hub:daily", row=0)
     async def daily(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         r = db.checkin(str(interaction.user.id), interaction.user.display_name)
         key = "daily.already" if r["already"] else "daily.done"
         await interaction.response.send_message(
@@ -1342,18 +1359,18 @@ class LobbyPanel(discord.ui.View):
     @discord.ui.button(label="🎞 回放", style=discord.ButtonStyle.secondary,
                        custom_id="hub:replay", row=1)
     async def replay(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(_ReplayModal(i18n.get_user_lang(interaction.user.id, interaction.guild_id)))
+        await interaction.response.send_modal(_ReplayModal(i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)))
 
     @discord.ui.button(label="📖 役種", style=discord.ButtonStyle.secondary,
                        custom_id="hub:yaku", row=2)
     async def yaku(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         await interaction.response.send_message(embed=_yaku_embed(lang), ephemeral=True)
 
     @discord.ui.button(label="🗣 語言", style=discord.ButtonStyle.secondary,
                        custom_id="hub:lang", row=2)
     async def lang_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cur = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        cur = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         await interaction.response.send_message(
             i18n.t("language.choose", cur, cur=i18n.lang_name(cur)),
             view=LanguageView(), ephemeral=True)
@@ -1366,7 +1383,7 @@ class LobbyPanel(discord.ui.View):
     @discord.ui.button(label="🎚️ 語音", style=discord.ButtonStyle.secondary,
                        custom_id="hub:voice", row=1)
     async def voice_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         if interaction.guild_id is None:
             await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
             return
@@ -1381,7 +1398,7 @@ class LobbyPanel(discord.ui.View):
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         # 更新面板到最新版（機器人改版後新按鈕才會出現）；管理員限定、順便切成點按者語言
         perms = getattr(interaction.user, "guild_permissions", None)
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         if not (perms and (perms.manage_channels or perms.administrator)):
             await interaction.response.send_message(i18n.t("hub.need_perm", lang), ephemeral=True)
             return
@@ -1406,19 +1423,19 @@ def _can_manage(interaction: discord.Interaction) -> bool:
     return bool(perms and (perms.manage_channels or perms.administrator))
 
 
-def _existing_lobby(guild):
-    """這台伺服器目前的大廳頻道（已被刪掉＝None）。"""
+def _hub_lobby(guild, hub: dict | None):
+    """大廳設定裡的大廳頻道（頻道已被刪＝None）。"""
     try:
-        return guild.get_channel(int(db.get_guild_setup(str(guild.id)).get("lobby_channel_id") or 0))
+        return guild.get_channel(int((hub or {}).get("lobby_channel_id") or 0))
     except (TypeError, ValueError):
         return None
 
 
 async def _do_setup_create(interaction: discord.Interaction, lang: str | None = None) -> None:
-    """建立雀月類別＋大廳＋開房頻道＋配對語音（/setup create 與指南的「建立大廳」按鈕共用）。
-    lang＝大廳用的語言（指南按鈕傳指南目前顯示的語言；沒給＝下指令的人的語言）。
-    已經有大廳時不直接重複建，而是問要不要用這個語言重建。"""
-    ulang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    """建立一套大廳（類別＋按鈕大廳＋開房頻道＋配對語音）；/setup create 與指南的「建立大廳」按鈕共用。
+    lang＝大廳語言（指南按鈕傳指南目前顯示的語言；沒給＝下指令的人的語言）。
+    一台伺服器可以有多個大廳、每種語言一個：同語言已經有了就告知，不同語言就另外建一套（舊的保留）。"""
+    ulang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     lang  = lang or ulang
     if interaction.guild_id is None:
         await interaction.response.send_message(i18n.t("msg.guild_only", ulang), ephemeral=True)
@@ -1426,92 +1443,17 @@ async def _do_setup_create(interaction: discord.Interaction, lang: str | None = 
     if not _can_manage(interaction):
         await interaction.response.send_message(i18n.t("hub.need_perm", ulang), ephemeral=True)
         return
-    old = _existing_lobby(interaction.guild)
+    same = hubs.for_lang(interaction.guild_id, lang)
+    old  = _hub_lobby(interaction.guild, same)
     if old is not None:
         await interaction.response.send_message(
             i18n.t("hub.already", ulang, channel=old.mention, language=i18n.lang_name(lang)),
-            view=RebuildHubView(lang, ulang), ephemeral=True)
+            ephemeral=True)
         return
+    if same is not None:                       # 同語言的大廳頻道被手動刪掉了 → 舊紀錄作廢、重建
+        db.delete_hub(same["id"])
     await interaction.response.defer(ephemeral=True)
     await _build_hub(interaction, lang)
-
-
-async def _remove_hub(guild) -> list[str]:
-    """重建大廳前收掉舊的：還沒開局的語音配對房、大廳、配對語音、建在類別裡的開房頻道，類別空了才刪。
-    指南頻道與伺服器設定（主要語言等）都保留。回傳刪不掉的頻道名稱。"""
-    from . import voice as _voice
-    gid    = str(guild.id)
-    setup  = db.get_guild_setup(gid) or {}
-    cat_id = setup.get("category_id")
-    failed, done = [], set()
-
-    def _get(cid):
-        try:
-            return guild.get_channel(int(cid)) if cid else None
-        except (TypeError, ValueError):
-            return None
-
-    async def _del(ch):
-        if ch is None or ch.id in done:
-            return
-        done.add(ch.id)
-        try:
-            await ch.delete(reason="Suzume Tsuk 重建大廳")
-        except Exception:
-            failed.append(ch.name)
-
-    for vcid in list(_voice._voice_rooms):
-        ch = guild.get_channel(vcid)
-        if ch is not None:
-            _voice._voice_rooms.pop(vcid, None)
-            await _del(ch)
-    await _del(_get(setup.get("lobby_channel_id")))
-    await _del(_get(setup.get("hub_voice_id")))
-    play = _get(db.get_play_channel(gid))              # 只刪建在大廳類別裡的開房頻道
-    if play is not None and cat_id and str(getattr(play, "category_id", "")) == str(cat_id):
-        await _del(play)
-        db.set_play_channel(gid, None)
-    cat = _get(cat_id)
-    if cat is not None:
-        try:
-            rest = [c for c in await guild.fetch_channels()
-                    if getattr(c, "category_id", None) == cat.id and c.id not in done]
-        except Exception:
-            rest = [c for c in cat.channels if c.id not in done]
-        if not rest:
-            await _del(cat)
-    from .state import _lobby_channels
-    _lobby_channels.pop(gid, None)
-    return failed
-
-
-class RebuildHubView(discord.ui.View):
-    """已經有大廳時：用指定語言重建（刪掉舊的大廳一套再建新的）。"""
-    def __init__(self, lang: str, ulang: str):
-        super().__init__(timeout=300)
-        self.lang = lang
-        self.rebuild.label = i18n.t("hub.rebuild_btn", ulang, language=i18n.lang_name(lang))
-
-    @discord.ui.button(label="🔁", style=discord.ButtonStyle.danger)
-    async def rebuild(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from . import flow
-        ulang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
-        if interaction.guild is None or not _can_manage(interaction):
-            await interaction.response.send_message(i18n.t("hub.need_perm", ulang), ephemeral=True)
-            return
-        busy = flow.list_rooms(str(interaction.guild_id))
-        if busy:                                   # 對局頻道開在類別裡，進行中別動它
-            await interaction.response.send_message(
-                i18n.t("hub.rebuild_busy", ulang, n=len(busy)), ephemeral=True)
-            return
-        button.disabled = True
-        await interaction.response.edit_message(view=self)
-        self.stop()
-        failed = await _remove_hub(interaction.guild)
-        await _build_hub(interaction, self.lang)
-        if failed:
-            await interaction.followup.send(
-                i18n.t("hub.rebuild_left", ulang, channels="、".join(failed)), ephemeral=True)
 
 
 async def _build_hub(interaction: discord.Interaction, lang: str) -> None:
@@ -1571,7 +1513,6 @@ async def _build_hub(interaction: discord.Interaction, lang: str) -> None:
         start_ch = await guild.create_text_channel(
             i18n.t("hub.start_channel_name", lang), category=cat,
             reason="Suzume Tsuk 開房頻道")
-        db.set_play_channel(str(guild.id), str(start_ch.id))
     except Exception as e:
         note += "\n" + i18n.t("hub.start_fail", lang) + f" `{e}`"
     # 配對語音：玩家加入 → 自動開 4 人語音房，滿人自動開局（建不了就略過，不擋大廳）
@@ -1582,10 +1523,10 @@ async def _build_hub(interaction: discord.Interaction, lang: str) -> None:
                                               reason="Suzume Tsuk 配對語音")
     except Exception as e:
         note += "\n" + i18n.t("hub.voice_fail", lang) + f" `{e}`"
-    db.set_guild_setup(str(guild.id), str(cat.id), str(ch.id),
-                       str(vc.id) if vc else None)
+    db.add_hub(guild.id, lang, cat.id, ch.id, vc.id if vc else None,
+               start_ch.id if start_ch is not None else None)
     from .state import _lobby_channels
-    _lobby_channels[str(guild.id)] = str(ch.id)   # 更新「大廳打字即刪」快取
+    _lobby_channels.pop(str(guild.id), None)      # 「大廳打字即刪」快取：下次重讀所有大廳
     if start_ch is not None:
         note += "\n" + i18n.t("hub.start_created", lang, channel=start_ch.mention)
     try:
@@ -1688,7 +1629,7 @@ class ClearRoomView(discord.ui.View):
 @setup_group.command(name="clear_room",
                      description="清除本伺服器殘留的對局／等待房（含討論串／頻道）")
 async def cmd_setup_clear_room(interaction: discord.Interaction) -> None:
-    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     if interaction.guild_id is None:
         await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
         return
@@ -1714,7 +1655,7 @@ async def cmd_setup_clear_room(interaction: discord.Interaction) -> None:
                       + [app_commands.Choice(name="依伺服器地區（auto）", value="auto")])
 async def cmd_setup_lang(interaction: discord.Interaction,
                          language: app_commands.Choice[str] = None) -> None:
-    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     if interaction.guild_id is None:
         await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
         return
@@ -1748,7 +1689,7 @@ async def cmd_setup_lang(interaction: discord.Interaction,
 async def cmd_setup_channel(interaction: discord.Interaction,
                             channel: discord.TextChannel = None,
                             action: app_commands.Choice[str] = None) -> None:
-    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     if interaction.guild_id is None:
         await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
         return
@@ -1775,8 +1716,7 @@ async def teardown_hub(guild) -> dict:
     from . import voice as _voice
     gid    = str(guild.id)
     lang   = i18n.guild_lang(gid) or i18n.detect_locale(getattr(guild, "preferred_locale", ""))
-    setup  = db.get_guild_setup(gid) or {}
-    cat_id = setup.get("category_id")
+    hub_list = hubs.all_hubs(gid)
     deleted, kept, failed, done = [], [], [], set()
     deleted_ids, failed_chs = set(), []
 
@@ -1803,23 +1743,27 @@ async def teardown_hub(guild) -> dict:
         if ch is not None:
             _voice._voice_rooms.pop(vcid, None)
             await _del(ch)
-    await _del(_get(setup.get("lobby_channel_id")))
-    await _del(_get(setup.get("hub_voice_id")))
-    play = _get(db.get_play_channel(gid))              # 只刪建在大廳類別裡的開房頻道；管理員自己指定的不動
-    if play is not None and cat_id and str(getattr(play, "category_id", "")) == str(cat_id):
-        await _del(play)
+    for h in hub_list:                                 # 每個大廳：大廳、配對語音、建在類別裡的開房頻道
+        await _del(_get(h.get("lobby_channel_id")))
+        await _del(_get(h.get("hub_voice_id")))
+        play = _get(h.get("play_channel_id"))
+        if play is not None and str(getattr(play, "category_id", "")) == str(h.get("category_id")):
+            await _del(play)
     guide_names = {i18n.t("guide.channel_name", L) for L in i18n.available()}
     for ch in list(guild.text_channels):
         if ch.name in guide_names:
             await _del(ch)
 
-    cat = _get(cat_id)
-    if cat is not None:
-        try:                                           # 向 API 重抓，避免快取裡還留著剛刪掉的頻道
-            rest = [c for c in await guild.fetch_channels()
-                    if getattr(c, "category_id", None) == cat.id and c.id not in done]
-        except Exception:
-            rest = [c for c in cat.channels if c.id not in done]
+    try:                                               # 向 API 重抓，避免快取裡還留著剛刪掉的頻道
+        fresh = await guild.fetch_channels()
+    except Exception:
+        fresh = None
+    for h in hub_list:                                 # 類別只有在裡面沒有別人的頻道時才刪
+        cat = _get(h.get("category_id"))
+        if cat is None:
+            continue
+        rest = ([c for c in fresh if getattr(c, "category_id", None) == cat.id and c.id not in done]
+                if fresh is not None else [c for c in cat.channels if c.id not in done])
         if rest:
             kept.append(f"{cat.name}（裡面還有 {len(rest)} 個其他頻道）")
         else:
@@ -1872,7 +1816,7 @@ class GuideDisplaySelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction) -> None:
         if not _guide_admin_ok(interaction):
             await interaction.response.send_message(
-                i18n.t("hub.need_perm", i18n.get_user_lang(interaction.user.id, interaction.guild_id)),
+                i18n.t("hub.need_perm", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)),
                 ephemeral=True)
             return
         code = self.values[0]
@@ -1888,7 +1832,7 @@ class GuideServerLangSelect(discord.ui.Select):
                          min_values=1, max_values=1, options=opts, custom_id="guide:srvlang", row=2)
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        ulang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        ulang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         if not _guide_admin_ok(interaction):
             await interaction.response.send_message(i18n.t("hub.need_perm", ulang), ephemeral=True)
             return
@@ -1938,7 +1882,7 @@ class GuideView(discord.ui.View):
         perms = getattr(interaction.user, "guild_permissions", None)
         if not (perms and (perms.manage_channels or perms.administrator)):
             await interaction.response.send_message(
-                i18n.t("hub.need_perm", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+                i18n.t("hub.need_perm", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
             return
         try:
             await interaction.channel.delete(reason="管理員刪除指南頻道")

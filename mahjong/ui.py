@@ -29,7 +29,7 @@ class HandHelpButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_message(
-            help_text(i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+            help_text(i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
 
 
 class _GameInfoButton(discord.ui.Button):
@@ -43,9 +43,9 @@ class _GameInfoButton(discord.ui.Button):
         gs = _games.get(self.gid)
         if not gs:
             await interaction.response.send_message(
-                i18n.t("msg.game_ended", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+                i18n.t("msg.game_ended", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
             return
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         await interaction.response.send_message(self._builder(gs, lang), ephemeral=True)
 
 
@@ -68,7 +68,7 @@ class _ActionLogButton(discord.ui.Button):
         self.gid = gid
 
     async def callback(self, interaction: discord.Interaction):
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         await interaction.response.send_message(make_action_log_text(self.gid, lang), ephemeral=True)
 
 
@@ -87,9 +87,9 @@ class TranslateBoardButton(discord.ui.Button):
         gs = _games.get(self.gid)
         if not gs:
             await interaction.response.send_message(
-                i18n.t("msg.game_ended", i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+                i18n.t("msg.game_ended", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
             return
-        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
         await interaction.response.send_message(make_thread_board(gs, "", lang), ephemeral=True)
 
 
@@ -177,7 +177,7 @@ class HelpButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_message(
-            help_text(i18n.get_user_lang(interaction.user.id, interaction.guild_id)), ephemeral=True)
+            help_text(i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
 
 
 # ═══════════════════════════════════════════════════════════════
