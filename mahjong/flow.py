@@ -1704,9 +1704,12 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 player.riichi_snap = {p.seat: len(all_discards(p)) for p in gs.players}
                 word = "feed.word_riichi_open" if action == "riichi_open" else "feed.word_riichi"
                 if not player.is_bot:            # 音效：真人立直（用他自己的語音包）
+                    # 開立直／兩立直有專屬語音（開立直優先），包裡沒錄就退回一般的 riichi
+                    _rv = ("open_riichi" if action == "riichi_open"
+                           else "double_riichi" if double_rii[player.seat] else "riichi")
                     try:
                         from . import sfx
-                        await sfx.play(gid, "riichi", _voice_uid(player))
+                        await sfx.play(gid, _rv, _voice_uid(player), fallback="riichi")
                     except Exception:
                         pass
             elif timed:

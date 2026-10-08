@@ -20,7 +20,8 @@
   **個人設定**：每位玩家在大廳「🎚️ 語音」自選（存 user_prefs）；對局中誰的動作就用誰的包，
   **沒選＝他的動作不出聲**。開局與 AI 的動作用房主（或其他有選的真人）的包。
   包內缺某檔時才退回根目錄的同名檔當後備。
-- **名稱**：事件音（start/discard/riichi/pon/chi/kan/tsumo/ron/ryuukyoku）＋和了役名（＝役名本身）
+- **名稱**：事件音（start/discard/riichi/double_riichi/open_riichi/pon/chi/kan/tsumo/ron/ryuukyoku；
+  兩立直、開立直沒錄專屬檔時退回 riichi）＋和了役名（＝役名本身）
   ＋途中流局名（九種九牌/四風連打/…，缺檔退回 ryuukyoku）＋打點階級（mangan/haneman/…，滿貫以上才唸）。
   缺檔＝該項靜默略過。
 - **播放**：每台伺服器一條佇列、依序播；`play()` 只排入即返回（不擋遊戲流程），背景消費者逐一播。
@@ -29,6 +30,8 @@
 from __future__ import annotations
 import asyncio
 import os
+import random
+import re
 import shlex
 import shutil
 import discord
@@ -41,7 +44,7 @@ from . import db
 AUDIO_EXTS = (".mp3", ".ogg", ".oga", ".opus", ".wav", ".m4a", ".aac", ".flac", ".webm")
 
 # 事件音效名（動作當下播）
-EVENT_SOUNDS = ("start", "discard", "riichi", "pon", "chi", "kan",
+EVENT_SOUNDS = ("start", "discard", "riichi", "double_riichi", "open_riichi", "pon", "chi", "kan",
                 "tsumo", "ron", "ryuukyoku")
 
 # 途中流局語音（音效名＝流局名本身）；包裡沒有專屬檔時退回 ryuukyoku
@@ -185,18 +188,34 @@ def _any_pack(gid: str, vc) -> bool:
     return any(_voice_pack(vc, u) for u in _humans(gid))
 
 
+def _variants(d: str, name: str) -> list[str]:
+    """資料夾 d 裡屬於這個音效名的所有檔：`<name>.<ext>` 以及編號變體 `<name>1`、`<name>2`、`<name>_3`…"""
+    try:
+        files = os.listdir(d)
+    except OSError:
+        return []
+    pat = re.compile(re.escape(name) + r"(?:[ _-]?\d+)?", re.IGNORECASE)
+    out = []
+    for f in files:
+        stem, ext = os.path.splitext(f)
+        if ext.lower() in AUDIO_EXTS and pat.fullmatch(stem):
+            path = os.path.join(d, f)
+            if os.path.isfile(path):
+                out.append(path)
+    return out
+
+
 def _resolve(pack: str | None, name: str) -> str | None:
-    """找出音效檔路徑：先找 `<pack>/<name>.<ext>`，再退回根目錄 `<name>.<ext>`（預設／後備）。
-    找不到＝None。"""
+    """找出音效檔路徑：先找語音包資料夾，再退回根目錄（預設／後備）。
+    同一個音效有好幾個檔（如 `七對子`、`七對子1`、`七對子2`）就每次隨機挑一個。找不到＝None。"""
     dirs = []
     if pack:
         dirs.append(os.path.join(SOUNDS_DIR, pack))
     dirs.append(SOUNDS_DIR)
     for d in dirs:
-        for ext in AUDIO_EXTS:
-            p = os.path.join(d, name + ext)
-            if os.path.isfile(p):
-                return p
+        found = _variants(d, name)
+        if found:
+            return random.choice(found)
     return None
 
 

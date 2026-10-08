@@ -3,6 +3,26 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.8.3] - 2026-10-08
+
+### 變更
+- **重建大廳**：`_do_setup_create(interaction, lang=None)` 拆成檢查＋`_build_hub(interaction, lang)`（原建立本體，
+  呼叫前已回應、結果走 followup）。已有大廳（`_existing_lobby`）時回 `hub.already`（帶目標語言）＋`RebuildHubView`：
+  按「🔁」先查 `flow.list_rooms(guild)`，有房就回 `hub.rebuild_busy`；否則 `_remove_hub(guild)` 刪本伺服器還沒開局的
+  語音配對房、大廳、配對語音、建在類別內的開房頻道（並清掉 play channel 設定），類別空了才刪，保留指南與
+  `guild_settings` 其他欄位；接著 `_build_hub` 用新語言重建，刪不掉的舊頻道以 `hub.rebuild_left` 列出。
+  指南的 `guide:create` 鈕以 `_guide_lang(message)`（比對指南訊息標題行）取得目前顯示語言傳入。
+  i18n 佔位符用 `{language}`（`{lang}` 會和 `i18n.t` 的參數撞名）。以假 guild 實測：中文建立 → 英文重建、有房時擋下。
+
+### 新增
+- **兩立直／開立直事件音**：`sfx.EVENT_SOUNDS` 加 `double_riichi`、`open_riichi`（`ALL_SOUND_NAMES` 71→73）。
+  `flow` 真人立直時依 `action == "riichi_open"`（優先）→ `double_rii[seat]` → 一般，選 `open_riichi`／`double_riichi`／`riichi`，
+  以 `fallback="riichi"` 播放（包裡沒有專屬檔就播 riichi）。第一巡開立直歸 `open_riichi`。電腦立直仍不出聲。
+- **音效變體隨機**：新增 `sfx._variants(dir, name)`——列出資料夾內檔名（去副檔名）符合 `name` 或 `name[ _-]?數字`
+  （不分大小寫、副檔名在 `AUDIO_EXTS` 內）的檔；`_resolve` 先找語音包、再找根目錄，有就 `random.choice`。
+  只接受「名稱＋數字」，所以 `四暗刻` 不會吃到 `四暗刻單騎`。`play_together`（雙榮同時喊）兩人各自隨機。
+  以暫存資料夾實測：四個變體約各 1/4，相近役名不互相混入，根目錄後備照常。
+
 ## [0.8.2] - 2026-10-05
 
 ### 修正

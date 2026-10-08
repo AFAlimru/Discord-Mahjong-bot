@@ -1401,26 +1401,122 @@ async def cmd_setup_create(interaction: discord.Interaction) -> None:
     await _do_setup_create(interaction)
 
 
-async def _do_setup_create(interaction: discord.Interaction) -> None:
-    """建立雀月類別＋大廳＋開房頻道＋配對語音（/setup create 與指南的「建立大廳」按鈕共用）。"""
-    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
-    if interaction.guild_id is None:
-        await interaction.response.send_message(i18n.t("msg.guild_only", lang), ephemeral=True)
-        return
+def _can_manage(interaction: discord.Interaction) -> bool:
     perms = getattr(interaction.user, "guild_permissions", None)
-    if not (perms and (perms.manage_channels or perms.administrator)):
-        await interaction.response.send_message(i18n.t("hub.need_perm", lang), ephemeral=True)
-        return
-    guild = interaction.guild
-    try:                                   # 大廳還在 → 不重複建（要重建請先刪掉舊大廳）
-        old = guild.get_channel(int(db.get_guild_setup(str(guild.id)).get("lobby_channel_id") or 0))
+    return bool(perms and (perms.manage_channels or perms.administrator))
+
+
+def _existing_lobby(guild):
+    """這台伺服器目前的大廳頻道（已被刪掉＝None）。"""
+    try:
+        return guild.get_channel(int(db.get_guild_setup(str(guild.id)).get("lobby_channel_id") or 0))
     except (TypeError, ValueError):
-        old = None
+        return None
+
+
+async def _do_setup_create(interaction: discord.Interaction, lang: str | None = None) -> None:
+    """建立雀月類別＋大廳＋開房頻道＋配對語音（/setup create 與指南的「建立大廳」按鈕共用）。
+    lang＝大廳用的語言（指南按鈕傳指南目前顯示的語言；沒給＝下指令的人的語言）。
+    已經有大廳時不直接重複建，而是問要不要用這個語言重建。"""
+    ulang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+    lang  = lang or ulang
+    if interaction.guild_id is None:
+        await interaction.response.send_message(i18n.t("msg.guild_only", ulang), ephemeral=True)
+        return
+    if not _can_manage(interaction):
+        await interaction.response.send_message(i18n.t("hub.need_perm", ulang), ephemeral=True)
+        return
+    old = _existing_lobby(interaction.guild)
     if old is not None:
         await interaction.response.send_message(
-            i18n.t("hub.already", lang, channel=old.mention), ephemeral=True)
+            i18n.t("hub.already", ulang, channel=old.mention, language=i18n.lang_name(lang)),
+            view=RebuildHubView(lang, ulang), ephemeral=True)
         return
     await interaction.response.defer(ephemeral=True)
+    await _build_hub(interaction, lang)
+
+
+async def _remove_hub(guild) -> list[str]:
+    """重建大廳前收掉舊的：還沒開局的語音配對房、大廳、配對語音、建在類別裡的開房頻道，類別空了才刪。
+    指南頻道與伺服器設定（主要語言等）都保留。回傳刪不掉的頻道名稱。"""
+    from . import voice as _voice
+    gid    = str(guild.id)
+    setup  = db.get_guild_setup(gid) or {}
+    cat_id = setup.get("category_id")
+    failed, done = [], set()
+
+    def _get(cid):
+        try:
+            return guild.get_channel(int(cid)) if cid else None
+        except (TypeError, ValueError):
+            return None
+
+    async def _del(ch):
+        if ch is None or ch.id in done:
+            return
+        done.add(ch.id)
+        try:
+            await ch.delete(reason="Suzume Tsuk 重建大廳")
+        except Exception:
+            failed.append(ch.name)
+
+    for vcid in list(_voice._voice_rooms):
+        ch = guild.get_channel(vcid)
+        if ch is not None:
+            _voice._voice_rooms.pop(vcid, None)
+            await _del(ch)
+    await _del(_get(setup.get("lobby_channel_id")))
+    await _del(_get(setup.get("hub_voice_id")))
+    play = _get(db.get_play_channel(gid))              # 只刪建在大廳類別裡的開房頻道
+    if play is not None and cat_id and str(getattr(play, "category_id", "")) == str(cat_id):
+        await _del(play)
+        db.set_play_channel(gid, None)
+    cat = _get(cat_id)
+    if cat is not None:
+        try:
+            rest = [c for c in await guild.fetch_channels()
+                    if getattr(c, "category_id", None) == cat.id and c.id not in done]
+        except Exception:
+            rest = [c for c in cat.channels if c.id not in done]
+        if not rest:
+            await _del(cat)
+    from .state import _lobby_channels
+    _lobby_channels.pop(gid, None)
+    return failed
+
+
+class RebuildHubView(discord.ui.View):
+    """已經有大廳時：用指定語言重建（刪掉舊的大廳一套再建新的）。"""
+    def __init__(self, lang: str, ulang: str):
+        super().__init__(timeout=300)
+        self.lang = lang
+        self.rebuild.label = i18n.t("hub.rebuild_btn", ulang, language=i18n.lang_name(lang))
+
+    @discord.ui.button(label="🔁", style=discord.ButtonStyle.danger)
+    async def rebuild(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from . import flow
+        ulang = i18n.get_user_lang(interaction.user.id, interaction.guild_id)
+        if interaction.guild is None or not _can_manage(interaction):
+            await interaction.response.send_message(i18n.t("hub.need_perm", ulang), ephemeral=True)
+            return
+        busy = flow.list_rooms(str(interaction.guild_id))
+        if busy:                                   # 對局頻道開在類別裡，進行中別動它
+            await interaction.response.send_message(
+                i18n.t("hub.rebuild_busy", ulang, n=len(busy)), ephemeral=True)
+            return
+        button.disabled = True
+        await interaction.response.edit_message(view=self)
+        self.stop()
+        failed = await _remove_hub(interaction.guild)
+        await _build_hub(interaction, self.lang)
+        if failed:
+            await interaction.followup.send(
+                i18n.t("hub.rebuild_left", ulang, channels="、".join(failed)), ephemeral=True)
+
+
+async def _build_hub(interaction: discord.Interaction, lang: str) -> None:
+    """實際建立大廳一套（呼叫前 interaction 已回應過；結果用 followup 回）。"""
+    guild = interaction.guild
     # 0.7：建「類別」→ 裡面放大廳文字頻道＋配對語音；之後對局頻道全開在此類別下
     cat = None
     try:
@@ -1807,6 +1903,15 @@ class GuideServerLangSelect(discord.ui.Select):
             pass
 
 
+def _guide_lang(message) -> str | None:
+    """從指南訊息內容認出它目前顯示的語言（比對標題行）；認不出＝None。"""
+    head = ((getattr(message, "content", None) or "").split("\n") or [""])[0].strip()
+    for code in i18n.available():
+        if head and head == i18n.t("guide.text", code).split("\n")[0].strip():
+            return code
+    return None
+
+
 class GuideView(discord.ui.View):
     """加入伺服器時的管理員指南（persistent）：指南顯示語言＋伺服器主要語言＋刪除頻道＋支援連結。"""
     def __init__(self, lang: str = None):
@@ -1824,7 +1929,8 @@ class GuideView(discord.ui.View):
     @discord.ui.button(label="🏗️ 建立大廳", style=discord.ButtonStyle.success,
                        custom_id="guide:create", row=0)
     async def create_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await _do_setup_create(interaction)       # 等同 /setup create（權限檢查在裡面）
+        # 等同 /setup create（權限檢查在裡面），大廳用「指南目前顯示的語言」
+        await _do_setup_create(interaction, _guide_lang(interaction.message))
 
     @discord.ui.button(label="🗑 刪除指南頻道", style=discord.ButtonStyle.danger,
                        custom_id="guide:delete", row=0)
