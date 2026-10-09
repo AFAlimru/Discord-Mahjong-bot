@@ -39,6 +39,18 @@
 - **一台伺服器只能進一個語音頻道**：新增 `sfx._busy_elsewhere(vc)`——機器人目前所在的語音房若綁著進行中的對局（`_threads[gid]["voice"]`
   且 `gid in _games`），`_ensure_client` 就不 `move_to` 過來（回 None＝這場不出聲）；只是開局前待著的房間則照常搬。
   `sfx.leave(guild, vc)` 帶這場的語音房，機器人不在這間就不斷線（`flow._leave_voice_room` 傳入）。
+- **和牌儀式與語音同步**：`flow.win_ceremony(targets, …, voice=CeremonyVoice)` 改為一次處理所有頻道（同語言共用文字），
+  每一步 `beat()`：先改好所有訊息（等編輯 API 回來），再播音並等它唸完，整步至少原本的間隔（標題 1.0／手牌 1.0／每役
+  0.9 秒）。不邊改邊播是因為同一則訊息頻繁編輯會被 Discord 限速延後，聲音會跑在文字前面（尤其前一個役沒錄音、步調變快時）。
+  步驟：標題＋開場音（自摸／榮；雙榮第一位 `say_together("ron")`；流局滿貫 `say_table("ryuukyoku")`）→ 寶牌與手牌 →
+  逐役唸役名 → 點數＋`tier_sound`（滿貫以上）。`sfx` 新增 `say`／`say_table`／`say_together`（排入佇列並等播完，
+  上限 `SAY_TIMEOUT` 8 秒）、`_pick`（`play` 與 `say` 共用找檔）；佇列項目多帶 `done` 事件，播完或 `leave` 清佇列時 set。
+  移除 `play_win`／`play_wins`／`play_together`／`WIN_INTRO_GAP`。雙榮改為依序對所有頻道各跑一次儀式（不再每個頻道各自跑一串）。
+  以假頻道＋每句 1.2 秒的假語音實測：每個役名開始唸的同時兩個頻道都揭曉該役，下一役等唸完才出現。
+
+### 修正
+- **公開面用房間語言**：`_thread_langs(public, private, lang)` 公開面改用房間語言；和牌儀式、流局結果文字、
+  `msg.player_back`、`msg.afk_takeover` 的公開通知同改用 `config["lang"]`（原本固定母本中文）。
 
 ## [0.8.3] - 2026-10-08
 

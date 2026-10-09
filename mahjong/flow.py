@@ -117,9 +117,9 @@ def _standings_lines(rows, lang: str) -> str:
     return "\n".join(out)
 
 
-def _thread_langs(public, private: dict) -> list:
-    """回傳 [(討論串, 語言)]：公開串用母本，各私人串用該玩家語言。"""
-    targets = [(public, i18n.DEFAULT)]
+def _thread_langs(public, private: dict, lang: str = i18n.DEFAULT) -> list:
+    """回傳 [(討論串, 語言)]：公開串用房間語言 lang，各私人串用該玩家語言。"""
+    targets = [(public, lang)]
     for uid, pt in private.items():
         targets.append((pt, i18n.get_user_lang(uid)))
     return targets
@@ -636,7 +636,9 @@ class AfkBackButton(discord.ui.Button):
         pub = (_threads.get(self._gid) or {}).get("public")
         if pub is not None:
             try:
-                await pub.send(i18n.t("msg.player_back", i18n.DEFAULT, name=p.username))
+                await pub.send(i18n.t("msg.player_back",
+                                      _room_configs.get(self._gid, {}).get("lang", i18n.DEFAULT),
+                                      name=p.username))
             except Exception:
                 pass
 
@@ -1566,9 +1568,10 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     player.afk = True
                     lang_p = i18n.get_user_lang(player.user_id)
                     pub = th.get("public")
-                    if pub is not None:          # 公開面：純通知（母本）
+                    if pub is not None:          # 公開面：純通知（房間語言）
                         try:
-                            await pub.send(i18n.t("msg.afk_takeover", i18n.DEFAULT, name=player.username))
+                            await pub.send(i18n.t("msg.afk_takeover", config.get("lang", i18n.DEFAULT),
+                                                  name=player.username))
                         except Exception:
                             pass
                     ppt = private.get(player.user_id)
@@ -2098,66 +2101,50 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 th["hand_msg"][uid] = None
 
             # 和牌：公開串與各私人串都做「逐一揭曉」的和牌儀式；流局則送結果文字
-            # 公開串用母本語言，各私人串用該玩家語言。每則 = (訊息, 完整文字, 語言)
+            # 公開串用房間語言（＝開房大廳的語言），各私人串用該玩家語言。每則 = (訊息, 完整文字, 語言)
             # 公開串訊息保留為紀錄、私人串訊息換局前刪除，故分開收集。
             private = th.get("private", {})
             pub_count = 1 if public is not None else 0   # DM 段位賽無公開串
-            targets = ([(public, i18n.DEFAULT)] if public is not None else []) + \
+            rlang = config.get("lang", i18n.DEFAULT)
+            targets = ([(public, rlang)] if public is not None else []) + \
                       [(private[uid], i18n.get_user_lang(uid)) for uid in private]
             pub_pairs, priv_pairs = [], []
 
+            def _split(pairs):             # 依 targets 順序分回公開／私人
+                for idx, c in enumerate(pairs):
+                    if c[0] is not None:
+                        (pub_pairs if idx < pub_count else priv_pairs).append(c)
+
             if dbl_winners is not None:
-                try:                       # 音效：雙榮——兩人同時喊「榮」，再依揭曉順序各唸自己的役
-                    from . import sfx
-                    _ws = [(r, _voice_uid(gs.players[ws])) for ws, r, _ in dbl_winners]
-                    await sfx.play_together(gid, "ron", [u for _, u in _ws])
-                    asyncio.create_task(sfx.play_wins(gid, _ws))
-                except Exception:
-                    pass
-                # 雙榮：每個串依序揭曉兩位贏家（最後一位才附上合計分數表）
-                async def run_dbl(ch, lg):
-                    out = []
-                    for i, (seat, res, hs) in enumerate(dbl_winners):
-                        hkw = {"name": gs.players[seat].username,
-                               "loser": gs.players[lseat].username}
-                        out.append(await win_ceremony(
-                            ch, gs, "result.ron", hkw, hs, res, log, lg,
-                            show_log=(i == len(dbl_winners) - 1)))
-                    return out
-                res_lists = await asyncio.gather(
-                    *[run_dbl(ch, lg) for ch, lg in targets], return_exceptions=True)
-                for idx, rl in enumerate(res_lists):
-                    if isinstance(rl, Exception):
-                        continue
-                    (pub_pairs if idx < pub_count else priv_pairs).extend(rl)
+                # 雙榮：依序揭曉每位贏家（第一位開場時兩人一起喊「榮」；最後一位才附上合計分數表）
+                _uids = [_voice_uid(gs.players[ws]) for ws, _, _ in dbl_winners]
+                for i, (seat, res, hs) in enumerate(dbl_winners):
+                    hkw = {"name": gs.players[seat].username, "loser": gs.players[lseat].username}
+                    vo = CeremonyVoice(gid, _voice_uid(gs.players[seat]),
+                                       together=_uids if i == 0 else None)
+                    try:
+                        _split(await win_ceremony(targets, gs, "result.ron", hkw, hs, res, log,
+                                                  show_log=(i == len(dbl_winners) - 1), voice=vo))
+                    except Exception as e:
+                        print(f"[ceremony] 雙榮儀式失敗：{e!r}")
             elif result is not None:
-                try:                       # 音效：和牌（自摸／榮和；綁語音房才會出聲）
-                    from . import sfx
-                    if outcome[0] == "nagashi":   # 流局滿貫：先報流局，再各自唸「流局滿貫」
-                        await sfx.play_table(gid, "ryuukyoku")
-                        asyncio.create_task(sfx.play_wins(
-                            gid, [(result, _voice_uid(gs.players[s])) for s in win_seats]))
-                    else:
-                        _wu = _voice_uid(gs.players[win_seats[0]]) if win_seats else None
-                        await sfx.play(gid, "tsumo" if "tsumo" in header_key else "ron", _wu)
-                        asyncio.create_task(sfx.play_win(gid, result, _wu))   # 和牌者的語音包：完整役＋打點階級
-                except Exception:
-                    pass
-                cer = await asyncio.gather(
-                    *[win_ceremony(ch, gs, header_key, header_kw, hand_str, result, log, lg)
-                      for ch, lg in targets],
-                    return_exceptions=True,
-                )
-                for idx, c in enumerate(cer):
-                    if isinstance(c, Exception):
-                        continue
-                    (pub_pairs if idx < pub_count else priv_pairs).append(c)
+                if outcome[0] == "nagashi":    # 流局滿貫：開場報「流局」（房主的包），役與階級由達成者唸
+                    vo = CeremonyVoice(gid, _voice_uid(gs.players[win_seats[0]]) if win_seats else None,
+                                       opener="ryuukyoku", table=True)
+                else:
+                    vo = CeremonyVoice(gid, _voice_uid(gs.players[win_seats[0]]) if win_seats else None,
+                                       opener="tsumo" if "tsumo" in header_key else "ron")
+                try:
+                    _split(await win_ceremony(targets, gs, header_key, header_kw, hand_str, result, log,
+                                              voice=vo))
+                except Exception as e:
+                    print(f"[ceremony] 和牌儀式失敗：{e!r}")
             else:
                 if outcome[0] != "abort":  # 荒牌流局（途中流局在宣告當下已播過）
                     await _draw_sound(gid, "ryuukyoku")
                 if public is not None:
-                    pub_text = result_body("", "", None, log, gs, tenpai, i18n.DEFAULT, draw_key)
-                    pub_pairs.append((await public.send(pub_text), pub_text, i18n.DEFAULT))
+                    pub_text = result_body("", "", None, log, gs, tenpai, rlang, draw_key)
+                    pub_pairs.append((await public.send(pub_text), pub_text, rlang))
                 for uid, pt in private.items():
                     lg = i18n.get_user_lang(uid)
                     txt = result_body("", "", None, log, gs, tenpai, lg, draw_key)
@@ -2175,7 +2162,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             if not any((not p.is_bot) and not getattr(p, "afk", False)
                        for p in gs.players):                 # 沒有真人在玩了（都掛機）→ 結束
                 over = True
-                for tch, lg in _thread_langs(public, th.get("private", {})):
+                for tch, lg in _thread_langs(public, th.get("private", {}), config.get("lang", i18n.DEFAULT)):
                     if tch is not None:
                         try:
                             await tch.send(i18n.t("msg.afk_end", lg))
@@ -2200,7 +2187,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     and gs.round_num == len(gs.players)):
                 shown_all_last = True
                 banners = []
-                for tch, lg in _thread_langs(public, th.get("private", {})):
+                for tch, lg in _thread_langs(public, th.get("private", {}), config.get("lang", i18n.DEFAULT)):
                     if tch is None:
                         continue
                     try:
@@ -2258,7 +2245,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                                   length=config.get("length", "hanchan"),
                                   ruleset=config.get("ruleset", "mixed"))
         # 最終順位：公開串用母本、各私人手牌串用該玩家語言（確保自己討論串也看得到）
-        for tch, lg in _thread_langs(public, th.get("private", {})):
+        for tch, lg in _thread_langs(public, th.get("private", {}), config.get("lang", i18n.DEFAULT)):
             if tch is None:
                 continue
             try:
@@ -2373,54 +2360,114 @@ def format_winning_hand(player: PlayerState, win_tile: Tile) -> str:
     return "　".join(parts) + f"｜{win_tile}"
 
 
-async def win_ceremony(channel: discord.TextChannel, gs: GameState,
-                       header_key: str, header_kw: dict, hand_str: str, result,
-                       log: "st.SettleLog", lang: str = i18n.DEFAULT, show_log: bool = True):
-    """和牌儀式（依 lang）：先放標題，再放手牌，逐一揭曉役種，最後公布等級與點數。
-    show_log=False 時不附最終分數表（雙榮時只在最後一位附上合計）。"""
-    head = f"# 🎉 {i18n.t(header_key, lang, **header_kw)}"
-    msg = await channel.send(head)          # ① 先只放榮和／自摸標題
-    await asyncio.sleep(1.0)
-    # 立直則一併揭曉裏寶牌（以原始（中文）役名判斷）
+class CeremonyVoice:
+    """和牌儀式的語音：揭曉到哪就唸到哪（標題＝自摸／榮和、每個役名、最後的打點階級），唸完才揭曉下一個。
+    uid＝和牌者（用他的語音包；電腦／掛機／沒選＝不出聲，儀式照原本節奏走）。
+    opener＝標題時播的音；together＝雙榮時一起喊「榮」的人；table＝開場音用房主的包（流局滿貫的「流局」）。"""
+    def __init__(self, gid: str, uid, opener: str | None = None,
+                 together: list | None = None, table: bool = False):
+        self.gid, self.uid, self.opener = gid, uid, opener
+        self.together, self.table = together, table
+
+    async def open(self) -> None:
+        from . import sfx
+        try:
+            if self.together:
+                await sfx.say_together(self.gid, "ron", self.together)
+            elif self.opener and self.table:
+                await sfx.say_table(self.gid, self.opener)
+            elif self.opener:
+                await sfx.say(self.gid, self.opener, self.uid)
+        except Exception:
+            pass
+
+    async def say(self, name: str) -> None:
+        from . import sfx
+        try:
+            await sfx.say(self.gid, name, self.uid)
+        except Exception:
+            pass
+
+
+async def win_ceremony(targets: list, gs: GameState, header_key: str, header_kw: dict,
+                       hand_str: str, result, log: "st.SettleLog", show_log: bool = True,
+                       voice: CeremonyVoice | None = None) -> list:
+    """和牌儀式：所有頻道（targets＝[(頻道, 語言), …]）**一起**逐步揭曉——標題 → 寶牌與手牌 → 一個一個役 → 等級與點數。
+    有語音時每一步在文字出現後才播對應的音，等它唸完才揭曉下一個，文字和語音對得上；沒語音就照固定節奏。
+    show_log=False 時不附最終分數表（雙榮時只在最後一位附上合計）。
+    回傳 [(訊息, 完整文字, 語言), …]，順序同 targets（發送失敗的訊息為 None）。"""
+    loop = asyncio.get_running_loop()
     names = [n for n, *_ in (result.yaku or [])] + [n for n, *_ in (result.yakuman or [])]
     is_riichi = any("立直" in (n or "") for n in names)
-    top = f"{head}\n{dora_reveal_text(gs, is_riichi, lang)}\n## {T.emojify_hand(hand_str)}"
-    try:
-        await msg.edit(content=top)         # ② 揭曉寶牌/裏寶牌 + 手牌
-    except Exception:
-        pass
-    await asyncio.sleep(1.0)
+    head = {lg: f"# 🎉 {i18n.t(header_key, lg, **header_kw)}" for _, lg in targets}
+    top  = {lg: f"{head[lg]}\n{dora_reveal_text(gs, is_riichi, lg)}\n## {T.emojify_hand(hand_str)}"
+            for _, lg in targets}
 
-    shown: list[str] = []
+    async def beat(edit, sound, wait: float) -> None:
+        """一步：先把所有訊息改好（文字真的出現了），再播對應的音並等它唸完；整步至少 wait 秒。
+        不能邊改邊播：Discord 編輯同一則訊息太頻繁會被限速延後，聲音就會跑在文字前面。"""
+        t0 = loop.time()
+        await edit()
+        if sound is not None:
+            await sound()
+        rest = wait - (loop.time() - t0)
+        if rest > 0:
+            await asyncio.sleep(rest)
+
+    async def _edit_all(build) -> None:
+        async def one(m, lg):
+            if m is not None:
+                try:
+                    await m.edit(content=build(lg))
+                except Exception:
+                    pass
+        await asyncio.gather(*[one(m, lg) for m, lg in msgs])
+
+    msgs: list = []
+
+    async def _send_heads() -> None:                       # ① 只放自摸／榮和標題
+        async def one(ch, lg):
+            try:
+                return await ch.send(head[lg])
+            except Exception:
+                return None
+        sent = await asyncio.gather(*[one(ch, lg) for ch, lg in targets])
+        msgs.extend(zip(sent, [lg for _, lg in targets]))
+
+    await beat(_send_heads, voice.open if voice else None, 1.0)
+    await beat(lambda: _edit_all(lambda lg: top[lg]), None, 1.0)   # ② 寶牌／裏寶牌＋手牌
+
     if result.yakuman:
         items = [(n, None) for n, _ in result.yakuman]
     else:
         items = [(n, h) for n, h in result.yaku]
-
-    for name, han in items:
-        disp = i18n.yaku(name, lang)
-        shown.append(f"・**{disp}**" if han is None else f"・{disp}　{han}飜")
-        try:
-            await msg.edit(content=top + "\n" + "\n".join(shown))
-        except Exception:
-            pass
-        await asyncio.sleep(0.9)
+    langs = list(dict.fromkeys(lg for _, lg in targets))   # 同語言的頻道共用同一份文字
+    shown = {lg: [] for lg in langs}
+    for name, han in items:                                # ③ 一個一個役（唸一個揭曉一個）
+        for lg in langs:
+            disp = i18n.yaku(name, lg)
+            shown[lg].append(f"・**{disp}**" if han is None else f"・{disp}　{han}飜")
+        await beat(lambda: _edit_all(lambda lg: top[lg] + "\n" + "\n".join(shown[lg])),
+                   (lambda n=name: voice.say(n)) if voice else None, 0.9)
 
     await asyncio.sleep(0.4)
-    pts = i18n.t("win.points", lang, n=result.points)
-    if result.yakuman:
-        score_line = f"## ✨ {i18n.yaku(result.name, lang)}　{pts}"
-    else:
-        nm = f"　{i18n.yaku(result.name, lang)}" if result.name else ""
-        score_line = f"## {i18n.t('win.han_fu', lang, han=result.han, fu=result.fu)}{nm}　{pts}"
-    body = top + "\n" + "\n".join(shown) + f"\n\n{score_line}"
-    if show_log:
-        body += "\n\n" + log.describe(gs)
-    try:
-        await msg.edit(content=body)
-    except Exception:
-        pass
-    return msg, body, lang
+    bodies = {}
+    for lg in langs:                                       # ④ 等級與點數（滿貫以上唸階級）
+        pts = i18n.t("win.points", lg, n=result.points)
+        if result.yakuman:
+            score_line = f"## ✨ {i18n.yaku(result.name, lg)}　{pts}"
+        else:
+            nm = f"　{i18n.yaku(result.name, lg)}" if result.name else ""
+            score_line = f"## {i18n.t('win.han_fu', lg, han=result.han, fu=result.fu)}{nm}　{pts}"
+        body = top[lg] + "\n" + "\n".join(shown[lg]) + f"\n\n{score_line}"
+        if show_log:
+            body += "\n\n" + log.describe(gs)
+        bodies[lg] = body
+    from . import sfx
+    tier = sfx.tier_sound(getattr(result, "name", "") or "")
+    await beat(lambda: _edit_all(lambda lg: bodies[lg]),
+               (lambda: voice.say(tier)) if (voice and tier) else None, 0.0)
+    return [(m, bodies[lg], lg) for m, lg in msgs]
 
 
 async def _result_countdown(pairs: list, secs: int = 5,
