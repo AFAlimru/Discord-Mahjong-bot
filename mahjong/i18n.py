@@ -91,10 +91,14 @@ def raw(key: str, lang: str) -> str | None:
     return _cache.get(lang, {}).get(key)
 
 
+_RENAMED = {"拔北": "北寶牌"}   # 0.8.5：三麻拔北的役名改叫「北寶牌」
+
+
 def yaku(name: str, lang: str | None = None) -> str:
     """役種／滿貫等級名稱翻譯（母本直接回原名；其他語言查 yaku.<原名>，缺則回原名）。
     處理「役牌中」這類前綴：先整體查，再退回前綴+牌名分別查。"""
     lang = lang or DEFAULT
+    name = _RENAMED.get(name, name)      # 舊牌譜裡的舊役名
     if lang == DEFAULT:
         return name
     _load()

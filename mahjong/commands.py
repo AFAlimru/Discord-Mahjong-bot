@@ -312,6 +312,7 @@ async def cmd_start(interaction: discord.Interaction) -> None:
         "is_sanma": is_sanma, "thinking_time": thinking_time, "max_players": max_players,
         "length": length, "tobi": tobi, "ruleset": ruleset, "start_points": start_points,
         "kuikae": sv.kuikae, "open_riichi": sv.open_riichi, "abortive": sv.abortive,
+        "wall": sv.wall_method,
         "lang": room_lang,
     }
 
@@ -691,7 +692,7 @@ _YAKU_FURO_MINUS = {"三色同順", "一氣通貫", "混全帶么九", "純全�
 _YAKUMAN  = ["天和", "地和", "國士無雙", "四暗刻", "大三元", "字一色", "綠一色",
              "清老頭", "九蓮寶燈", "四槓子", "小四喜"]
 _YAKUMAN2 = ["國士無雙十三面", "四暗刻單騎", "純正九蓮寶燈", "大四喜"]
-_BONUS    = ["寶牌", "裏寶牌", "赤寶牌", "拔北"]
+_BONUS    = ["寶牌", "裏寶牌", "赤寶牌", "北寶牌"]
 
 
 def _yaku_embed(lang: str) -> discord.Embed:
@@ -714,6 +715,19 @@ def _yaku_embed(lang: str) -> discord.Embed:
 async def cmd_yaku(interaction: discord.Interaction) -> None:
     lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
     await interaction.response.send_message(embed=_yaku_embed(lang), ephemeral=True)
+
+
+@mahjong.command(name="ai_voice", description="設定電腦的語音（你開的語音房對局裡，電腦用這個聲音）")
+async def cmd_ai_voice(interaction: discord.Interaction) -> None:
+    from . import sfx
+    from .voice import VoicePackSelect
+    lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
+    if not sfx.list_packs():
+        await interaction.response.send_message(i18n.t("voice.no_packs", lang), ephemeral=True)
+        return
+    v = discord.ui.View(timeout=120)
+    v.add_item(VoicePackSelect(lang, row=0, uid=str(interaction.user.id), ai=True))
+    await interaction.response.send_message(i18n.t("voice.ai_prompt", lang), view=v, ephemeral=True)
 
 
 @mahjong.command(name="skin", description="切換牌面風格（黑色牌風＝達到「日全食」段位解鎖）")
@@ -1389,7 +1403,8 @@ class LobbyPanel(discord.ui.View):
             return
         from .voice import VoicePackSelect
         v = discord.ui.View(timeout=120)
-        v.add_item(VoicePackSelect(lang, row=0, uid=str(interaction.user.id)))   # 個人設定
+        v.add_item(VoicePackSelect(lang, row=0, uid=str(interaction.user.id)))            # 個人設定
+        v.add_item(VoicePackSelect(lang, row=1, uid=str(interaction.user.id), ai=True))   # 電腦語音
         await interaction.response.send_message(i18n.t("voice.pack_prompt", lang),
                                                 view=v, ephemeral=True)
 
@@ -1820,7 +1835,7 @@ class GuideDisplaySelect(discord.ui.Select):
                 ephemeral=True)
             return
         code = self.values[0]
-        await interaction.response.edit_message(content=i18n.t("guide.text", code), view=GuideView(code))
+        await interaction.response.edit_message(content=guide_text(code, interaction.guild), view=GuideView(code))
 
 
 class GuideServerLangSelect(discord.ui.Select):
@@ -1839,12 +1854,41 @@ class GuideServerLangSelect(discord.ui.Select):
         code = self.values[0]
         if interaction.guild_id is not None:
             i18n.set_guild_lang(interaction.guild_id, code)
-        await interaction.response.edit_message(content=i18n.t("guide.text", code), view=GuideView(code))
+        await interaction.response.edit_message(content=guide_text(code, interaction.guild), view=GuideView(code))
         try:
             await interaction.followup.send(
                 i18n.t("guide.srv_set", ulang, lang=i18n.lang_name(code)), ephemeral=True)
         except Exception:
             pass
+
+
+def _guide_perm_block(guild, lang: str) -> str:
+    """指南尾端的權限提醒：機器人在這台伺服器缺哪些權限（有管理員或都不缺＝空字串）。"""
+    from . import perms
+    me = getattr(guild, "me", None)
+    if me is None:
+        return ""
+    gp = me.guild_permissions
+    if gp.administrator:
+        return ""
+    sep, lp, rp = (", ", " (", ")") if lang == "en" else ("、", "（", "）")
+    core = [name for attr, name in perms.CORE + perms.THREADS if not getattr(gp, attr, True)]
+    feat = [f"{name}{lp}{i18n.t('perm.use.' + attr, lang)}{rp}" for attr, name, _ in perms.FEATURES
+            if not getattr(gp, attr, True) and name not in core
+            and attr != "create_instant_invite"]          # 邀請連結只有私有後台用，不要求伺服器開
+    if not core and not feat:
+        return ""
+    lines = [i18n.t("guide.perm_missing", lang)]
+    if core:
+        lines.append(i18n.t("guide.perm_core", lang, perms=sep.join(core)))
+    if feat:
+        lines.append(i18n.t("guide.perm_feat", lang, perms=sep.join(feat)))
+    return "\n\n" + "\n".join(lines)
+
+
+def guide_text(lang: str, guild=None) -> str:
+    """設定指南內容（含機器人目前缺少的權限）。"""
+    return i18n.t("guide.text", lang) + (_guide_perm_block(guild, lang) if guild is not None else "")
 
 
 def _guide_lang(message) -> str | None:
@@ -1888,6 +1932,11 @@ class GuideView(discord.ui.View):
             await interaction.channel.delete(reason="管理員刪除指南頻道")
         except Exception as e:
             await interaction.response.send_message(f"x {e}", ephemeral=True)
+            return
+        try:                                  # 記住：之後機器人重啟不再自動建指南
+            db.set_guide_dismissed(str(interaction.guild_id), True)
+        except Exception:
+            pass
 
 
 class CommandTranslator(app_commands.Translator):

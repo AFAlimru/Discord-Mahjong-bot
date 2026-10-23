@@ -852,9 +852,9 @@ def _dora_han(all_tiles, ctx: WinContext, yaku: list, melds_full=None) -> int:
     aka = sum(1 for t in all_tiles if getattr(t, "red", False))
     if aka:
         yaku.append(("赤寶牌", aka)); extra += aka
-    # 拔北（三麻北寶牌），每張 +1 飜
+    # 北寶牌（三麻拔北），每張 +1 飜
     if getattr(ctx, "kita", 0):
-        yaku.append(("拔北", ctx.kita)); extra += ctx.kita
+        yaku.append(("北寶牌", ctx.kita)); extra += ctx.kita
     return extra
 
 

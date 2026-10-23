@@ -3,6 +3,71 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.8.5] - 2026-10-23
+
+### 新增
+- **天鳳牌山生成**：`engine.py` 新增 `WALL_RIICHI_CITY`／`WALL_TENHOU`／`WALL_METHODS`、`_MT19937`（mt19937ar.c 的
+  `init_by_array`＋`genrand_int32`）、`_tenhou_tile`（天鳳牌號 0~135 → `Tile`：`//4`＝種類，萬筒索、東南西北、白發中；
+  赤五＝16／52／88）、`tenhou_yama(seed, sanma)`（288 個 `genrand_int32` 以小端序串成 1152 bytes，每 128 bytes 一次
+  SHA-512 共 9 次 → 144 個 uint32 `rnd`；`yama[i]=i`，`i=0..n-2` 做 `swap(yama[i], yama[i + rnd[i] % (n-i)])`；三麻去掉
+  牌號 4~31＝2~8 萬）、`_tenhou_wall(sanma)`（`secrets.randbits(32)` ×624 當種子，回傳牌山、編碼、SHA-256、種子十六進位）。
+  每局一組新種子＝天鳳範例的 nKyoku=0。`GameState` 加 `wall_method`、`wall_rng_seed`（`to_dict`／`from_dict`，舊資料預設
+  一番街）；`new_game(..., wall_method=...)`。驗證：MT19937 與 Python `random`（同為 MT19937）輸出一致、mt19937ar 官方測資
+  `init_by_array([0x123,0x234,0x345,0x456])` 前 5 個一致；天鳳 `validation.txt` 的 base64 種子解出 624 個 init、以
+  `tenhou_yama` 算出的 136 張牌山與官方 `yama` **逐張相同**；四麻 34 種各 4 張、3 張赤五，三麻 27 種、2 張赤五。
+  - 設定：`RoomSettingsView.wall_method`＋`toggle_wall`（「🎲 牌山：一番街／天鳳」，`settings.wall_*` 三語），標籤 tuple
+    多一格；`/mahjong start`、`voice._config_from_settings`（含無面板預設）的設定加 `"wall"`。`launch_game`、`launch_dm_game`
+    依 `config["wall"]` 開局，`deal_next_hand` 沿用 `prev.wall_method`；牌譜 `gamestart`／`handstart` 多記 `method`、`rng`。
+  - `ui.send_fairness`：顯示牌山生成方式（`_WALL_NAMES`）；對局結束且為天鳳方式時以 `discord.File` 附
+    `tenhou_seed_<gid>.txt`（624 個種子、SHA-256、牌山編碼），說明照 sample_code.txt（nKyoku=0）即可重算。
+- **電腦語音**：`user_prefs` 加 `ai_voice`（舊資料庫 ALTER 補欄）；`db.get_user_ai_voice`／`set_user_ai_voice`。
+  `sfx.AI` 標記＋`_ai_pack(gid, vc)`（房主優先，再來同桌真人，都要還在語音房；資料夾不存在＝無）、`_has_bots`；
+  `_voice_pack(vc, uid, gid)` 遇到 `AI` 改用 `_ai_pack`；`_pick`／`say_together` 帶 gid；`_any_pack` 有電腦且有電腦語音也算
+  （機器人才會進語音）。`flow._voice_uid`：電腦回傳 `sfx.AI`（掛機仍為 None）——吃碰槓、打牌、和牌儀式、九種九牌
+  原本就走 `_voice_uid`，電腦自動有聲；電腦分支另補立直（兩立直優先、退回 riichi）與拔北的音效。
+  `VoicePackSelect(..., ai=True)` 讀寫 `ai_voice`、不觸發提早進房；新指令 `/mahjong ai_voice`（沒有語音包時回
+  `voice.no_packs`），大廳「🎚️ 語音」第二列放電腦語音選單。i18n `voice.ai_*`、`voice.no_packs`、`cmdtr.*`。
+  以暫存資料庫實測：房主設了 → 電腦用該包、`_any_pack` 為真；房主離開語音房 → 無。
+- **拔北事件音**：`sfx.EVENT_SOUNDS` 加 `kita`（`ALL_SOUND_NAMES` 73→74）；拔北後以 `_voice_uid(player)` 播放（電腦用電腦語音）。
+- **指南權限提醒**：`commands.guide_text(lang, guild)`＝`guide.text`＋`_guide_perm_block`（依 `guild.me.guild_permissions`
+  列出缺少的 `perms.CORE`＋`THREADS`（必要）與 `perms.FEATURES`（附 `perm.use.*` 用途，不含只給私有後台用的
+  Create Invite）；管理員或都不缺＝不顯示）。新建指南、補發、切換顯示語言／伺服器語言都用它；`run.ensure_guild_setup`
+  啟動時找到既有指南訊息，依 `_guide_lang` 保留原語言、內容或按鈕不同就更新。新增 i18n `guide.perm_*`、`perm.use.*`。
+
+### 變更
+- **log**：`run.py` 設 `logging.getLogger("discord.player").setLevel(WARNING)`，蓋掉每次播放結束的 INFO（`discord.utils.setup_logging` 只設根 logger，子 logger 的等級會保留，已實測）。
+- **上弦月／下弦月對調**：`rating.TIERS` 第 4、5 階名稱互換（所需 pt、`PLACE_PT_4`／`PLACE_PT_3` 依階索引不動，註解跟著換）；`DEMOTABLE_TIER = 3` 不變（現在是下弦月）。資料庫存 `dan_idx`，不需遷移：原第 4 階玩家改顯示下弦月。`rank.info` 三語的升級範例與降級起點一併改。
+- **段位賽固定天鳳牌山**：`launch_match_game` 設定加 `"wall": "tenhou" if ranked else "riichi_city"`（隨機匹配維持一番街）；
+  `rank.info` 三語補上段位賽固定規則與牌山。
+- **役名「拔北」→「北寶牌」**：`scoring` 的懸賞名、`commands._BONUS`、`sfx.YAKU_SOUNDS` 改為 `北寶牌`；ja／en 加
+  `yaku.北寶牌`（保留 `yaku.拔北`）；`i18n.yaku` 先經 `_RENAMED = {"拔北": "北寶牌"}`，舊牌譜／回放的舊役名也顯示新名。
+  `yakulist.notes` 改字。音效別名 `sfx._ALIASES = {"北寶牌": ("拔北", "北")}`，`_resolve` 每個資料夾依序找原名與別名
+  （`pack_coverage` 一併適用）。
+- **文件**：README 三語（功能、角色語音、指令表、房間設定、致謝加天鳳 <https://tenhou.net/stat/rand/>）；`Rules guide.MD`
+  對局結構補途中流局／牌山生成／段位賽固定規則、新增途中流局表與流局滿貫，指令表換成現行指令。
+- **語音房上限＋1**：`voice.fit_room_limit(vc, n)` 一律設 `n + 1`（拿掉 `reserve_bot` 與權限判斷）；新建語音房 5、
+  三麻開局 4；`RoomSettingsView.toggle_sanma` 同步。原因：0.8.4 起機器人開局前就會進房，會佔一個名額。
+
+### 修正
+- **動作音效時機**：新增 `flow._act_sound(gid, name, p, fallback)`（`sfx.play` 只排進佇列、不等播完），電腦拔北／立直／打牌、真人拔北／暗槓／立直（含開立直、兩立直）／打牌、碰／吃／明槓都改在 `render_hand`／`render_board` **之前**呼叫；加槓改在宣告（`feed.kakan_declare`）當下喊；拿掉迴圈尾端共用的 `discard` 音效。原本動作音效排在 `render_board`（含 `refresh_feeds` 逐一編輯每位玩家的牌河與面板）之後，真人立直則在畫面更新前。`play_hand_t` 的 `refresh_rivers`／`refresh_feeds` 改為先依各人牌風算好文字（`_apply_skin` 是全域狀態，必須同步算）再 `asyncio.gather` 同時送出編輯。途中流局 `_draw_sound` 移到 `render_board` 前；荒牌流局的公開＋私人結果訊息改同時送出。和牌儀式（`win_ceremony` 的 `beat`）不動。無頭模擬：全電腦 6 局（四麻／三麻）音效 302 次、0 次落在牌桌更新之後；一位掛機真人＋三電腦 1 局，面板 67 次、牌河 53 次編輯正常送出。
+- **裏寶牌 0 飜不唸**：`scoring` 立直時一律列出 `("裏寶牌", n)`（n 可為 0，方便確認），`win_ceremony` 逐役揭曉時`han == 0` 改傳 `sound=None`（照固定節奏揭曉，不呼叫 `voice.say`）。
+- **中斷對局的舊頻道**：重啟後 `_threads` 已不在記憶體，`finalize_interrupted` 只公布結算、`resume_game` 另建新頻道，舊的頻道／討論串、語音房、開局公告都沒人收。新增 `flow.save_surfaces(gid)`：把`_deletable_surfaces` 的 ID、語音房 ID、開局公告（頻道 ID＋訊息 ID）寫進 `room_config["surfaces"]`，在 `launch_game`、`resume_game` 開局後與 `voice._start_voice_game` 綁定語音房後呼叫。`purge_saved_surfaces(guild, config, voice)` 依紀錄刪除（`get_channel_or_thread`→`fetch_channel`，找不到就略過）：`finalize_interrupted` 結算後全刪（含語音房，先 `sfx.leave`）；`resume_game` 建新頻道前刪舊的、`voice=False` 保留語音房並重新綁回 `th["voice"]`。以假伺服器物件實測：繼續＝刪 3 個頻道＋公告、結束＝再加語音房；沒有紀錄的舊對局不出錯。
+- **對局中語音房不刪**：`handle_voice_update` 第 3 段，房裡沒有真人時若 `starting`（開局中／對局中）或
+  `_room_in_game(room.id)`（`_threads[gid]["voice"]` 是這間且 `gid in _games`）就保留；對局結束仍由 `cleanup_room` 收掉。
+- **語音連線排隊**：`sfx._ensure_client` 以每台伺服器一把 `asyncio.Lock`（`_connect_locks`）包住，實際邏輯移到
+  `_ensure_client_locked`。原本兩人同時進房（`join_room`）等情況會同時呼叫 `vc.connect()`，Discord 語音閘道回
+  4006（Session no longer valid）後由 discord.py 重試。以假 VoiceChannel 實測：同時三次呼叫只連線一次、三個都拿到連線。
+- **拔北**：`play_hand_t` 拔北後設 `kita_again`，下一圈（同一人補摸）不發 `feed.your_turn`、不重發 `ping.your_turn`，
+  沿用原本的提醒訊息（`kept_ping`，結果是拔北時不刪，回合真正結束才刪；牌山剛好摸完也會收掉）；拔北後不再先
+  `render_hand`（下一步 `wait_turn_action` 會直接刷新面板）。拔北鈕加連點保護：`player._kita_at` 記時間，
+  `KITA_GUARD`（2 秒）內再按拔北直接忽略。`wait_turn_action` 新增 `_lock_and_ack(inter)`：決定動作的按鈕（出牌、拔北、
+  暗槓、加槓、九種、自摸、立直宣言牌）一按就把整個 view 停用並 `edit_message`，取代原本只 `defer()`（沒有可見反應，
+  玩家以為沒按到會再按）。以無頭模擬實測（真實三麻牌局＋假頻道）：按一次拔北只拔一張、新面板馬上連點第二次被擋下、
+  按鈕立即變灰；0.8.4 程式同樣模擬也只拔一張，確認多拔的那張來自第二次點擊。
+- **指南刪除記憶**：`guild_settings` 加 `guide_dismissed`（舊資料庫以 ALTER 補欄）；`db.get_guide_dismissed`／
+  `set_guide_dismissed`。`GuideView.delete_btn` 刪除成功後設為 1；`run.ensure_guild_setup` 有大廳或已刪過就不建指南；
+  `on_guild_join` 先清成 0 再建（重新邀請＝重新開始）。以舊格式資料庫實測：沒刪過會建、刪過重啟不建、重新邀請會再建。
+
 ## [0.8.4] - 2026-10-08
 
 ### 變更

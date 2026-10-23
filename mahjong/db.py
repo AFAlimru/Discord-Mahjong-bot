@@ -92,14 +92,16 @@ def init_db() -> None:
                 lang         TEXT NOT NULL DEFAULT 'zh_tw',
                 skin         TEXT,                              -- 牌面樣式
                 notify_queue INTEGER NOT NULL DEFAULT 0,        -- 有人排隊時私訊通知
-                voice_pack   TEXT                               -- 個人角色語音（語音包資料夾名）
+                voice_pack   TEXT,                              -- 個人角色語音（語音包資料夾名）
+                ai_voice     TEXT                               -- 自己開的房裡電腦用的語音包（NULL＝電腦不出聲）
             );
 
             -- 伺服器設定
             CREATE TABLE IF NOT EXISTS guild_settings (
                 guild_id         TEXT PRIMARY KEY,
                 play_channel_id  TEXT,      -- 管理員用 /setup channel 指定的遊玩頻道
-                guild_lang       TEXT       -- 伺服器主要語言
+                guild_lang       TEXT,      -- 伺服器主要語言
+                guide_dismissed  INTEGER NOT NULL DEFAULT 0   -- 管理員按過「刪除指南頻道」＝之後不再自動建
             );
 
             -- 大廳（/setup create 建的一套：類別＋按鈕大廳＋開房文字頻道＋配對語音）。
@@ -145,6 +147,14 @@ def init_db() -> None:
         """)
         try:                                       # 0.7.x 資料庫升級到 0.8：個人角色語音
             conn.execute("ALTER TABLE user_prefs ADD COLUMN voice_pack TEXT")
+        except Exception:
+            pass
+        try:                                       # 0.8.5：電腦語音
+            conn.execute("ALTER TABLE user_prefs ADD COLUMN ai_voice TEXT")
+        except Exception:
+            pass
+        try:                                       # 0.8.5：記住管理員刪過指南頻道
+            conn.execute("ALTER TABLE guild_settings ADD COLUMN guide_dismissed INTEGER NOT NULL DEFAULT 0")
         except Exception:
             pass
         if conn.execute("PRAGMA user_version").fetchone()[0] < 1:
@@ -345,6 +355,23 @@ def set_user_voice(user_id: str, pack: str | None) -> None:
         )
 
 
+def get_user_ai_voice(user_id: str) -> str | None:
+    """玩家設定的「電腦語音」：他當房主（或同桌）時電腦用的語音包；None＝電腦不出聲。"""
+    with get_connection() as conn:
+        row = conn.execute("SELECT ai_voice FROM user_prefs WHERE user_id=?",
+                           (user_id,)).fetchone()
+    return row["ai_voice"] if row else None
+
+
+def set_user_ai_voice(user_id: str, pack: str | None) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO user_prefs (user_id, ai_voice) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET ai_voice=excluded.ai_voice",
+            (user_id, pack)
+        )
+
+
 def get_notify_queue(user_id: str) -> bool:
     """是否訂閱「有人排隊」私訊通知。"""
     with get_connection() as conn:
@@ -383,6 +410,22 @@ def set_play_channel(guild_id: str, channel_id: str | None) -> None:
             "ON CONFLICT(guild_id) DO UPDATE SET play_channel_id=excluded.play_channel_id",
             (guild_id, channel_id)
         )
+
+
+def get_guide_dismissed(guild_id: str) -> bool:
+    """管理員是否按過「刪除指南頻道」（是＝重啟時不再自動建指南）。"""
+    with get_connection() as conn:
+        row = conn.execute("SELECT guide_dismissed FROM guild_settings WHERE guild_id=?",
+                           (str(guild_id),)).fetchone()
+    return bool(row and row["guide_dismissed"])
+
+
+def set_guide_dismissed(guild_id: str, dismissed: bool) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO guild_settings (guild_id, guide_dismissed) VALUES (?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET guide_dismissed=excluded.guide_dismissed",
+            (str(guild_id), 1 if dismissed else 0))
 
 
 def get_guild_lang(guild_id: str) -> str | None:

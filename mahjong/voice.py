@@ -42,7 +42,7 @@ def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> 
         return {
             "is_sanma": sanma, "thinking_time": 25, "max_players": 3 if sanma else 4,
             "length": "tonpuu", "tobi": True, "ruleset": "mixed", "start_points": None,
-            "kuikae": False, "open_riichi": False, "abortive": True,
+            "kuikae": False, "open_riichi": False, "abortive": True, "wall": "riichi_city",
             "lang": lang, "ranked": False, "open_hand": False,
         }
     sanma = sanma_override if sanma_override is not None else sv.sanma
@@ -52,6 +52,7 @@ def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> 
         "length": "hanchan" if sv.hanchan else "tonpuu",
         "tobi": sv.tobi, "ruleset": sv.ruleset, "start_points": sv.start_points,
         "kuikae": sv.kuikae, "open_riichi": sv.open_riichi, "abortive": sv.abortive,
+        "wall": sv.wall_method,
         "lang": lang, "ranked": False, "open_hand": sv.open_hand,
     }
 
@@ -120,7 +121,7 @@ class SanmaStartButton(discord.ui.Button):
             pass
         await _clear_sanma_prompt(info)
         try:
-            await vc.edit(user_limit=3, reason="Suzume Tsuk 三麻開局（限 3 人）")
+            await vc.edit(user_limit=4, reason="Suzume Tsuk 三麻開局（3 人＋機器人）")
         except Exception:
             pass
         await _start_voice_game(vc, free, sanma=True)
@@ -165,23 +166,33 @@ class VoicePackSelect(discord.ui.Select):
     對局中誰的動作就用誰選的聲音；沒選＝他的動作不出聲。uid＝標出這人目前的選擇（共用面板不標）。"""
     NONE = "__none__"
 
-    def __init__(self, lang: str, row: int = 4, uid: str | None = None):
+    def __init__(self, lang: str, row: int = 4, uid: str | None = None, ai: bool = False):
         from . import sfx
-        cur  = db.get_user_voice(str(uid)) if uid else None
-        opts = [discord.SelectOption(label=i18n.t("voice.pack_off", lang), value=self.NONE)]
+        self.ai = ai                           # True＝設定「電腦語音」（自己開的房裡電腦用的聲音）
+        get  = db.get_user_ai_voice if ai else db.get_user_voice
+        cur  = get(str(uid)) if uid else None
+        opts = [discord.SelectOption(label=i18n.t("voice.ai_off" if ai else "voice.pack_off", lang),
+                                     value=self.NONE)]
         opts += [discord.SelectOption(label=p[:100], value=p[:100], default=(p == cur))
                  for p in sfx.list_packs()[:24]]
-        super().__init__(placeholder=i18n.t("voice.pack_select", lang),
+        super().__init__(placeholder=i18n.t("voice.ai_select" if ai else "voice.pack_select", lang),
                          min_values=1, max_values=1, options=opts, row=row)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         ulang = i18n.get_user_lang(str(interaction.user.id), interaction.guild_id, interaction.channel)
         val   = self.values[0]
+        uid   = str(interaction.user.id)
+        if self.ai:
+            db.set_user_ai_voice(uid, None if val == self.NONE else val)
+            msg = (i18n.t("voice.ai_cleared", ulang) if val == self.NONE
+                   else i18n.t("voice.ai_set", ulang, pack=f"**{val}**"))
+            await interaction.response.send_message(msg, ephemeral=True)
+            return
         if val == self.NONE:
-            db.set_user_voice(str(interaction.user.id), None)
+            db.set_user_voice(uid, None)
             msg = i18n.t("voice.pack_cleared", ulang)
         else:
-            db.set_user_voice(str(interaction.user.id), val)
+            db.set_user_voice(uid, val)
             msg = i18n.t("voice.pack_set", ulang, pack=f"**{val}**")
         await interaction.response.send_message(msg, ephemeral=True)
         if val != self.NONE:                   # 人在配對語音房裡選了語音包 → 機器人先進房
@@ -249,9 +260,11 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
     try:
         from .state import _threads, _thread_game
         from .flow import EndGameButton
+        from .flow import save_surfaces
         th = _threads.get(gid)
         if th is not None:
             th["voice"] = vc
+            save_surfaces(gid)             # 記下語音房（重啟後中斷→結束時一併收掉）
         _thread_game[vc.id] = gid          # 讓 /end 等指令能在語音房文字區使用
         pub = (th or {}).get("public")
         if pub is not None:
@@ -271,23 +284,22 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
         pass
 
 
-async def fit_room_limit(vc, max_players: int, reserve_bot: bool = True) -> None:
-    """語音房人數上限＝這局人數（三麻 3、四麻 4）。
-    Discord 規則：房間滿了，只有「移動成員」（或管理員）權限的人能進——機器人沒有這權限時
-    多留一格給自己，否則開局後機器人進不了房、音效放不出來。"""
-    limit = max_players
-    if reserve_bot:
-        try:
-            p = vc.permissions_for(vc.guild.me)
-            if not (p.administrator or p.move_members):
-                limit += 1
-        except Exception:
-            limit += 1
+async def fit_room_limit(vc, max_players: int) -> None:
+    """語音房人數上限＝這局人數＋1（三麻 4、四麻 5）：多的那一格留給機器人。
+    機器人開局前就會進房播語音，也會佔一個名額；不留的話人還沒到齊房間就滿了。"""
+    limit = max_players + 1
     if getattr(vc, "user_limit", None) != limit:
         try:
             await vc.edit(user_limit=limit, reason="Suzume Tsuk 依對局人數設定語音房上限")
         except Exception:
             pass
+
+
+def _room_in_game(room_id: int) -> bool:
+    """這間語音房綁著還在進行的對局嗎（對局結束時由 cleanup_room 收掉）。"""
+    from .state import _threads, _games
+    return any(th.get("voice") is not None and th["voice"].id == room_id and gid in _games
+               for gid, th in _threads.items())
 
 
 async def cleanup_room(vc) -> None:
@@ -318,7 +330,7 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
             try:
                 vc = await guild.create_voice_channel(
                     f"{i18n.t('voice.room_name', lang)} {rooms.code(rno)}",
-                    category=cat, user_limit=4,
+                    category=cat, user_limit=5,       # 4 位玩家＋機器人
                     reason="Suzume Tsuk 語音配對房")
             except Exception as e:
                 print(f"[voice] 建語音房失敗：{e!r}")
@@ -365,7 +377,7 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
             info["starting"] = True
             await _clear_sanma_prompt(info)
             try:
-                await room.edit(user_limit=3, reason="Suzume Tsuk 三麻開局（限 3 人）")
+                await room.edit(user_limit=4, reason="Suzume Tsuk 三麻開局（3 人＋機器人）")
             except Exception:
                 pass
             await _start_voice_game(room, free[:3], sanma=True)
@@ -378,11 +390,13 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
             except Exception as e:
                 print(f"[voice] 三麻提示發送失敗：{e!r}")
 
-    # 3) 離開受管理的語音房 → 空了就刪；掉到 3 人以下撤三麻提示
+    # 3) 離開受管理的語音房 → 空了就刪（對局進行中不刪，等對局結束才收）；掉到 3 人以下撤三麻提示
     if before.channel is not None and before.channel.id in _voice_rooms:
         room = before.channel
         info = _voice_rooms.get(room.id, {})
         humans = [m for m in room.members if not m.bot]
+        if not humans and (info.get("starting") or _room_in_game(room.id)):
+            return                               # 開局中／對局中：大家暫時離開也留著，回來還能接著玩
         if not humans:
             _voice_rooms.pop(room.id, None)
             try:

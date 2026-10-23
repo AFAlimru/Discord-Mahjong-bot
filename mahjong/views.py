@@ -97,12 +97,14 @@ class RoomSettingsView(View):
         self.kuikae = False        # 食替：預設禁止（False=禁止）
         self.open_riichi = False   # 開立直：預設關閉
         self.abortive = True       # 途中流局（九種九牌／四風連打／四槓散了／四家立直／三家和）：預設開啟
-        # 依語言設定按鈕標籤（children 依宣告順序：數值/三麻/戰長/擊飛/規則/食替/開立直/途中流局/確認）
+        self.wall_method = "riichi_city"   # 牌山生成："riichi_city"=一番街 / "tenhou"=天鳳
+        # 依語言設定按鈕標籤（children 依宣告順序：數值/三麻/戰長/擊飛/規則/食替/開立直/途中流局/牌山/確認）
         for child, key in zip(self.children, ("settings.numbers", "settings.sanma",
                                               "settings.length_tonpuu", "settings.tobi_on",
                                               "settings.rule_default",
                                               "settings.kuikae_off", "settings.openriichi_off",
-                                              "settings.abort_on", "settings.confirm")):
+                                              "settings.abort_on", "settings.wall_riichi_city",
+                                              "settings.confirm")):
             child.label = i18n.t(key, lang)
         if not show_confirm:               # 語音房面板不放確認鈕（開局時面板自動消失）
             try:
@@ -126,7 +128,7 @@ class RoomSettingsView(View):
                 vc = interaction.guild.get_channel(int(str(self.game_id)[2:]))
                 if vc is not None:
                     from .voice import fit_room_limit
-                    await fit_room_limit(vc, 3 if self.sanma else 4, reserve_bot=False)
+                    await fit_room_limit(vc, 3 if self.sanma else 4)
             except Exception:
                 pass
 
@@ -165,6 +167,12 @@ class RoomSettingsView(View):
         # 關閉：九種九牌不能宣告、四風連打／四槓散了／四家立直照打、三家和改為三家都和（流局滿貫不受影響）
         self.abortive = not self.abortive
         button.label = i18n.t("settings.abort_on" if self.abortive else "settings.abort_off", self.lang)
+        await interaction.response.edit_message(view=self)
+
+    @button(label="🎲 牌山：一番街", style=discord.ButtonStyle.secondary)
+    async def toggle_wall(self, interaction: discord.Interaction, button: Button):
+        self.wall_method = "tenhou" if self.wall_method == "riichi_city" else "riichi_city"
+        button.label = i18n.t(f"settings.wall_{self.wall_method}", self.lang)
         await interaction.response.edit_message(view=self)
 
     @button(label="✅ 確認", style=discord.ButtonStyle.success)

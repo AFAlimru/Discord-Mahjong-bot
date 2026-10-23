@@ -107,10 +107,100 @@ class Tile:
 
 # ─── Wall Generation ──────────────────────────────────────────────────────
 #
-# 採用麻雀一番街公開方案：
+# 兩種牌山生成方式（房間設定可選；段位賽固定天鳳）：
+#
+# ・一番街（WALL_RIICHI_CITY，預設）——麻雀一番街公開方案：
 #   1) 以密碼學安全亂數 (secrets) 做 Fisher–Yates 洗牌（等同 Go 的 crypto/rand）；
 #   2) 牌山編碼 = 由前到後每張牌的官方編碼字串相接，如 "1m2p3s7z..."；
 #   3) SHA-256 直接對「牌山編碼字串」計算，玩家可在任意 SHA-256 網站自行校驗。
+#
+# ・天鳳（WALL_TENHOU）——天鳳公開的生成法（https://tenhou.net/stat/rand/ 的 sample_code.txt）：
+#   1) 以 secrets 產生 624 個 32 位元種子，MT19937 init_by_array；
+#   2) 取 288 個 genrand_int32，每 32 個（1024 bit）做一次 SHA-512 → 144 個 32 位元亂數 rnd；
+#   3) yama[i]=i（天鳳牌號 0~135，三麻去掉 2~8 萬共 108 張），i=0..n-2：swap(yama[i], yama[i + rnd[i] % (n-i)])。
+#   每局一組新種子（＝天鳳範例的 nKyoku=0）；對局結束公開種子，用天鳳範例程式就能算出同一個牌山。
+#   承諾值與一番街相同：牌山編碼字串的 SHA-256。
+
+WALL_RIICHI_CITY = "riichi_city"
+WALL_TENHOU      = "tenhou"
+WALL_METHODS     = (WALL_RIICHI_CITY, WALL_TENHOU)
+
+
+class _MT19937:
+    """MT19937（mt19937ar.c 的 init_by_array／genrand_int32），天鳳牌山生成用。"""
+    N, M = 624, 397
+
+    def __init__(self, key: list[int]):
+        mt = [0] * self.N
+        mt[0] = 19650218
+        for i in range(1, self.N):
+            mt[i] = (1812433253 * (mt[i - 1] ^ (mt[i - 1] >> 30)) + i) & 0xFFFFFFFF
+        i, j = 1, 0
+        for _ in range(max(self.N, len(key))):
+            mt[i] = ((mt[i] ^ ((mt[i - 1] ^ (mt[i - 1] >> 30)) * 1664525)) + key[j] + j) & 0xFFFFFFFF
+            i += 1; j += 1
+            if i >= self.N:
+                mt[0] = mt[self.N - 1]; i = 1
+            if j >= len(key):
+                j = 0
+        for _ in range(self.N - 1):
+            mt[i] = ((mt[i] ^ ((mt[i - 1] ^ (mt[i - 1] >> 30)) * 1566083941)) - i) & 0xFFFFFFFF
+            i += 1
+            if i >= self.N:
+                mt[0] = mt[self.N - 1]; i = 1
+        mt[0] = 0x80000000
+        self.mt, self.mti = mt, self.N
+
+    def genrand_int32(self) -> int:
+        mt, N, M = self.mt, self.N, self.M
+        if self.mti >= N:
+            for k in range(N):
+                y = (mt[k] & 0x80000000) | (mt[(k + 1) % N] & 0x7FFFFFFF)
+                mt[k] = mt[(k + M) % N] ^ (y >> 1) ^ (0x9908B0DF if y & 1 else 0)
+            self.mti = 0
+        y = mt[self.mti]; self.mti += 1
+        y ^= y >> 11
+        y ^= (y << 7) & 0x9D2C5680
+        y ^= (y << 15) & 0xEFC60000
+        y ^= y >> 18
+        return y & 0xFFFFFFFF
+
+
+def _tenhou_tile(tid: int) -> Tile:
+    """天鳳牌號（0~135，每種 4 張；赤五＝16／52／88）→ Tile。順序：萬 筒 索 東南西北 白發中。"""
+    kind, copy = divmod(tid, 4)
+    if kind < 9:
+        return Tile(Suit.MAN, kind + 1, kind == 4 and copy == 0)
+    if kind < 18:
+        return Tile(Suit.PIN, kind - 8, kind == 13 and copy == 0)
+    if kind < 27:
+        return Tile(Suit.SOU, kind - 17, kind == 22 and copy == 0)
+    if kind < 31:
+        return Tile(Suit.WIND, kind - 26)          # 東南西北＝WIND 1~4
+    return Tile(Suit.DRAGON, {31: 3, 32: 2, 33: 1}[kind])   # 白發中＝DRAGON 3/2/1
+
+
+def tenhou_yama(seed: list[int], sanma: bool) -> list[int]:
+    """依天鳳範例算出牌山（天鳳牌號序列）：seed＝624 個 32 位元整數。"""
+    mt = _MT19937(seed)
+    src = b"".join(mt.genrand_int32().to_bytes(4, "little") for _ in range(288))
+    digest = b"".join(hashlib.sha512(src[i * 128:(i + 1) * 128]).digest() for i in range(9))
+    rnd = [int.from_bytes(digest[i * 4:(i + 1) * 4], "little") for i in range(144)]
+    yama = [t for t in range(136) if not (sanma and 4 <= t < 32)]   # 三麻去掉 2~8 萬
+    n = len(yama)
+    for i in range(n - 1):
+        k = i + rnd[i] % (n - i)
+        yama[i], yama[k] = yama[k], yama[i]
+    return yama
+
+
+def _tenhou_wall(sanma: bool) -> tuple[list[Tile], str, str, str]:
+    """天鳳方式產生牌山：回傳 (牌山, 編碼字串, sha256, 種子十六進位)。"""
+    seed = [secrets.randbits(32) for _ in range(624)]
+    wall = [_tenhou_tile(t) for t in tenhou_yama(seed, sanma)]
+    encoding = wall_encode(wall)
+    sha256 = hashlib.sha256(encoding.encode()).hexdigest()
+    return wall, encoding, sha256, ",".join(f"{x:08X}" for x in seed)
 
 def _secure_shuffle(tiles: list[Tile]) -> None:
     """密碼學安全的 Fisher–Yates 洗牌（每次交換取一次 secrets 亂數）。"""
@@ -133,7 +223,7 @@ def _finalize_wall(tiles: list[Tile]) -> tuple[list[Tile], str, str]:
 
 
 def generate_wall_sanma() -> tuple[list[Tile], str, str]:
-    """生成三麻牌山 (108張，移除2-8萬)"""
+    """生成三麻牌山 (108張，移除2-8萬)；一番街方式"""
     tiles: list[Tile] = []
 
     # 1萬、9萬 各4張
@@ -158,7 +248,7 @@ def generate_wall_sanma() -> tuple[list[Tile], str, str]:
 
 
 def generate_wall_yonma() -> tuple[list[Tile], str, str]:
-    """生成四麻牌山 (136張，完整)"""
+    """生成四麻牌山 (136張，完整)；一番街方式"""
     tiles: list[Tile] = []
 
     # 萬子、條子、餅子 各36張
@@ -358,6 +448,8 @@ class GameState:
 
     wall_seed: str = ""
     wall_sha256: str = ""
+    wall_method: str = WALL_RIICHI_CITY     # 牌山生成方式（riichi_city／tenhou）
+    wall_rng_seed: str = ""                 # 天鳳方式：這一局的 624 個種子（十六進位，逗號分隔）
 
     pending_discard: Optional[Tile] = None
     pending_from_seat: int = -1
@@ -421,6 +513,8 @@ class GameState:
             "revealed_dora": self.revealed_dora,
             "wall_seed": self.wall_seed,
             "wall_sha256": self.wall_sha256,
+            "wall_method": self.wall_method,
+            "wall_rng_seed": self.wall_rng_seed,
             "pending_discard": self.pending_discard.to_dict() if self.pending_discard else None,
             "pending_from_seat": self.pending_from_seat,
         }
@@ -446,26 +540,32 @@ class GameState:
         gs.revealed_dora = d["revealed_dora"]
         gs.wall_seed = d["wall_seed"]
         gs.wall_sha256 = d["wall_sha256"]
+        gs.wall_method = d.get("wall_method", WALL_RIICHI_CITY)
+        gs.wall_rng_seed = d.get("wall_rng_seed", "")
         gs.pending_discard = Tile.from_dict(d["pending_discard"]) if d["pending_discard"] else None
         gs.pending_from_seat = d["pending_from_seat"]
         return gs
 
 
 def new_game(game_id: str, players_info: list[dict], is_sanma: bool = False,
-             start_points: int | None = None) -> GameState:
-    """創建新牌局"""
-    if is_sanma:
+             start_points: int | None = None, wall_method: str = WALL_RIICHI_CITY) -> GameState:
+    """創建新牌局。wall_method＝牌山生成方式（一番街／天鳳）。"""
+    rng_seed = ""
+    if wall_method == WALL_TENHOU:
+        wall, seed, sha, rng_seed = _tenhou_wall(is_sanma)
+    elif is_sanma:
         wall, seed, sha = generate_wall_sanma()
-        player_count = 3
     else:
         wall, seed, sha = generate_wall_yonma()
-        player_count = 4
+    player_count = 3 if is_sanma else 4
 
     layout = wall_to_layout(wall)
     
     gs = GameState(game_id, is_sanma)
     gs.wall_seed = seed
     gs.wall_sha256 = sha
+    gs.wall_method = wall_method if wall_method in WALL_METHODS else WALL_RIICHI_CITY
+    gs.wall_rng_seed = rng_seed
     gs.live_wall = layout["live_wall"]
     gs.dora_indicators = layout["dora_indicators"]
     gs.ura_indicators = layout["ura_indicators"]

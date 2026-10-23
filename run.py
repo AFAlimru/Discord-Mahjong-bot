@@ -35,6 +35,8 @@ class _QuietBadRequests(logging.Filter):
 
 
 logging.getLogger("aiohttp.server").addFilter(_QuietBadRequests())
+# 每播完一個音效 discord.player 都會印一行「ffmpeg process … successfully terminated」，洗版；只留警告與錯誤
+logging.getLogger("discord.player").setLevel(logging.WARNING)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -190,7 +192,7 @@ async def ensure_guild_setup(guild, create_guide: bool = True) -> None:
     """伺服器初始化：依 Discord 地區設定主要語言（未設定時）＋（需要時）建立管理員指南頻道。
     已建大廳類別、或已有指南頻道的伺服器就不再建指南。"""
     from mahjong import i18n as _i, db as _db
-    from mahjong.commands import GuideView
+    from mahjong.commands import GuideView, guide_text, _guide_lang
     gid = str(guild.id)
     if _i.guild_lang(gid) is None:            # 主要語言：未設定→依伺服器地區自動偵測
         _i.set_guild_lang(gid, _i.detect_locale(getattr(guild, "preferred_locale", "")))
@@ -212,15 +214,15 @@ async def ensure_guild_setup(guild, create_guide: bool = True) -> None:
         print(f"⚠️ 大廳語言判定失敗（{getattr(guild, 'name', '?')}）: {e}")
     if not create_guide:
         return
-    try:                                      # 已建大廳＝已設定好，不需指南
-        if _db.get_hubs(gid):
+    try:                                      # 已建大廳＝已設定好；管理員刪過指南＝不要再建
+        if _db.get_hubs(gid) or _db.get_guide_dismissed(gid):
             return
     except Exception:
         pass
     names  = {_i.t("guide.channel_name", L) for L in _i.available()}
     guides = [c for c in getattr(guild, "text_channels", []) if c.name in names]
     me     = guild.me
-    text   = _i.t("guide.text", lang)
+    text   = guide_text(lang, guild)     # 含機器人目前缺少的權限
 
     def _usable(c) -> bool:
         try:
@@ -237,15 +239,18 @@ async def ensure_guild_setup(guild, create_guide: bool = True) -> None:
                     print(f"[setup] 已補發「{getattr(guild, 'name', '?')}」的設定指南")
                 except Exception as e:
                     print(f"⚠️ 補發指南失敗（{getattr(guild, 'name', '?')}）: {e}")
-            else:                             # 舊版指南訊息沒有「建立大廳」鈕 → 換上新的按鈕
+            else:                             # 已有指南：更新內容（權限現況）與按鈕，保留它目前顯示的語言
                 try:
                     async for m in c.history(limit=10):
                         if m.author.id != me.id or not m.components:
                             continue
                         ids = {getattr(x, "custom_id", None)
                                for row in m.components for x in getattr(row, "children", [])}
-                        if "guide:delete" in ids and "guide:create" not in ids:
-                            await m.edit(view=GuideView(lang))
+                        if "guide:delete" in ids:
+                            gl = _guide_lang(m) or lang
+                            new = guide_text(gl, guild)
+                            if m.content != new or "guide:create" not in ids:
+                                await m.edit(content=new, view=GuideView(gl))
                         break
                 except Exception:
                     pass
@@ -279,7 +284,13 @@ async def ensure_guild_setup(guild, create_guide: bool = True) -> None:
 
 @bot.event
 async def on_guild_join(guild) -> None:
-    """加入新伺服器：設定主要語言＋建立「僅管理員可見」的設定指南頻道。"""
+    """加入新伺服器：設定主要語言＋建立「僅管理員可見」的設定指南頻道。
+    （重新邀請機器人＝重新開始，之前刪過指南的紀錄清掉）"""
+    try:
+        from mahjong import db as _db
+        _db.set_guide_dismissed(str(guild.id), False)
+    except Exception:
+        pass
     await ensure_guild_setup(guild)
 
 

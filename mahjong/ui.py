@@ -13,6 +13,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """Discord UI 元件：資訊按鈕（牌河/點數/副露/動態/說明）、公平性驗證、操作說明文字。"""
 from __future__ import annotations
+import io
+
 import discord
 
 from .render import (
@@ -111,12 +113,18 @@ def make_hand_view(gid: str, lang: str = i18n.DEFAULT) -> discord.ui.View:
 
 
 
+_WALL_NAMES = {"riichi_city": "麻雀一番街方式（secrets＋Fisher–Yates）",
+               "tenhou": "天鳳方式（MT19937＋SHA-512，<https://tenhou.net/stat/rand/>）"}
+
+
 async def send_fairness(interaction: discord.Interaction, gid: str) -> None:
-    """回覆某局的牌山承諾值（進行中只給 SHA-256；已結束附完整牌山編碼）。按鈕與指令共用。"""
+    """回覆某局的牌山承諾值（進行中只給 SHA-256；已結束附完整牌山編碼，天鳳方式另附種子檔）。按鈕與指令共用。"""
     gs = _games.get(gid)
     if gs:
         # 對局進行中：只給 SHA-256，避免提前洩漏後面的牌
         embed = discord.Embed(title="🔐 牌山公平性驗證", color=0x00AA88)
+        embed.add_field(name="牌山生成方式", value=_WALL_NAMES.get(gs.wall_method, gs.wall_method),
+                        inline=False)
         embed.add_field(
             name="本局 SHA-256（承諾值）",
             value=f"```\n{gs.wall_sha256}\n```",
@@ -151,7 +159,10 @@ async def send_fairness(interaction: discord.Interaction, gid: str) -> None:
         data     = game["game_data"]
         encoding = data.get("wall_seed", "")
         sha      = data.get("wall_sha256", "")
+        method   = data.get("wall_method", "riichi_city")
+        rng_seed = data.get("wall_rng_seed", "")
         embed = discord.Embed(title="🔐 牌山公平性驗證（對局已結束）", color=0x00AA88)
+        embed.add_field(name="牌山生成方式", value=_WALL_NAMES.get(method, method), inline=False)
         embed.add_field(name="SHA-256", value=f"```\n{sha}\n```", inline=False)
         embed.add_field(
             name="完整牌山編碼（可自行校驗）",
@@ -163,6 +174,22 @@ async def send_fairness(interaction: discord.Interaction, gid: str) -> None:
             value="把上面的牌山編碼整串貼到任意 SHA-256 計算網站，得到的結果與 SHA-256 相同即代表未竄改。",
             inline=False,
         )
+        if method == "tenhou" and rng_seed:
+            # 天鳳方式：624 個種子太長放不進 embed，改附文字檔；用天鳳範例程式就能算出同一個牌山
+            embed.add_field(
+                name="天鳳種子（附檔）",
+                value=("附檔是這一局的 624 個 32 位元種子（十六進位）。把它當 `init_by_array` 的參數，"
+                       "照 <https://tenhou.net/stat/rand/> 的 sample_code.txt（nKyoku=0）"
+                       "算出的牌山，換成上面的編碼會完全一致。"),
+                inline=False,
+            )
+            text = ("# Suzume Tsuk - Tenhou wall seed (mt19937ar init_by_array, 624 x uint32, hex)\n"
+                    f"# SHA-256 of wall encoding: {sha}\n"
+                    f"# wall encoding: {encoding}\n"
+                    f"{rng_seed}\n")
+            file = discord.File(io.BytesIO(text.encode()), filename=f"tenhou_seed_{gid}.txt")
+            await interaction.response.send_message(embed=embed, file=file, ephemeral=True)
+            return
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

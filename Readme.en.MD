@@ -1,4 +1,4 @@
-[中文](Readme.MD) | **English**
+[中文](Readme.MD) | **English** | [日本語](Readme.ja.MD)
 
 # 🀄 Suzume Tsuk — Discord Riichi Mahjong Bot
 
@@ -30,16 +30,16 @@ Play full-rules Japanese (Riichi) mahjong right inside Discord. Supports 4-playe
 - **Double ron**, added kan / chankan, closed kan / open kan.
 - **CPU opponents**: they discard by shanten and tile acceptance, fold when someone declares riichi, declare riichi when tenpai, and don't make reckless calls.
 - **Voice matchmaking**: join the "🔊 Create Friendly Match" voice channel and a 4-player voice room opens automatically. The room settings panel is posted in the voice room's text chat, and the game starts once it's full (3 players can start sanma right away, or press "🤖 Start with CPU" to fill the empty seats). The voice room is deleted when the game ends.
-- **Character voices**: each player picks their own voice pack, so pon, riichi, wins, and yaku names are called out loud (sound files are not included in the source; see below for how to make a pack).
-- **Category-based lobby**: `/setup create` (or the "🏗️ Create lobby" button in the setup guide) creates a "Suzume Mahjong" category with a read-only button lobby, a 💬 text channel (for opening rooms and chatting), and a 🔊 matchmaking voice channel. Game channels are created inside the category and deleted automatically when the game ends.
+- **Character voices**: each player picks their own voice pack, so pon, riichi, wins, and yaku names are called out loud; the host sets the CPU voice with `/mahjong ai_voice` (sound files are not included in the source; see below for how to make a pack).
+- **Category-based lobby**: `/setup create` (or the "🏗️ Create lobby" button in the setup guide) creates a "Suzume Mahjong" category with a read-only button lobby, a 💬 text channel (for opening rooms and chatting), and a 🔊 matchmaking voice channel. Game channels are created inside the category and deleted automatically when the game ends. You can create one lobby per language — rooms opened from a lobby use that lobby's language.
 - **Hand panel in DMs**: press "📩 Hand via DM" in the waiting room to get your hand panel in DMs for that game.
-- **Ranked (cross-server)**: `/mahjong rank` for global matchmaking (**only with players of a similar rank**); ranked games are played in DMs. Lunar-eclipse themed ranks (新人 Newcomer → … → 血月 Blood Moon, with levels 1–3 in every tier except the top) plus an R rating.
+- **Ranked (cross-server)**: `/mahjong rank` for global matchmaking (**only with players of a similar rank**); ranked games are played in DMs. Lunar-eclipse themed ranks (新人 Newcomer → … → 血月 Blood Moon, with levels 1–3 in every tier except the top) plus an R rating. Ranked always uses full Tenhou rules and the Tenhou wall generator.
 - **Casual matchmaking**: `/mahjong match` gathers players across servers; unranked.
 - **Play against CPUs**: DM the bot `/mahjong start` and CPUs fill the table.
 - **AFK handling**: players who keep timing out are switched to auto-discard (tsumogiri) and can take back control with one click; the game ends if every human is AFK.
 - **Game logs & replays**: `/mahjong history` lets you flip through your games one by one and open a replay directly; `/mahjong replay <room code>` plays the game back step by step (hands, win ceremony, switchable point of view). Room codes are 5 characters (e.g. `K7Q2M`).
 - **Stats & tasks**: `/mahjong stats`, `/mahjong profile`, daily check-in and activity points; more detailed stats on the website.
-- **Fairness**: cryptographically secure shuffling, wall encoding + SHA-256 (`/mahjong fairness`), verifiable game by game.
+- **Fairness**: choose between two published wall generators (Riichi City / Tenhou); every hand has a wall encoding + SHA-256 commitment (`/mahjong fairness`), and the full encoding is revealed after the game (plus a seed file for the Tenhou method), so you can verify it game by game.
 - **Reliability**: channel games are restored after a restart; DM games end on restart.
 - **Languages**: Traditional Chinese / Japanese / English, switch with `/language`; slash command descriptions follow your Discord client language.
 
@@ -54,6 +54,7 @@ Suzume Tsuk/
 │   ├── commands.py        # Slash commands (/mahjong, /setup, /help, /language), lobby & guide panels
 │   ├── flow.py            # Game flow: channels/threads/DMs, reactions, hands/matches, win ceremony, game start
 │   ├── voice.py           # Voice matchmaking: Friendly Match voice → auto room → start when full
+│   ├── hubs.py            # Multi-language lobbies (one per language; works out a channel's lobby and language)
 │   ├── sfx.py             # Character voices: direct playback via FFmpeg, per-player voice packs
 │   ├── ai.py              # CPU opponents (shanten, tile acceptance, defense, riichi & call decisions)
 │   ├── matchmaking.py     # Ranked/casual global queues (cross-server, similar-rank matching, timeouts)
@@ -127,7 +128,8 @@ python tools/build_and_upload_emojis.py black    # 38 black tiles (rank reward s
 
 - The host needs **FFmpeg** installed (on PATH). Without FFmpeg, voices are disabled automatically and games are unaffected.
 - Every subfolder of `assets/sounds/` is a voice pack (folder name = pack name), and file name = sound name (e.g. `riichi.mp3`, `立直.ogg`).
-- Players pick their own pack with the lobby's "🎚️ Voice" button. Each action uses the voice of whoever did it; CPUs and AFK players stay silent.
+- Players pick their own pack with the lobby's "🎚️ Voice" button. Each action uses the voice of whoever did it; AFK players stay silent.
+- The CPU voice is set with `/mahjong ai_voice` (or the second menu under "🎚️ Voice") and applies to voice-room games you host; unset = CPUs stay silent.
 
 ---
 
@@ -146,17 +148,33 @@ python tools/build_and_upload_emojis.py black    # 38 black tiles (rank reward s
 | `/mahjong daily` · `/mahjong tasks` | Daily check-in · tasks |
 | `/mahjong yaku` · `/mahjong rankinfo` | Yaku list · rank guide (pt needed per level and pt per placement) |
 | `/mahjong skin` · `/mahjong notify` | Tile skin · queue notifications |
+| `/mahjong ai_voice` | CPU voice (the voice CPUs use in voice-room games you host) |
 | `/setup create` · `/setup channel` | Create the mahjong category (lobby + text channel + matchmaking voice) · set the play channel |
 | `/setup lang` · `/setup clear_room` | Server main language · clear leftover games / waiting rooms |
 | `/help` · `/language` | Help · language |
 
-> `/setup` commands require the **Manage Server** permission. When the bot joins a server it creates an **admin-only** "setup guide" channel — just follow it to get started.
+> `/setup` commands require the **Manage Server** permission. When the bot joins a server it creates an **admin-only** "setup guide" channel — just follow it to get started (it also lists any permissions the bot is missing).
 
 ---
 
 ## ⚙️ Room Settings
 
-The room panel lets you adjust: **length** (East-only / Hanchan), **busting**, **sanma**, **rules** (mixed / Tenhou), **kuikae** (forbidden / allowed), **open riichi** (off / on), **abortive draws** (on / off), **thinking time**, and **starting points**.
+The room panel lets you adjust: **length** (East-only / Hanchan), **busting**, **sanma**, **rules** (mixed / Tenhou), **kuikae** (forbidden / allowed), **open riichi** (off / on), **abortive draws** (on / off), **wall generator** (Riichi City / Tenhou), **thinking time**, and **starting points**. Ranked games always use full Tenhou rules and the Tenhou wall.
+
+---
+
+## 🙏 Credits
+
+- **Wall generation & fairness check** (see `mahjong/engine.py`):
+  - The wall scheme published by **Riichi City** (麻雀一番街, default) — a Fisher–Yates shuffle with cryptographically secure
+    randomness, the whole wall encoded as a string (e.g. `1m2p3s7z…`) and hashed with SHA-256 as a commitment; the full
+    encoding is revealed after the game so anyone can verify it.
+  - The wall generator published by **Tenhou** ([tenhou.net/stat/rand](https://tenhou.net/stat/rand/)) — MT19937 seeded with
+    624 words, output run through SHA-512, then shuffled; checked against Tenhou's official validation data and the walls match
+    exactly. The commitment is the same SHA-256 of the wall encoding, and the seed is revealed after the game so you can
+    rebuild the same wall with Tenhou's sample code.
+- **Tile images**: [FluffyStuff/riichi-mahjong-tiles](https://github.com/FluffyStuff/riichi-mahjong-tiles), downloaded and
+  converted into Discord emojis by `tools/build_and_upload_emojis.py`.
 
 ---
 

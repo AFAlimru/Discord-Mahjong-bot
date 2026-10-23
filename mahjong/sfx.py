@@ -20,7 +20,7 @@
   **個人設定**：每位玩家在大廳「🎚️ 語音」自選（存 user_prefs）；對局中誰的動作就用誰的包，
   **沒選＝他的動作不出聲**。開局與 AI 的動作用房主（或其他有選的真人）的包。
   包內缺某檔時才退回根目錄的同名檔當後備。
-- **名稱**：事件音（start/discard/riichi/double_riichi/open_riichi/pon/chi/kan/tsumo/ron/ryuukyoku；
+- **名稱**：事件音（start/discard/riichi/double_riichi/open_riichi/pon/chi/kan/kita/tsumo/ron/ryuukyoku；
   兩立直、開立直沒錄專屬檔時退回 riichi）＋和了役名（＝役名本身）
   ＋途中流局名（九種九牌/四風連打/…，缺檔退回 ryuukyoku）＋打點階級（mangan/haneman/…，滿貫以上才唸）。
   缺檔＝該項靜默略過。
@@ -44,7 +44,7 @@ from . import db
 AUDIO_EXTS = (".mp3", ".ogg", ".oga", ".opus", ".wav", ".m4a", ".aac", ".flac", ".webm")
 
 # 事件音效名（動作當下播）
-EVENT_SOUNDS = ("start", "discard", "riichi", "double_riichi", "open_riichi", "pon", "chi", "kan",
+EVENT_SOUNDS = ("start", "discard", "riichi", "double_riichi", "open_riichi", "pon", "chi", "kan", "kita",
                 "tsumo", "ron", "ryuukyoku")
 
 # 途中流局語音（音效名＝流局名本身）；包裡沒有專屬檔時退回 ryuukyoku
@@ -64,7 +64,7 @@ YAKU_SOUNDS: frozenset = frozenset({
     # 役牌（依風牌動態產生）
     "役牌白", "役牌發", "役牌中", "場風", "自風",
     # 懸賞（寶牌類，也會逐一唸出）
-    "寶牌", "裏寶牌", "赤寶牌", "拔北",
+    "寶牌", "裏寶牌", "赤寶牌", "北寶牌",
     # 役滿
     "天和", "地和", "國士無雙", "國士無雙十三面", "四暗刻", "四暗刻單騎",
     "大三元", "大四喜", "小四喜", "字一色", "綠一色", "清老頭",
@@ -139,6 +139,13 @@ def list_packs() -> list[str]:
         return []
 
 
+AI = "__ai__"   # 做動作的是電腦：用房主設定的「電腦語音」（見 _ai_pack）
+
+
+def _pack_ok(pack: str | None) -> str | None:
+    return pack if pack and os.path.isdir(os.path.join(SOUNDS_DIR, pack)) else None
+
+
 def _user_pack(uid) -> str | None:
     """某玩家自己選的語音包（個人設定，存 DB）。沒選／資料夾已不存在＝None（＝他的動作不出聲）。"""
     if not uid:
@@ -169,11 +176,39 @@ def _in_room(vc, uid) -> bool:
         return True
 
 
-def _voice_pack(vc, uid) -> str | None:
-    """這個動作要用的語音包：做動作的真人有選、且人還在語音房。電腦／掛機（uid=None）一律不出聲。"""
+def _voice_pack(vc, uid, gid: str | None = None) -> str | None:
+    """這個動作要用的語音包：做動作的真人有選、且人還在語音房。
+    uid=AI＝電腦（用 _ai_pack）；掛機（uid=None）一律不出聲。"""
+    if uid == AI:
+        return _ai_pack(gid, vc) if gid else None
     if not uid or not _in_room(vc, uid):
         return None
     return _user_pack(uid)
+
+
+def _ai_pack(gid: str, vc) -> str | None:
+    """電腦的語音包：房主設定的「電腦語音」優先，否則同桌任一位設定過的真人（都要還在語音房）；
+    都沒設＝電腦不出聲。"""
+    from .state import _room_owners
+    host = _room_owners.get(gid)
+    for uid in ([host] if host else []) + _humans(gid):
+        if not _in_room(vc, uid):
+            continue
+        try:
+            pack = _pack_ok(db.get_user_ai_voice(str(uid)))
+        except Exception:
+            pack = None
+        if pack:
+            return pack
+    return None
+
+
+def _has_bots(gid: str) -> bool:
+    from .state import _games, _waiting
+    gs = _games.get(gid)
+    if gs is not None:
+        return any(p.is_bot for p in gs.players)
+    return any(p.get("is_bot") for p in (_waiting.get(gid) or []))
 
 
 def _table_pack(gid: str, vc) -> str | None:
@@ -188,8 +223,9 @@ def _table_pack(gid: str, vc) -> str | None:
 
 
 def _any_pack(gid: str, vc) -> bool:
-    """語音房裡是否至少有一位本局真人選了語音包（都沒選＝機器人不必進語音）。"""
-    return any(_voice_pack(vc, u) for u in _humans(gid))
+    """語音房裡是否至少有一位本局真人選了語音包、或電腦有聲音（都沒有＝機器人不必進語音）。"""
+    return (any(_voice_pack(vc, u) for u in _humans(gid))
+            or (_has_bots(gid) and _ai_pack(gid, vc) is not None))
 
 
 def _variants(d: str, name: str) -> list[str]:
@@ -216,11 +252,16 @@ def _resolve(pack: str | None, name: str) -> str | None:
     if pack:
         dirs.append(os.path.join(SOUNDS_DIR, pack))
     dirs.append(SOUNDS_DIR)
+    names = (name,) + _ALIASES.get(name, ())
     for d in dirs:
-        found = _variants(d, name)
-        if found:
-            return random.choice(found)
+        for n in names:
+            found = _variants(d, n)
+            if found:
+                return random.choice(found)
     return None
+
+
+_ALIASES = {"北寶牌": ("拔北", "北")}   # 音效檔的別名：三麻北寶牌錄成 `拔北`、`北` 也認得
 
 
 def pack_coverage(pack: str | None) -> tuple[int, list[str]]:
@@ -240,9 +281,19 @@ def _busy_elsewhere(vc) -> bool:
                for gid, th in _threads.items())
 
 
+_connect_locks: dict[int, asyncio.Lock] = {}   # guild_id -> 連線鎖（同一台伺服器一次只連一次）
+
+
 async def _ensure_client(vc) -> discord.VoiceClient | None:
     """確保機器人在該語音頻道，回傳 VoiceClient；失敗回 None。
-    機器人正在別間對局中的語音房＝不搬過來（回 None）。不可自聾／自靜音（Discord error 50167）。"""
+    同一台伺服器的連線排隊進行：同時發起兩次連線（例如兩人同時進房）會讓 Discord 回 4006 作廢連線。"""
+    lock = _connect_locks.setdefault(vc.guild.id, asyncio.Lock())
+    async with lock:
+        return await _ensure_client_locked(vc)
+
+
+async def _ensure_client_locked(vc) -> discord.VoiceClient | None:
+    """（持鎖）機器人正在別間對局中的語音房＝不搬過來（回 None）。不可自聾／自靜音（Discord error 50167）。"""
     try:
         cur = vc.guild.voice_client
         if cur and cur.channel and cur.channel.id == vc.id:
@@ -390,7 +441,7 @@ async def _play_path(vc, paths) -> None:
 
 def _pick(gid: str, name: str, uid, fallback: str | None = None):
     """這個音效要播哪個檔：回傳 (語音房, 檔案路徑)；不出聲＝None。
-    uid＝做動作的真人（用他的語音包；沒選、離開語音房、電腦／掛機＝不出聲）；_TABLE＝房主的包。"""
+    uid＝做動作的真人（用他的語音包；沒選、離開語音房、掛機＝不出聲）；AI＝電腦（房主的電腦語音）；_TABLE＝房主的包。"""
     if not _ready:
         return None
     vc = (_threads.get(gid) or {}).get("voice")
@@ -398,7 +449,7 @@ def _pick(gid: str, name: str, uid, fallback: str | None = None):
         if DEBUG:
             print(f"[sfx] {name} 略過：本局未綁語音房")
         return None
-    pack = _table_pack(gid, vc) if uid is _TABLE else _voice_pack(vc, uid)
+    pack = _table_pack(gid, vc) if uid is _TABLE else _voice_pack(vc, uid, gid)
     if not pack:
         if DEBUG:
             print(f"[sfx] {name} 略過：電腦／掛機／未選語音包／不在語音房")
@@ -454,7 +505,7 @@ async def say_table(gid: str, name: str, fallback: str | None = None) -> bool:
 
 async def say_together(gid: str, name: str, uids) -> bool:
     """幾位玩家「同時」發出同一個音效（雙榮一起喊「榮」）：各用自己的語音包混成一則播，並等它播完。
-    電腦／掛機／沒選／不在語音房的人略過；同一個檔只播一次。沒有聲音＝馬上返回 False。"""
+    掛機／沒選／不在語音房的人略過（電腦用房主的電腦語音）；同一個檔只播一次。沒有聲音＝馬上返回 False。"""
     if not _ready:
         return False
     vc = (_threads.get(gid) or {}).get("voice")
@@ -462,7 +513,7 @@ async def say_together(gid: str, name: str, uids) -> bool:
         return False
     paths = []
     for uid in uids:
-        pack = _voice_pack(vc, uid)
+        pack = _voice_pack(vc, uid, gid)
         path = _resolve(pack, name) if pack else None
         if path and path not in paths:
             paths.append(path)
