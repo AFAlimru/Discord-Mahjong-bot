@@ -312,7 +312,7 @@ async def cmd_start(interaction: discord.Interaction) -> None:
         "is_sanma": is_sanma, "thinking_time": thinking_time, "max_players": max_players,
         "length": length, "tobi": tobi, "ruleset": ruleset, "start_points": start_points,
         "kuikae": sv.kuikae, "open_riichi": sv.open_riichi, "abortive": sv.abortive,
-        "wall": sv.wall_method,
+        "wall": sv.wall_method, "ai_level": sv.ai_level,
         "lang": room_lang,
     }
 

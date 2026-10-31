@@ -3,6 +3,22 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.8.6] - 未發布（開發中）
+
+### 新增
+- **和牌儀式跳過**：`flow._SkipButton`（「⏭ 跳過」，i18n `btn.skip`；有進度時 `btn.skip_n`＝n/總人數）加在和牌儀式與結果訊息上；`ResultSkip` 每手牌共用一個 `asyncio.Event`，記錄已按的真人（排除掛機），全部按過（單人對電腦＝按一次）就 `set()`。`win_ceremony(..., skip=)` 與 `_result_countdown(..., skip=)` 收到事件後快轉：剩餘語音略過、5 秒倒數結束。自摸、榮和、雙榮、荒牌流局、途中流局都有。i18n `skip.*` 為提示文字（三語）。
+- **自動功能**：`state._auto_modes` 以 `(gid, uid)` 為鍵存每人在該局的開關；`ui.AutoButton`（「⚙️ 自動」）、`AUTO_OPTIONS`（自動和牌／自動拔北（三麻限定）／不吃碰槓／自動摸切）、`auto_flags`、`auto_marker`；按鈕由 `flow._hand_panel` 放進手牌面板。`play_hand_t` 的 `auto_result`：摸牌後先判自摸（自動和牌開時直接和；自動摸切開時能自摸則不摸切），再依序處理自動拔北、自動摸切；摸到的牌被食替禁止時回到一般選牌。`collect_reactions_t`／`collect_chankan_t` 加入自動路徑：自動和牌時直接榮和（含搶槓）、不吃碰槓時略過吃碰槓詢問（榮和仍詢問）。自動動作走和手動相同的路徑（音效、feed、牌譜 log），不 @ 人；`_cleanup` 清除該局的 `_auto_modes`。i18n `btn.auto`、`auto.*`（三語）。
+
+### 變更
+- **邀請連結**：`permissions=8524499709721680` → `4905462335373169`（`Readme.MD`／`Readme.en.MD`／`Readme.ja.MD`、網站 `BOT_INVITE_URL` 預設值）。新組合比舊的多：Manage Roles、Manage Server、Speak、Mute／Deafen Members、Priority Speaker、Video、Use Voice Activity、Request to Speak、Manage Webhooks、Timeout Members、Use Soundboard、Use External Sounds、Set Voice Channel Status、Use External Stickers；少了：Attach Files、Use Activities、Create Polls、Use External Apps、Pin Messages。
+- **名字旁顯示拔北數**：`render._kita_tag` 新增；牌河面板與「看牌河」視圖中，名字旁原本的數字是打牌張數，現在三麻顯示拔北數（僅 > 0 時，例如「（拔北×2）」），四麻不顯示。
+- **自摸／榮和語音在宣告當下播放**：`flow._act_sound` 與新的 `_act_sound_together`（背景呼叫 `sfx.say_together`）移到 `feed.tsumo`／`feed.ron`／`feed.dblron`／`feed.chankan` 之前，按鈕按下或電腦決定和牌的當下就和畫面同時播放，雙榮兩家一起播。和牌儀式拿掉自摸／榮和的 `CeremonyVoice` 開場，`together` 參數一併移除；儀式仍唸役名與點數等級，流局滿貫的「流局」開場不變。
+- **語音連線逾時的提示**：`sfx._ensure_client` 的例外分支原本一律提示「安裝語音套件」；現在 `TimeoutError` 改印網路／UDP／Discord 語音服務的提示，並在下一次播放音效時重試。
+
+### 修正
+- **立直後每張打牌都顯示「立直摸切」**：`flow.play_hand_t` 原本在立直後的摸切一律走 `feed.riichi_tsumogiri`（「{name} 立直摸切 {tile}」），人類路徑還會因自動打出被判為逾時而顯示「超時自動打出」。拿掉電腦與人類兩條路徑的 `feed.riichi_tsumogiri` 分支，改走一般的 `feed.discard`（「出牌了 X（摸切）」），只有宣告立直那張仍是「宣告立直！」；人類路徑的用詞判斷改為 `elif timed and not already_riichi:`（立直後自動摸切不算逾時）。`feed.riichi_tsumogiri` 的 i18n 鍵保留，舊牌譜回放（`replay.DISCARD_KEYS`）仍能顯示。此問題在已發佈版本就存在。
+- **機器人重啟後等待中的語音房不會刪除**：等人的語音房只記在記憶體，重啟後成為殘留房。新增 `voice.recover_rooms`（開機時掃描各伺服器的語音類別）：以 `_is_room_name` 辨識房間名稱；`_interrupted_voice_ids` 排除被中斷對局的語音房（交給繼續／結束流程）；`_is_orphan_room` 判斷沒人的殘留房並刪除；有人在等的房間重新接管——換新的房號、`_post_settings_panel` 重發設定面板，已滿 4 人則自動開局。`handle_voice_update` 另加步驟 3b 作為保險：未被追蹤的空房在最後一人離開時刪除。`run.on_ready` 每個行程只呼叫一次 `recover_rooms`。
+
 ## [0.8.5] - 2026-10-23
 
 ### 新增

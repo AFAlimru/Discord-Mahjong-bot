@@ -314,7 +314,11 @@ async def _ensure_client_locked(vc) -> discord.VoiceClient | None:
             pass
         return await vc.connect(self_deaf=False, self_mute=False)
     except Exception as e:
-        print(f"[sfx] 進語音失敗：{e!r}　← 需要語音套件（pip install -U \"discord.py[voice]\"，含 PyNaCl 與 davey）與連線權限")
+        if isinstance(e, asyncio.TimeoutError):   # 套件都在、只是連不上（網路斷線／UDP 被擋／Discord 語音伺服器異常）
+            print(f"[sfx] 進語音逾時：{e!r}　← 語音連線沒在時限內完成，多半是主機網路短暫斷線、"
+                  f"UDP 被防火牆擋或 Discord 語音伺服器異常；下次播音效會自動重試")
+        else:
+            print(f"[sfx] 進語音失敗：{e!r}　← 需要語音套件（pip install -U \"discord.py[voice]\"，含 PyNaCl 與 davey）與連線權限")
         return None
 
 

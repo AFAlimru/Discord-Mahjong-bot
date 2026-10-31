@@ -30,7 +30,7 @@ from . import i18n
 from . import rooms
 from . import hubs
 
-# voice_channel_id -> {"starting": bool}
+# voice_channel_id -> {"starting": bool, "room_no", "hub_id", "settings", ...}
 _voice_rooms: dict[int, dict] = {}
 
 
@@ -42,7 +42,7 @@ def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> 
         return {
             "is_sanma": sanma, "thinking_time": 25, "max_players": 3 if sanma else 4,
             "length": "tonpuu", "tobi": True, "ruleset": "mixed", "start_points": None,
-            "kuikae": False, "open_riichi": False, "abortive": True, "wall": "riichi_city",
+            "kuikae": False, "open_riichi": False, "abortive": True, "wall": "riichi_city", "ai_level": "normal",
             "lang": lang, "ranked": False, "open_hand": False,
         }
     sanma = sanma_override if sanma_override is not None else sv.sanma
@@ -52,7 +52,7 @@ def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> 
         "length": "hanchan" if sv.hanchan else "tonpuu",
         "tobi": sv.tobi, "ruleset": sv.ruleset, "start_points": sv.start_points,
         "kuikae": sv.kuikae, "open_riichi": sv.open_riichi, "abortive": sv.abortive,
-        "wall": sv.wall_method,
+        "wall": sv.wall_method, "ai_level": sv.ai_level,
         "lang": lang, "ranked": False, "open_hand": sv.open_hand,
     }
 
@@ -313,6 +313,120 @@ async def cleanup_room(vc) -> None:
         pass
 
 
+async def _post_settings_panel(vc, lang: str) -> None:
+    """在語音房的文字區發設定面板（開局前都能調；開局時鎖定），並記進 _voice_rooms。"""
+    try:
+        from .views import RoomSettingsView
+        sv = RoomSettingsView(gid=f"vc{vc.id}", lang=lang, timeout=None,
+                              show_confirm=False)   # 語音房不用確認鈕，開局時面板自動消失
+        sv.add_item(CpuStartButton(vc.id, lang))
+        sv.add_item(VoicePackSelect(lang))   # 每個人在面板上選自己的角色語音
+        msg = await vc.send(i18n.t("voice.settings_hint", lang), view=sv)
+        _voice_rooms[vc.id]["settings"] = sv
+        _voice_rooms[vc.id]["settings_msg"] = msg
+    except Exception as e:
+        print(f"[voice] 設定面板發送失敗：{e!r}")
+
+
+def _is_room_name(name: str) -> bool:
+    """頻道名稱像不像本機器人開的配對語音房（任一語言的「房間名稱＋空格」開頭）。"""
+    name = name or ""
+    for lg in i18n.available():
+        prefix = i18n.t("voice.room_name", lg)
+        if prefix and name.startswith(prefix + " "):
+            return True
+    return False
+
+
+def _interrupted_voice_ids() -> set[int]:
+    """中斷／進行中對局記在 room_config["surfaces"]["voice"] 的語音房 ID。
+    這些房歸「繼續／結束」流程處理，這裡絕不能動。"""
+    import json
+    out: set[int] = set()
+    try:
+        games = db.get_unfinished_games()
+    except Exception as e:
+        print(f"[voice] 讀取未完成對局失敗：{e!r}")
+        raise                                # 查不到就不能確定哪些房是中斷局的 → 交給呼叫端放棄清理
+    for g in games:
+        cfg = g.get("room_config")
+        if isinstance(cfg, str):
+            try:
+                cfg = json.loads(cfg)
+            except Exception:
+                cfg = None
+        vid = ((cfg or {}).get("surfaces") or {}).get("voice") if isinstance(cfg, dict) else None
+        if vid:
+            try:
+                out.add(int(vid))
+            except (TypeError, ValueError):
+                pass
+    return out
+
+
+def _is_orphan_room(vc, hub_list: list[dict], busy: set[int]) -> dict | None:
+    """vc 是不是「殘留的配對語音房」：在某大廳的類別下、名稱符合、不是配對語音本身、
+    沒被追蹤、不屬於中斷局、也沒綁著進行中的對局。是 → 回傳所屬大廳，否則 None。"""
+    if vc.id in _voice_rooms or vc.id in busy or not _is_room_name(vc.name):
+        return None
+    cat_id = str(getattr(vc, "category_id", "") or "")
+    for h in hub_list:
+        if str(h.get("hub_voice_id") or "") == str(vc.id):
+            return None
+        if cat_id and str(h.get("category_id") or "") == cat_id:
+            if _room_in_game(vc.id):
+                return None
+            return h
+    return None
+
+
+async def recover_rooms(bot) -> None:
+    """重啟後清理／接管殘留的配對語音房（_voice_rooms 只在記憶體，重啟就丟）：
+    沒真人 → 刪除；有真人 → 重新配房號、掛回追蹤並補發設定面板。每個行程只跑一次（由 on_ready 呼叫）。"""
+    deleted = adopted = 0
+    try:
+        busy = _interrupted_voice_ids()
+    except Exception:
+        return
+    for guild in list(bot.guilds):
+        try:
+            hub_list = hubs.all_hubs(guild.id)
+            if not hub_list:
+                continue
+            for vc in list(guild.voice_channels):
+                try:
+                    hub = _is_orphan_room(vc, hub_list, busy)
+                    if hub is None:
+                        continue
+                    humans = [m for m in vc.members if not m.bot]
+                    if not humans:
+                        await vc.delete(reason="Suzume Tsuk 語音房清理（重啟後殘留）")
+                        deleted += 1
+                        continue
+                    # 有人在裡面 → 接管成等待房
+                    rno  = rooms.next_room_no()
+                    lang = hubs.lang_for(guild.id, vc)
+                    try:
+                        await vc.edit(name=f"{i18n.t('voice.room_name', lang)} {rooms.code(rno)}",
+                                      reason="Suzume Tsuk 接管殘留語音房")
+                    except Exception:
+                        pass                 # 改名失敗（限流／權限）不影響接管
+                    _voice_rooms[vc.id] = {"starting": False, "room_no": rno, "hub_id": hub["id"]}
+                    await _post_settings_panel(vc, lang)
+                    adopted += 1
+                    # 已有 4 位以上沒在對局的真人 → 直接開局（與 handle_voice_update 步驟 2 相同）；
+                    # 不到 4 人就等下一次語音事件（有人進出）或面板按鈕
+                    free = [m for m in humans if str(m.id) not in _user_game]
+                    if len(free) >= 4:
+                        _voice_rooms[vc.id]["starting"] = True
+                        await _start_voice_game(vc, free[:4], sanma=False)
+                except Exception as e:
+                    print(f"[voice] 重啟清理 {getattr(vc, 'id', '?')} 失敗：{e!r}")
+        except Exception as e:
+            print(f"[voice] 重啟清理伺服器 {getattr(guild, 'id', '?')} 失敗：{e!r}")
+    print(f"[voice] 重啟清理：刪除 {deleted} 間、接管 {adopted} 間")
+
+
 async def handle_voice_update(member: discord.Member, before, after) -> None:
     """on_voice_state_update 入口（run.py 掛上）。"""
     if member.bot:
@@ -341,18 +455,7 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
             except Exception:
                 # 移不過去（權限不足）→ 房間留著讓玩家自己點進去
                 pass
-            # 設定面板發在語音房的文字區（開局前都能調；開局時鎖定）
-            try:
-                from .views import RoomSettingsView
-                sv = RoomSettingsView(gid=f"vc{vc.id}", lang=lang, timeout=None,
-                                      show_confirm=False)   # 語音房不用確認鈕，開局時面板自動消失
-                sv.add_item(CpuStartButton(vc.id, lang))
-                sv.add_item(VoicePackSelect(lang))   # 每個人在面板上選自己的角色語音
-                msg = await vc.send(i18n.t("voice.settings_hint", lang), view=sv)
-                _voice_rooms[vc.id]["settings"] = sv
-                _voice_rooms[vc.id]["settings_msg"] = msg
-            except Exception as e:
-                print(f"[voice] 設定面板發送失敗：{e!r}")
+            await _post_settings_panel(vc, lang)   # 設定面板發在語音房的文字區（開局前都能調；開局時鎖定）
             return
 
     # 2) 加入受管理的語音房 → 滿員就開局；剛好 3 人時提示可先開三麻
@@ -405,3 +508,15 @@ async def handle_voice_update(member: discord.Member, before, after) -> None:
                 pass
         elif len(humans) < 3 and info.get("sanma_msg") is not None:
             await _clear_sanma_prompt(info)
+
+    # 3b) 保險：離開的是「沒被追蹤的殘留房」（重啟後漏網）→ 沒人了就刪
+    elif before.channel is not None and _is_room_name(before.channel.name):
+        room = before.channel
+        if [m for m in room.members if not m.bot]:
+            return
+        try:
+            if _is_orphan_room(room, hubs.all_hubs(guild.id), _interrupted_voice_ids()) is None:
+                return
+            await room.delete(reason="Suzume Tsuk 語音房清理（殘留且已無人）")
+        except Exception as e:
+            print(f"[voice] 殘留語音房刪除失敗：{e!r}")

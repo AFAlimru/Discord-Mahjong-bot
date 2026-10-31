@@ -21,7 +21,7 @@ from .render import (
     make_river_text, make_score_text, make_meld_text, make_action_log_text,
     make_thread_board,
 )
-from .state import _games
+from .state import _games, _auto_modes
 from . import db
 from . import i18n
 
@@ -102,13 +102,97 @@ def make_board_view(gid: str, default_lang: str = i18n.DEFAULT) -> discord.ui.Vi
     return v
 
 
+# ── ⚙️ 自動操作：自動和牌／自動拔北／不吃碰槓／自動摸切（每位玩家各自的設定，整場牌局有效）──
+# 顯示順序＝選單與面板標記的順序；(key, 選單名稱鍵, 說明鍵, 面板短名鍵, 是否只有三麻)
+AUTO_OPTIONS = (
+    ("giri",   "auto.giri",   "auto.giri_desc",   "auto.s_giri",   False),
+    ("win",    "auto.win",    "auto.win_desc",    "auto.s_win",    False),
+    ("kita",   "auto.kita",   "auto.kita_desc",   "auto.s_kita",   True),
+    ("nocall", "auto.nocall", "auto.nocall_desc", "auto.s_nocall", False),
+)
+
+
+def auto_flags(gid: str, uid) -> dict:
+    """某玩家在這場牌局的自動操作設定（沒設過＝空 dict；只讀，不會建立紀錄）。"""
+    return _auto_modes.get((gid, str(uid))) or {}
+
+
+def auto_marker(gid: str, uid, lang: str = i18n.DEFAULT) -> str:
+    """手牌面板上的小標記，例如「🤖 自動：摸切／和牌」；沒開任何自動就回空字串。"""
+    fl = auto_flags(gid, uid)
+    names = [i18n.t(short, lang) for key, _n, _d, short, _s in AUTO_OPTIONS if fl.get(key)]
+    return i18n.t("auto.marker", lang, modes="／".join(names)) if names else ""
+
+
+class _AutoToggle(discord.ui.Button):
+    """自動選單裡的一顆開關鈕：按一下切換並就地更新選單。"""
+    def __init__(self, menu: "AutoMenuView", key: str, name_key: str):
+        on = bool(auto_flags(menu.gid, menu.uid).get(key))
+        super().__init__(label=f"{'✅' if on else '⬜'} {i18n.t(name_key, menu.lang)}",
+                         style=discord.ButtonStyle.success if on else discord.ButtonStyle.secondary)
+        self.menu, self.key, self.name_key = menu, key, name_key
+
+    async def callback(self, interaction: discord.Interaction):
+        m = self.menu
+        cur = _auto_modes.setdefault((m.gid, m.uid), {})
+        cur[self.key] = not cur.get(self.key, False)
+        note = i18n.t("auto.on_msg" if cur[self.key] else "auto.off_msg", m.lang,
+                      name=i18n.t(self.name_key, m.lang))
+        await interaction.response.edit_message(content=m.body(note), view=m.rebuilt())
+
+
+class AutoMenuView(discord.ui.View):
+    """⚙️ 自動 的私密選單（四顆開關；四麻不顯示「自動拔北」）。"""
+    def __init__(self, gid: str, uid: str, lang: str, sanma: bool):
+        super().__init__(timeout=600)
+        self.gid, self.uid, self.lang, self.sanma = gid, uid, lang, sanma
+        for key, name_key, _d, _s, sanma_only in AUTO_OPTIONS:
+            if sanma_only and not sanma:
+                continue
+            self.add_item(_AutoToggle(self, key, name_key))
+
+    def rebuilt(self) -> "AutoMenuView":
+        return AutoMenuView(self.gid, self.uid, self.lang, self.sanma)
+
+    def body(self, note: str = "") -> str:
+        fl = auto_flags(self.gid, self.uid)
+        lines = [note] if note else []
+        lines.append(i18n.t("auto.title", self.lang))
+        for key, name_key, desc_key, _s, sanma_only in AUTO_OPTIONS:
+            if sanma_only and not self.sanma:
+                continue
+            lines.append(f"{'✅' if fl.get(key) else '⬜'} **{i18n.t(name_key, self.lang)}**：{i18n.t(desc_key, self.lang)}")
+        return "\n".join(lines)
+
+
+class AutoButton(discord.ui.Button):
+    """⚙️ 自動：打開自己的自動操作設定（私密選單，只有這場牌局的玩家能用）。"""
+    def __init__(self, gid: str, lang: str = i18n.DEFAULT):
+        super().__init__(label=i18n.t("btn.auto", lang), style=discord.ButtonStyle.secondary)
+        self.gid = gid
+
+    async def callback(self, interaction: discord.Interaction):
+        lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
+        gs = _games.get(self.gid)
+        if not gs:
+            await interaction.response.send_message(i18n.t("msg.game_ended", lang), ephemeral=True)
+            return
+        uid = str(interaction.user.id)
+        if not any(p.user_id == uid and not p.is_bot for p in gs.players):
+            await interaction.response.send_message(i18n.t("auto.players_only", lang), ephemeral=True)
+            return
+        menu = AutoMenuView(self.gid, uid, lang, gs.is_sanma)
+        await interaction.response.send_message(menu.body(), view=menu, ephemeral=True)
+
+
 def make_hand_view(gid: str, lang: str = i18n.DEFAULT) -> discord.ui.View:
-    """手牌面板常駐按鈕：看點數 / 看副露 / 看動態，說明放最右（牌河已獨立成訊息）。"""
+    """手牌面板常駐按鈕：看點數 / 看副露 / 看動態，說明、⚙️ 自動放最右（牌河已獨立成訊息）。"""
     v = discord.ui.View(timeout=None)
     v.add_item(ScoreButton(gid, lang))
     v.add_item(MeldButton(gid, lang))
     v.add_item(ActionLogButton(gid, lang))
     v.add_item(HandHelpButton(lang))
+    v.add_item(AutoButton(gid, lang))
     return v
 
 

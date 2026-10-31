@@ -79,6 +79,15 @@ class RoomSettingsModal(Modal):
             i18n.t("settings.saved", lang, tt=tt, pt=pt_txt), ephemeral=True)
 
 
+def _hard_ai_label(level: str, lang: str) -> str | None:
+    """私有進階電腦的設定按鈕文字；沒有私有模組（公開版）就回 None（面板不放這顆按鈕）。"""
+    from .flow import hard_available            # 延後匯入，避免模組載入順序問題
+    if not hard_available():
+        return None
+    from . import ai_hard
+    return ai_hard.setting_label(level, lang)
+
+
 class RoomSettingsView(View):
     """房間設定按鈕菜單"""
     
@@ -98,14 +107,22 @@ class RoomSettingsView(View):
         self.open_riichi = False   # 開立直：預設關閉
         self.abortive = True       # 途中流局（九種九牌／四風連打／四槓散了／四家立直／三家和）：預設開啟
         self.wall_method = "riichi_city"   # 牌山生成："riichi_city"=一番街 / "tenhou"=天鳳
-        # 依語言設定按鈕標籤（children 依宣告順序：數值/三麻/戰長/擊飛/規則/食替/開立直/途中流局/牌山/確認）
-        for child, key in zip(self.children, ("settings.numbers", "settings.sanma",
-                                              "settings.length_tonpuu", "settings.tobi_on",
-                                              "settings.rule_default",
-                                              "settings.kuikae_off", "settings.openriichi_off",
-                                              "settings.abort_on", "settings.wall_riichi_city",
-                                              "settings.confirm")):
-            child.label = i18n.t(key, lang)
+        self.ai_level = "normal"           # 電腦種類（私有模組才有其他選項）
+        # 私有選用功能：沒有對應模組（公開版）就不放這顆按鈕，ai_level 恆為 normal
+        self._has_ai_toggle = _hard_ai_label("normal", lang) is not None
+        if not self._has_ai_toggle:
+            self.remove_item(self.toggle_ai)
+        # 依語言設定按鈕標籤（children 依宣告順序：數值/三麻/戰長/擊飛/規則/食替/開立直/途中流局/牌山/[電腦難度]/確認）
+        keys = ["settings.numbers", "settings.sanma",
+                "settings.length_tonpuu", "settings.tobi_on",
+                "settings.rule_default",
+                "settings.kuikae_off", "settings.openriichi_off",
+                "settings.abort_on", "settings.wall_riichi_city"]
+        if self._has_ai_toggle:
+            keys.append(None)              # 難度按鈕的文字不在語言檔裡，下面另外設
+        keys.append("settings.confirm")
+        for child, key in zip(self.children, keys):
+            child.label = i18n.t(key, lang) if key else _hard_ai_label("normal", lang)
         if not show_confirm:               # 語音房面板不放確認鈕（開局時面板自動消失）
             try:
                 self.remove_item(self.confirm)
@@ -173,6 +190,12 @@ class RoomSettingsView(View):
     async def toggle_wall(self, interaction: discord.Interaction, button: Button):
         self.wall_method = "tenhou" if self.wall_method == "riichi_city" else "riichi_city"
         button.label = i18n.t(f"settings.wall_{self.wall_method}", self.lang)
+        await interaction.response.edit_message(view=self)
+
+    @button(label="🤖 電腦：普通", style=discord.ButtonStyle.secondary)
+    async def toggle_ai(self, interaction: discord.Interaction, button: Button):
+        self.ai_level = "hard" if self.ai_level == "normal" else "normal"
+        button.label = _hard_ai_label(self.ai_level, self.lang) or button.label
         await interaction.response.edit_message(view=self)
 
     @button(label="✅ 確認", style=discord.ButtonStyle.success)

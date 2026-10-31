@@ -11,7 +11,7 @@
 - 支援伺服器：<https://discord.gg/QNJMBhDrcj>
 - 網站：<https://suzume-tsuk-mahjong.yubingserver.top/>
 - 專案原始碼：<https://github.com/AFAlimru/Discord-Mahjong-bot>
-- 邀請機器人：[點此加入你的伺服器](https://discord.com/oauth2/authorize?client_id=1508777411901259826&permissions=8524499709721680&integration_type=0&scope=bot)
+- 邀請機器人：[點此加入你的伺服器](https://discord.com/oauth2/authorize?client_id=1508777411901259826&permissions=4905462335373169&integration_type=0&scope=bot)
 
 > 規則細節（役種、符點、精算、振聽等）請見 **[Rules guide.MD](Rules%20guide.MD)**。本檔只說明專案結構與使用方式。
 

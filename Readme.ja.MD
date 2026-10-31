@@ -11,7 +11,7 @@ Discord の中で本格ルールの日本麻雀（立直麻雀）を遊べるボ
 - サポートサーバー：<https://discord.gg/QNJMBhDrcj>
 - ウェブサイト：<https://suzume-tsuk-mahjong.yubingserver.top/>
 - ソースコード：<https://github.com/AFAlimru/Discord-Mahjong-bot>
-- ボットを招待：[サーバーに追加する](https://discord.com/oauth2/authorize?client_id=1508777411901259826&permissions=8524499709721680&integration_type=0&scope=bot)
+- ボットを招待：[サーバーに追加する](https://discord.com/oauth2/authorize?client_id=1508777411901259826&permissions=4905462335373169&integration_type=0&scope=bot)
 
 > ルールの詳細（役・符・精算・フリテンなど）は **[Rules guide.MD](Rules%20guide.MD)**（中国語）を参照してください。このファイルではプロジェクト構成と使い方を説明します。
 

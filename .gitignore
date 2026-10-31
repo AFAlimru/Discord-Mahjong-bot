@@ -4,6 +4,17 @@
 # 作者自用後台儀表板（不公開到 GitHub，僅本機／自有主機運行）
 mahjong/web/
 
+# 作者私有的選用模組與工具（不公開到 GitHub；缺檔時機器人照常運作）
+mahjong/ai_hard.py
+mahjong/ai_mc.py
+mahjong/ai_kan.py
+mahjong/calib.py
+mahjong/ai_params.py
+ai_hard_params.json
+tools/train_hard.py
+tools/train_hard_log.jsonl
+CHANGELOG_PRIVATE.md
+
 # Python
 __pycache__/
 *.py[cod]
