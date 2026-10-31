@@ -228,7 +228,7 @@ def river_panel(gs: GameState, lang: str = DEFAULT, cap: int | None = None) -> s
         shown  = p.discards if cap is None else p.discards[-cap:]
         trim   = "…" if len(shown) < len(p.discards) else ""
         disc   = trim + "".join(T.of(tt) for tt in shown) if p.discards else "—"
-        lines.append(f"## {cur}{_wind(p.seat, lang, gs)}「{p.username}」{riichi}（{len(p.discards)}）")
+        lines.append(f"## {cur}{_wind(p.seat, lang, gs)}「{p.username}」{riichi}{_kita_tag(gs, p, lang)}")
         if p.melds:   # 副露自成一行（名字下、牌河上）
             lines.append(t("panel.melds", lang) + "：" + "　".join(T.meld(m) for m in p.melds))
         if opened:   # 開立直：亮出手牌（不標待牌）
@@ -308,6 +308,12 @@ def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = ""
     return text
 
 
+def _kita_tag(gs: GameState, p, lang: str) -> str:
+    """名字旁的標記：三麻顯示拔北數（拔過才顯示），四麻不顯示。"""
+    n = getattr(p, "kita", 0)
+    return f"（{t('label.kita', lang, n=n)}）" if gs.is_sanma and n else ""
+
+
 def make_river_text(gs: GameState, lang: str = DEFAULT) -> str:
     """各家牌河（給「看牌河」按鈕的私密訊息用）。"""
     lines = [f"**{t('river.title', lang)}**"]
@@ -316,7 +322,7 @@ def make_river_text(gs: GameState, lang: str = DEFAULT) -> str:
             lines.append("─" * 24)   # 玩家之間分隔線
         trim = "…" if len(p.discards) > 15 else ""
         disc = trim + "".join(T.of(tt) for tt in p.discards[-15:]) if p.discards else t("river.none", lang)
-        lines.append(f"{_wind(p.seat, lang, gs)} {p.username}（{len(p.discards)}）")
+        lines.append(f"{_wind(p.seat, lang, gs)} {p.username}{_kita_tag(gs, p, lang)}")
         lines.append(f"# {disc}")
     lines.append("")
     lines.append(t("river.snapshot", lang))

@@ -11,7 +11,7 @@ Play full-rules Japanese (Riichi) mahjong right inside Discord. Supports 4-playe
 - Support server: <https://discord.gg/QNJMBhDrcj>
 - Website: <https://suzume-tsuk-mahjong.yubingserver.top/>
 - Source code: <https://github.com/AFAlimru/Discord-Mahjong-bot>
-- Invite the bot: [Add it to your server](https://discord.com/oauth2/authorize?client_id=1508777411901259826&permissions=8524499709721680&integration_type=0&scope=bot)
+- Invite the bot: [Add it to your server](https://discord.com/oauth2/authorize?client_id=1508777411901259826&permissions=4905462335373169&integration_type=0&scope=bot)
 
 > For rule details (yaku, fu, scoring, furiten, etc.) see **[Rules guide.MD](Rules%20guide.MD)** (Chinese). This file only covers the project layout and how to use it.
 

@@ -55,3 +55,7 @@ rooms:          dict = {}
 # ── 0.7 類別制 ──
 # guild_id(str) -> 大廳頻道 id(str) 或 None（快取，供 on_message 刪大廳打字；"?"＝尚未查過）
 _lobby_channels: dict = {}
+
+# ── 自動操作（⚙️ 自動）──
+# (game_id, user_id) -> {"win":bool, "kita":bool, "nocall":bool, "giri":bool}；同一場牌局跨局保留，牌局清理時移除
+_auto_modes:    dict = {}

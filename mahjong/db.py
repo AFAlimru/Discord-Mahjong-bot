@@ -674,7 +674,7 @@ def get_leaderboard(mode: str, limit: int = 50) -> list[dict]:
 
 # ─── 任務／活躍度 ─────────────────────────────────────────────────────────────
 
-CHECKIN_BASE   = 10        # 每日簽到基礎活躍度
+CHECKIN_BASE  = 10        # 每日簽到基礎活躍度
 CHECKIN_STREAK = 2         # 每連續一天額外活躍度（上限見下）
 CHECKIN_MAXBONUS = 7       # 連續加成天數上限
 PLAY_REWARD    = 20        # 每日完成一場對局的活躍度

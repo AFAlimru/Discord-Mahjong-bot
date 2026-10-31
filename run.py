@@ -22,6 +22,13 @@ from mahjong.config import TOKEN, DEV_GUILD_ID
 from mahjong import db
 from mahjong.state import (_input_queues, _input_thread, _thread_game, _threads,
                            _lobby_channels)
+try:                                          # 私有選用模組的參數（沒有檔案就維持預設）
+    from mahjong import ai_params as _ai_params
+    _ai_params.apply()
+except ImportError:
+    pass                                      # 公開版沒有這個模組：靜默略過
+except Exception as _e:
+    print(f"⚠️ 私有模組參數載入失敗: {_e}")
 
 
 class _QuietBadRequests(logging.Filter):
@@ -142,6 +149,13 @@ async def on_ready() -> None:
         await recover_interrupted_games(bot)
     except Exception as e:
         print(f"⚠️ 對局回復檢查失敗: {e}")
+    try:                                      # 重啟後殘留的配對語音房：沒人就刪、有人就接管（每個行程一次）
+        if not getattr(bot, "_voice_recovered", False):
+            bot._voice_recovered = True
+            from mahjong import voice as _voice
+            await _voice.recover_rooms(bot)
+    except Exception as e:
+        print(f"⚠️ 語音房回復檢查失敗: {e}")
     try:                                      # 段位賽排隊逾時清掃器
         from mahjong import matchmaking
         matchmaking.start_sweeper()

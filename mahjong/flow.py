@@ -35,16 +35,24 @@ from .render import (
     _log_action, result_body, dora_reveal_text, river_panel, river_message_text, feed_text,
 )
 from .ui import (
-    HandHelpButton, ScoreButton, MeldButton, ActionLogButton,
-    make_hand_view, make_board_view,
+    HandHelpButton, ScoreButton, MeldButton, ActionLogButton, AutoButton,
+    make_hand_view, make_board_view, auto_flags, auto_marker,
 )
 from .state import (
     _games, _channel_games, _waiting, _room_owners, _room_configs, _user_game,
     _game_tasks, _lobbies, _threads, _input_queues, _input_thread, _thread_game,
-    _action_logs, _bg_tasks,
+    _action_logs, _bg_tasks, _auto_modes,
 )
 from . import settlement as st
 from . import ai as ai_mod
+try:                          # 作者私有的選用模組；缺檔時一律退回普通電腦、略過相關處理
+    from . import ai_kan
+except ImportError:
+    ai_kan = None
+try:
+    from . import calib
+except ImportError:
+    calib = None
 from . import db
 from . import i18n
 from . import tiles as T
@@ -88,6 +96,37 @@ def _voice_uid(p: PlayerState) -> str | None:
     return str(p.user_id)
 
 
+_hard_mod = None          # 私有的 ai_hard 模組（None＝還沒試過）；匯入失敗記成 False
+def _hard():
+    """回傳私有的進階電腦模組；沒有這個檔（公開版）就回 None。結果快取。"""
+    global _hard_mod
+    if _hard_mod is None:
+        try:
+            from . import ai_hard
+            _hard_mod = ai_hard
+        except ImportError:
+            _hard_mod = False
+    return _hard_mod or None
+
+
+def hard_available() -> bool:
+    """這台機器有沒有私有的進階電腦模組；設定面板據此決定要不要放對應按鈕。"""
+    return _hard() is not None
+
+
+def _ai_for(gid: str):
+    """這局電腦用哪一套（房間設定 ai_level；沒有私有模組就一律普通電腦）。"""
+    if _room_configs.get(gid, {}).get("ai_level") == "hard":
+        return _hard() or ai_mod
+    return ai_mod
+
+
+def _ai_kan_enabled(gid: str, player) -> bool:
+    """這位電腦會不會槓：只有私有的進階電腦才槓（普通電腦從不槓）。"""
+    return bool(ai_kan is not None and _hard() is not None and player.is_bot
+                and _room_configs.get(gid, {}).get("ai_level") == "hard")
+
+
 async def _act_sound(gid: str, name: str, p: PlayerState, fallback: str | None = None) -> None:
     """動作音效（打牌、吃碰槓、立直、拔北）：排進播放佇列就回來、不等播完。
     在動作一決定、畫面開始更新**之前**呼叫——聲音和畫面同時出現，程式也不會停下來等聲音。
@@ -95,6 +134,19 @@ async def _act_sound(gid: str, name: str, p: PlayerState, fallback: str | None =
     try:
         from . import sfx
         await sfx.play(gid, name, _voice_uid(p), fallback=fallback)
+    except Exception:
+        pass
+
+
+def _act_sound_together(gid: str, name: str, players) -> None:
+    """幾位玩家「同時」發出同一個動作音效（雙榮一起喊「榮」）：混成一則排進佇列，不等播完。
+    sfx.say_together 會等播完，所以丟進背景任務跑——它在第一次等待之前就已排好佇列，
+    呼叫端再讓出一次事件迴圈就確定排進去了，之後畫面更新時聲音已在播。"""
+    try:
+        from . import sfx
+        task = asyncio.ensure_future(sfx.say_together(gid, name, [_voice_uid(p) for p in players]))
+        _bg_tasks.add(task)
+        task.add_done_callback(_bg_tasks.discard)
     except Exception:
         pass
 
@@ -347,6 +399,8 @@ def _cleanup(gid: str, channel_id: str) -> None:
     _room_configs.pop(gid, None)
     _game_tasks.pop(gid, None)
     _action_logs.pop(gid, None)
+    for _k in [k for k in _auto_modes if k[0] == gid]:   # 這場牌局的自動操作設定
+        _auto_modes.pop(_k, None)
     _lobbies.pop(gid, None)
     _threads.pop(gid, None)
     rooms.unregister(gid)
@@ -781,6 +835,13 @@ async def _finish_channels(th: dict, lang: str = i18n.DEFAULT, delay: float = 30
 #  0.2 討論串：打字輸入解析 + 反應收集 + 對局迴圈
 # ═══════════════════════════════════════════════════════════════
 
+def _hand_panel(gid: str, player, *args, lang: str = i18n.DEFAULT, **kw) -> str:
+    """手牌面板文字；本人開了任何「⚙️ 自動」時，底下多一行小標記（例：🤖 自動：摸切／和牌）。"""
+    txt = make_hand_panel(player, *args, lang=lang, **kw)
+    mk = auto_marker(gid, player.user_id, lang)
+    return f"{txt}\n{mk}" if mk else txt
+
+
 def _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts):
     """解析玩家輪到時打的字 → (ok, (action, arg), err)。"""
     s = raw.strip()
@@ -824,9 +885,9 @@ def _parse_turn_input(raw, player, can_tsumo, can_riichi, kita_ok, ankan_opts):
 
 
 async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
-                              furiten_perm, furiten_temp, kan_ok=True, sancha_abort=True):
+                              furiten_perm, furiten_temp, kan_ok=True, sancha_abort=True, kan_count=0):
     """討論串版反應收集：在各玩家私人討論串貼提示、等打字。回傳 (choice, uid, extra) 或 None。
-    kan_ok＝還能槓（場上未滿四槓）；sancha_abort＝三家和算途中流局（關閉＝三家都和）。"""
+    kan_ok＝還能槓（場上未滿四槓）；kan_count＝目前槓數（進階電腦判斷大明槓用）；sancha_abort＝三家和算途中流局（關閉＝三家都和）。"""
     th        = _threads.get(gid, {})
     private   = th.get("private", {})
     next_seat = (from_seat + 1) % len(gs.players)
@@ -841,9 +902,12 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
             if ai_should_ron(gs, p, discard_tile, furiten_perm, furiten_temp):
                 results.append((0, p.seat, "ron", None))
             elif not p.riichi:      # 只在鳴了會變快、而且還有役可做時才碰／吃
+                if kan_ok and _ai_kan_enabled(gs.game_id, p) and ai_kan.minkan_choice(gs, p, discard_tile, kan_count):
+                    results.append((1, p.seat, "kan", None))   # 進階電腦的大明槓（優先序同碰）
+                    continue
                 chi_opts = (get_chi_options(p.hand, discard_tile)
                             if (p.seat == next_seat and not gs.is_sanma) else [])
-                dec = ai_mod.call_choice(gs, p, discard_tile, chi_opts)
+                dec = _ai_for(gs.game_id).call_choice(gs, p, discard_tile, chi_opts)
                 if dec:
                     kind, extra = dec
                     results.append((1 if kind == "pon" else 2, p.seat, kind, extra))
@@ -852,10 +916,14 @@ async def collect_reactions_t(gs, gid, discard_tile, from_seat, thinking_time,
             continue
         ron_ok = (not is_furiten(p, furiten_perm, furiten_temp)) and \
                  evaluate_win(gs, p, discard_tile, is_tsumo=False) is not None
+        auto = auto_flags(gid, p.user_id)
+        if ron_ok and auto.get("win"):   # 自動和牌：直接榮和，不跳提示（結算和手動按榮和走同一條路）
+            results.append((0, p.seat, "ron", None))
+            continue
         actions, chi_opts = [], []
         if ron_ok:
             actions.append("ron")
-        if not p.riichi:   # 立直後不能副露（碰／吃／槓），只能榮和
+        if not p.riichi and not auto.get("nocall"):   # 立直後不能副露（碰／吃／槓），只能榮和；「不吃碰槓」同樣只留榮和
             if count_tiles(p.hand, discard_tile) >= 2:
                 actions.append("pon")
             if kan_ok and count_tiles(p.hand, discard_tile) >= 3:
@@ -997,6 +1065,8 @@ async def collect_chankan_t(gs, gid, kan_tile, kan_seat, thinking_time,
             continue
         if p.is_bot:
             results.append(p.seat)       # AI 一律搶槓
+        elif auto_flags(gid, p.user_id).get("win"):   # 自動和牌：自動搶槓
+            results.append(p.seat)
         elif not getattr(p, "afk", False):   # 掛機的人不問
             candidates.append(p)
 
@@ -1123,7 +1193,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
             extra = i18n.t("prompt.riichi_declared", lang)
         else:
             extra = f"{prompt_base}　{remain}"
-        return make_hand_panel(player, extra, tenpai_note, last_info, board_info, lang=lang)
+        return _hand_panel(gid, player, extra, tenpai_note, last_info, board_info, lang=lang)
 
     async def refresh(rem):
         try:
@@ -1296,7 +1366,7 @@ async def wait_turn_action(gid, player, pt, hand_msg, thinking_time,
     # 資訊鈕：看點數／副露／動態／說明（牌河已獨立成訊息；版面滿了本回合先略過）
     if info_row <= 4:
         for _ib in (ScoreButton(gid, lang), MeldButton(gid, lang),
-                    ActionLogButton(gid, lang), HandHelpButton(lang)):
+                    ActionLogButton(gid, lang), HandHelpButton(lang), AutoButton(gid, lang)):
             _ib.row = info_row
             view.add_item(_ib)
 
@@ -1391,6 +1461,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
     is_dm         = bool(th.get("is_dm"))   # DM 對局：稱呼一律用名字（私訊看不到別人的 @）
     _river_cache: dict[str, str] = {}   # uid → 上次送出的牌河文字（沒變就不編輯，省 API）
     _action_logs[gid] = []   # 每局開始清空動作記錄
+    if calib is not None:
+        calib.discard(gid)       # 私有模組：丟掉上一局沒結算的快照
 
     async def _edit(msg, after=None, **kw):
         try:
@@ -1431,8 +1503,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             if hm:
                 lang = i18n.get_user_lang(p.user_id)
                 _apply_skin(p.user_id)
-                jobs.append(_edit(hm, content=make_hand_panel(
-                    p, "", "", _action_feed(gid, gs, lang), lang=lang),
+                jobs.append(_edit(hm, content=_hand_panel(
+                    gid, p, "", "", _action_feed(gid, gs, lang), lang=lang),
                     view=make_hand_view(gid, lang)))
         await asyncio.gather(*jobs)
 
@@ -1465,8 +1537,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             lang = i18n.get_user_lang(p.user_id)
             _apply_skin(p.user_id)
             try:
-                await hm.edit(content=make_hand_panel(p, prompt, tenpai_note,
-                                                      _action_feed(gid, gs, lang), lang=lang),
+                await hm.edit(content=_hand_panel(gid, p, prompt, tenpai_note,
+                                                  _action_feed(gid, gs, lang), lang=lang),
                               view=make_hand_view(gid, lang))
             except Exception:
                 pass
@@ -1501,6 +1573,83 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
         if furiten:
             tags.append("label.furiten_tag")
         p.warn_tags = tags
+
+    async def do_ankan(player, kan_tile, disp):
+        """宣告暗槓（真人與進階電腦共用）：整理手牌、翻新寶牌、更新槓數，下一圈摸嶺上牌。"""
+        nonlocal any_call, kan_count, rinshan_next
+        # 摸到的牌若不是槓牌 → 先併回手牌（否則會被嶺上摸覆蓋而憑空遺失）
+        if player.drawn_tile is not None and not (
+                player.drawn_tile.suit == kan_tile.suit and player.drawn_tile.value == kan_tile.value):
+            player.hand.append(player.drawn_tile)
+        player.drawn_tile = None
+        player.hand = [t for t in player.hand
+                       if not (t.suit == kan_tile.suit and t.value == kan_tile.value)]
+        player.melds.append(Meld(MeldType.ANKAN, [Tile(kan_tile.suit, kan_tile.value)] * 4, -1))
+        gs.open_dora()
+        any_call = True
+        kan_count += 1; kan_seats.add(player.seat)
+        for s in ippatsu:
+            ippatsu[s] = False
+        rinshan_next = True
+        await _act_sound(gid, "kan", player)
+        await render_hand(player)
+        await render_board("feed.ankan", name=disp, tile=kan_tile)
+
+    async def do_kakan(player, kan_tile, disp):
+        """宣告加槓＋搶槓窗口（真人與進階電腦共用）。被搶槓回傳 ("ron", ...)，否則完成加槓回傳 None。"""
+        nonlocal any_call, kan_count, rinshan_next
+        await _act_sound(gid, "kan", player)      # 宣告加槓的當下喊「槓」
+        await render_board("feed.kakan_declare", name=disp, tile=kan_tile)
+        robber = await collect_chankan_t(
+            gs, gid, kan_tile, player.seat, min(thinking_time, 12),
+            furiten_perm, temp_furiten,
+        )
+        if robber:
+            rp = next(p for p in gs.players if p.user_id == robber)
+            res = evaluate_win(
+                gs, rp, kan_tile, is_tsumo=False, is_chankan=True,
+                is_ippatsu=ippatsu[rp.seat], is_double_riichi=double_rii[rp.seat],
+                open_ron_yakuman=(getattr(rp, "open_riichi", False) and not player.riichi),
+            )
+            if res:
+                hs = format_winning_hand(rp, kan_tile)
+                await _act_sound(gid, "ron", rp)      # 宣告搶槓和牌的當下喊「榮」
+                await render_board("feed.chankan", name=rp.username,
+                                   loser=disp, tile=kan_tile)
+                return ("ron", rp.seat, player.seat, res, hs)
+        # 放過搶槓 → 同巡振聽（立直者永久）
+        _wk = (int(kan_tile.suit), kan_tile.value)
+        for _p in gs.players:
+            if _p.seat != player.seat and _wk in hand_waits(_p):
+                temp_furiten[_p.seat] = True
+                if _p.riichi:
+                    furiten_perm[_p.seat] = True
+                _update_warn(_p)
+        # 完成加槓：移除第 4 張、碰子升級為槓
+        if player.drawn_tile and player.drawn_tile.suit == kan_tile.suit and player.drawn_tile.value == kan_tile.value:
+            player.drawn_tile = None
+        else:
+            # 第 4 張在手牌：摸到的別張牌先併回手牌（否則被嶺上摸覆蓋而遺失）
+            if player.drawn_tile is not None:
+                player.hand.append(player.drawn_tile)
+                player.drawn_tile = None
+            for i, t in enumerate(player.hand):
+                if t.suit == kan_tile.suit and t.value == kan_tile.value:
+                    player.hand.pop(i); break
+        for m in player.melds:
+            if m.meld_type == MeldType.PON and m.tiles[0].suit == kan_tile.suit and m.tiles[0].value == kan_tile.value:
+                m.meld_type = MeldType.KAN
+                m.tiles = [Tile(kan_tile.suit, kan_tile.value)] * 4
+                break
+        gs.open_dora()
+        any_call = True
+        kan_count += 1; kan_seats.add(player.seat)
+        for s in ippatsu:
+            ippatsu[s] = False
+        rinshan_next = True
+        await render_hand(player)
+        await render_board("feed.kakan", name=disp, tile=kan_tile)
+        return None
 
     while True:
         if _games.get(gid) is not gs:
@@ -1540,6 +1689,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             ) if player.drawn_tile else None
             if res:
                 hs = format_winning_hand(player, player.drawn_tile)
+                await _act_sound(gid, "tsumo", player)    # 宣告自摸的當下喊「自摸」（電腦語音）
                 await render_board("feed.tsumo", name=f"🤖 {player.username}")
                 return ("tsumo", player.seat, res, hs)
             # 立直後只能拔「剛摸到的北」
@@ -1554,6 +1704,19 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 await render_board("feed.kita", name=f"🤖 {player.username}", n=player.kita)
                 await asyncio.sleep(0.6)
                 continue
+            # 槓：只有進階電腦會槓（暗槓／加槓），槓完下一圈摸嶺上牌，和真人同一條路
+            if _ai_kan_enabled(gid, player):
+                dec_k = ai_kan.self_kan_choice(gs, player, kan_count, kan_seats)
+                if dec_k:
+                    disp_k = f"🤖 {player.username}"
+                    if dec_k[0] == "ankan":
+                        await do_ankan(player, dec_k[1], disp_k)
+                    else:
+                        res_k = await do_kakan(player, dec_k[1], disp_k)
+                        if res_k is not None:
+                            return res_k
+                    await asyncio.sleep(0.6)
+                    continue
             drawn = player.drawn_tile
             if player.drawn_tile is not None:
                 player.hand.append(player.drawn_tile); player.drawn_tile = None
@@ -1564,7 +1727,11 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             else:
                 _ban = ({ai_mod.idx(Tile(Suit(s), v)) for s, v in kuikae_ban}
                         if kuikae_ban else set())
-                discard_tile, ai_riichi = ai_mod.choose_discard(gs, player, _ban)
+                _hm = _hard() if config.get("ai_level") == "hard" else None
+                if _hm is not None:   # 進階電腦算比較久，丟到執行緒算，不卡住其他對局（沒有私有模組就走普通）
+                    discard_tile, ai_riichi = await asyncio.to_thread(_hm.choose_discard, gs, player, _ban)
+                else:
+                    discard_tile, ai_riichi = ai_mod.choose_discard(gs, player, _ban)
             if discard_tile is None:
                 return ("draw", [p.seat for p in gs.players if hand_waits(p)])
             word = "feed.word_discard"
@@ -1592,10 +1759,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 await _act_sound(gid, "double_riichi" if double_rii[player.seat] else "riichi",
                                  player, fallback="riichi")
             await _act_sound(gid, "discard", player)
-            if was_riichi:
-                await render_board("feed.riichi_tsumogiri", name=f"🤖 {player.username}",
-                                   tile=discard_tile, nxt=nxt)
-            elif last_call:   # 鳴牌後的打出：合併成「碰了…打出…」一句
+            # 立直後的摸切照一般打牌顯示「打出 X（摸切）」；「宣告立直」只出現在宣言牌那一張
+            if last_call:   # 鳴牌後的打出：合併成「碰了…打出…」一句
                 await render_board("feed.call_discard", name=f"🤖 {player.username}",
                                    call=last_call[0], loser=last_call[1], ctile=last_call[2],
                                    tile=discard_tile, giri=giri, nxt=nxt)
@@ -1643,19 +1808,34 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 turn_time   = thinking_time
 
             is_afk = getattr(player, "afk", False)   # 掛機中：直接摸切
+
+            # ⚙️ 自動操作（本人在選單開的）：自動和牌 → 自動拔北 → 自動摸切；結果和手動按鈕走同一條路
+            # 能自摸卻沒開自動和牌 → 一律照常問（不替他拔北／摸切掉這個和牌機會）
+            auto_result = None
+            _af = auto_flags(gid, player.user_id) if not is_afk else None
+            if _af:
+                if can_tsumo:
+                    if _af.get("win"):
+                        auto_result = ("tsumo", None)
+                elif kita_ok and _af.get("kita"):
+                    auto_result = ("kita", None)
+                elif (_af.get("giri") and player.drawn_tile is not None
+                        and (int(player.drawn_tile.suit), player.drawn_tile.value) not in kuikae_ban):
+                    auto_result = ("discard", player.drawn_tile)   # 摸到的牌被食替禁止 → 退回照常提示
+
             _mention = player.username if is_dm else f"<@{player.user_id}>"
             _rel_wind = (player.seat - gs.dealer_seat) % len(gs.players)   # 自風相對莊家
-            if not is_afk and not kita_again:
+            if not is_afk and auto_result is None and (not kita_again or kept_ping is None):
                 await render_board("feed.your_turn", log=False,
                                    mention=_mention, wind=f"wind.{_rel_wind}")
 
             pt = private.get(player.user_id)
             hm = hand_msg.get(player.user_id)
             ping_msg = None
-            if kita_again:                        # 拔北後同一回合：沿用原本的 @ 提醒，不重發
+            if kita_again and kept_ping is not None:   # 拔北後同一回合：沿用原本的 @ 提醒，不重發
                 ping_msg, kept_ping = kept_ping, None
-            # 立直後是自動摸切，不必每巡 @；只有能自摸時才提醒
-            elif pt and not is_afk and (not already_riichi or can_tsumo):
+            # 立直後是自動摸切，不必每巡 @；只有能自摸時才提醒；自動操作的動作也不 @
+            elif pt and not is_afk and auto_result is None and (not already_riichi or can_tsumo):
                 try:
                     ping_msg = await pt.send(
                         i18n.t("ping.your_turn", lang_p, mention=_mention))
@@ -1665,6 +1845,10 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             result = None
             if is_afk:
                 pass                              # 掛機：不等、直接摸切
+            elif auto_result is not None:
+                result = auto_result              # 自動操作：不等輸入
+                if auto_result[0] == "kita":
+                    await asyncio.sleep(0.4)      # 連續自動拔北稍微隔開，面板編輯才不會擠在一起
             elif pt and hm:
                 result = await wait_turn_action(
                     gid, player, pt, hm, turn_time,
@@ -1728,6 +1912,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 )
                 if res:
                     hs = format_winning_hand(player, player.drawn_tile)
+                    await _act_sound(gid, "tsumo", player)    # 按下自摸的當下喊「自摸」
                     await render_board("feed.tsumo", name=player.username)
                     return ("tsumo", player.seat, res, hs)
                 action = "discard"  # 萬一無效退回出牌
@@ -1748,79 +1933,14 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
 
             # ── 暗槓 ──
             if action == "ankan" and ankan_opts:
-                kan_tile = arg
-                # 摸到的牌若不是槓牌 → 先併回手牌（否則會被嶺上摸覆蓋而憑空遺失）
-                if player.drawn_tile is not None and not (
-                        player.drawn_tile.suit == kan_tile.suit and player.drawn_tile.value == kan_tile.value):
-                    player.hand.append(player.drawn_tile)
-                player.drawn_tile = None
-                player.hand = [t for t in player.hand
-                               if not (t.suit == kan_tile.suit and t.value == kan_tile.value)]
-                player.melds.append(Meld(MeldType.ANKAN, [Tile(kan_tile.suit, kan_tile.value)] * 4, -1))
-                gs.open_dora()
-                any_call = True
-                kan_count += 1; kan_seats.add(player.seat)
-                for s in ippatsu:
-                    ippatsu[s] = False
-                rinshan_next = True
-                await _act_sound(gid, "kan", player)
-                await render_hand(player)
-                await render_board("feed.ankan", name=player.username, tile=kan_tile)
+                await do_ankan(player, arg, player.username)
                 continue
 
             # ── 加槓（小明槓）+ 搶槓 ──
             if action == "kakan" and arg is not None:
-                kan_tile = arg
-                await _act_sound(gid, "kan", player)      # 宣告加槓的當下喊「槓」
-                await render_board("feed.kakan_declare", name=player.username, tile=kan_tile)
-                robber = await collect_chankan_t(
-                    gs, gid, kan_tile, player.seat, min(thinking_time, 12),
-                    furiten_perm, temp_furiten,
-                )
-                if robber:
-                    rp = next(p for p in gs.players if p.user_id == robber)
-                    res = evaluate_win(
-                        gs, rp, kan_tile, is_tsumo=False, is_chankan=True,
-                        is_ippatsu=ippatsu[rp.seat], is_double_riichi=double_rii[rp.seat],
-                        open_ron_yakuman=(getattr(rp, "open_riichi", False) and not player.riichi),
-                    )
-                    if res:
-                        hs = format_winning_hand(rp, kan_tile)
-                        await render_board("feed.chankan", name=rp.username,
-                                           loser=player.username, tile=kan_tile)
-                        return ("ron", rp.seat, player.seat, res, hs)
-                # 放過搶槓 → 同巡振聽（立直者永久）
-                _wk = (int(kan_tile.suit), kan_tile.value)
-                for _p in gs.players:
-                    if _p.seat != player.seat and _wk in hand_waits(_p):
-                        temp_furiten[_p.seat] = True
-                        if _p.riichi:
-                            furiten_perm[_p.seat] = True
-                        _update_warn(_p)
-                # 完成加槓：移除第 4 張、碰子升級為槓
-                if player.drawn_tile and player.drawn_tile.suit == kan_tile.suit and player.drawn_tile.value == kan_tile.value:
-                    player.drawn_tile = None
-                else:
-                    # 第 4 張在手牌：摸到的別張牌先併回手牌（否則被嶺上摸覆蓋而遺失）
-                    if player.drawn_tile is not None:
-                        player.hand.append(player.drawn_tile)
-                        player.drawn_tile = None
-                    for i, t in enumerate(player.hand):
-                        if t.suit == kan_tile.suit and t.value == kan_tile.value:
-                            player.hand.pop(i); break
-                for m in player.melds:
-                    if m.meld_type == MeldType.PON and m.tiles[0].suit == kan_tile.suit and m.tiles[0].value == kan_tile.value:
-                        m.meld_type = MeldType.KAN
-                        m.tiles = [Tile(kan_tile.suit, kan_tile.value)] * 4
-                        break
-                gs.open_dora()
-                any_call = True
-                kan_count += 1; kan_seats.add(player.seat)
-                for s in ippatsu:
-                    ippatsu[s] = False
-                rinshan_next = True
-                await render_hand(player)
-                await render_board("feed.kakan", name=player.username, tile=kan_tile)
+                res_k = await do_kakan(player, arg, player.username)
+                if res_k is not None:
+                    return res_k
                 continue
 
             # ── 出牌 / 立直 ──
@@ -1849,7 +1969,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                 # 音效在下面跟打牌聲一起、畫面更新前播（開立直／兩立直有專屬語音，包裡沒錄就退回 riichi）
                 rii_sound = ("open_riichi" if action == "riichi_open"
                              else "double_riichi" if double_rii[player.seat] else "riichi")
-            elif timed:
+            elif timed and not already_riichi:   # 立直後自動摸切不算超時
                 word = "feed.word_timeout"
             else:
                 word = "feed.word_discard"
@@ -1861,6 +1981,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             player.discards.append(discard_tile)
             getattr(player, "discards_all", None) or setattr(player, "discards_all", [])
             player.discards_all.append(discard_tile)
+            if rii_sound and calib is not None:   # 真人剛宣告立直：私有模組記錄快照（局末結算；出錯不影響對局）
+                calib.snapshot(gid, gs, player)
             kuikae_ban = set()
             # 先更新「上家打出」再發動態，反應窗口期間面板才會顯示這一張（而非上一張）
             gs.pending_discard   = discard_tile
@@ -1882,10 +2004,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             await render_hand(player, "", post_note)
 
             nxt = _name_ref(gs.players[(player.seat + 1) % len(gs.players)], is_dm)
-            if already_riichi:
-                await render_board("feed.riichi_tsumogiri", name=player.username,
-                                   tile=discard_tile, nxt=nxt)
-            elif last_call:   # 鳴牌後的打出：合併成「碰了…打出…」一句
+            # 立直後的摸切照一般打牌顯示「打出 X（摸切）」；「宣告立直」只出現在宣言牌那一張
+            if last_call:   # 鳴牌後的打出：合併成「碰了…打出…」一句
                 await render_board("feed.call_discard", name=player.username,
                                    call=last_call[0], loser=last_call[1], ctile=last_call[2],
                                    tile=discard_tile, giri=giri, nxt=nxt)
@@ -1900,7 +2020,8 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
         # ── 反應（打字）──
         reaction = await collect_reactions_t(gs, gid, discard_tile, player.seat, thinking_time,
                                              furiten_perm, temp_furiten,
-                                             kan_ok=kan_count < 4, sancha_abort=allow_abort)
+                                             kan_ok=kan_count < 4, sancha_abort=allow_abort,
+                                             kan_count=kan_count)
         wkey = (int(discard_tile.suit), discard_tile.value)
 
         def _mark_pass(p):          # 能榮和卻放過 → 同巡振聽（立直中＝永久振聽）
@@ -1935,11 +2056,14 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                     if res:
                         winners.append((wp.seat, res, format_winning_hand(wp, discard_tile)))
                 if len(winners) >= 2:
+                    _act_sound_together(gid, "ron", [gs.players[w[0]] for w in winners])   # 雙榮：兩人一起喊「榮」
+                    await asyncio.sleep(0)                # 讓背景任務先把混音排進佇列
                     await render_board("feed.dblron", names="".join(
                         f"「{gs.players[w[0]].username}」" for w in winners))
                     return ("dblron", winners, player.seat)
                 if len(winners) == 1:
                     wseat, res, hs = winners[0]
+                    await _act_sound(gid, "ron", gs.players[wseat])
                     await render_board("feed.ron", name=gs.players[wseat].username,
                                        loser=player.username, tile=discard_tile)
                     return ("ron", wseat, player.seat, res, hs)
@@ -1956,6 +2080,7 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
                                    open_ron_yakuman=(getattr(rp, "open_riichi", False) and not player.riichi))
                 if res:
                     hs = format_winning_hand(rp, discard_tile)
+                    await _act_sound(gid, "ron", rp)      # 宣告榮和的當下喊「榮」
                     await render_board("feed.ron", name=rp.username, loser=from_name, tile=discard_tile)
                     return ("ron", rp.seat, player.seat, res, hs)
                 _mark_pass(rp)     # 榮和無效（例如無役）→ 視同放過
@@ -2082,7 +2207,14 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
         while True:
             outcome = await play_hand_t(gid, channel)
             if outcome is None:
+                if calib is not None:
+                    calib.discard(gid)
                 return
+            if calib is not None:
+                try:                              # 放銃率校正：把這局真人立直的待牌樣本寫進資料庫（背景執行緒，不卡對局）
+                    await asyncio.to_thread(calib.flush, gid)
+                except Exception:
+                    pass
             gs = _games[gid]
             # 一局結束：先刪這局的牌河訊息與手牌面板（結算畫面不殘留舊牌桌），下一局會重發
             for _om in list(th.get("river_msg", {}).values()) + list(th.get("hand_msg", {}).values()):
@@ -2227,6 +2359,10 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
             targets = ([(public, rlang)] if public is not None else []) + \
                       [(private[uid], i18n.get_user_lang(uid)) for uid in private]
             pub_pairs, priv_pairs = [], []
+            # ⏭ 跳過：每位在場真人（非電腦、非掛機）按一次，全員按過就快轉儀式並結束倒數；沒有在場真人就不放鈕
+            _humans = [p.user_id for p in gs.players if not p.is_bot]
+            _voters = [p.user_id for p in gs.players if not p.is_bot and not getattr(p, "afk", False)]
+            skip = ResultSkip(_humans, _voters) if _voters else None
 
             def _split(pairs):             # 依 targets 順序分回公開／私人
                 for idx, c in enumerate(pairs):
@@ -2234,27 +2370,25 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                         (pub_pairs if idx < pub_count else priv_pairs).append(c)
 
             if dbl_winners is not None:
-                # 雙榮：依序揭曉每位贏家（第一位開場時兩人一起喊「榮」；最後一位才附上合計分數表）
-                _uids = [_voice_uid(gs.players[ws]) for ws, _, _ in dbl_winners]
+                # 雙榮：依序揭曉每位贏家（「榮」已在宣告雙榮時一起喊過；最後一位才附上合計分數表）
                 for i, (seat, res, hs) in enumerate(dbl_winners):
                     hkw = {"name": gs.players[seat].username, "loser": gs.players[lseat].username}
-                    vo = CeremonyVoice(gid, _voice_uid(gs.players[seat]),
-                                       together=_uids if i == 0 else None)
+                    vo = CeremonyVoice(gid, _voice_uid(gs.players[seat]))
                     try:
                         _split(await win_ceremony(targets, gs, "result.ron", hkw, hs, res, log,
-                                                  show_log=(i == len(dbl_winners) - 1), voice=vo))
+                                                  show_log=(i == len(dbl_winners) - 1), voice=vo,
+                                                  skip=skip))
                     except Exception as e:
                         print(f"[ceremony] 雙榮儀式失敗：{e!r}")
             elif result is not None:
                 if outcome[0] == "nagashi":    # 流局滿貫：開場報「流局」（房主的包），役與階級由達成者唸
                     vo = CeremonyVoice(gid, _voice_uid(gs.players[win_seats[0]]) if win_seats else None,
                                        opener="ryuukyoku", table=True)
-                else:
-                    vo = CeremonyVoice(gid, _voice_uid(gs.players[win_seats[0]]) if win_seats else None,
-                                       opener="tsumo" if "tsumo" in header_key else "ron")
+                else:    # 自摸／榮和：「自摸」「榮」已在宣告當下喊過，儀式只唸役與階級
+                    vo = CeremonyVoice(gid, _voice_uid(gs.players[win_seats[0]]) if win_seats else None)
                 try:
                     _split(await win_ceremony(targets, gs, header_key, header_kw, hand_str, result, log,
-                                              voice=vo))
+                                              voice=vo, skip=skip))
                 except Exception as e:
                     print(f"[ceremony] 和牌儀式失敗：{e!r}")
             else:
@@ -2262,7 +2396,12 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                     await _draw_sound(gid, "ryuukyoku")
                 async def _send_draw(pt, txt, lg):
                     try:
-                        return (await pt.send(txt), txt, lg)
+                        if skip is None:
+                            return (await pt.send(txt), txt, lg)
+                        v = skip.new_view(lg)
+                        m = await pt.send(txt, view=v)
+                        skip.bind(v, m)
+                        return (m, txt, lg)
                     except Exception:
                         return None
                 # 公開頻道與每位玩家的結果訊息同時送出（原本一個一個送，越後面的人比聲音晚越多）
@@ -2292,7 +2431,7 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                             await tch.send(i18n.t("msg.afk_end", lg))
                         except Exception:
                             pass
-            await _result_countdown(pairs, 5, "countdown.end" if over else "countdown.next_hand")
+            await _result_countdown(pairs, 5, "countdown.end" if over else "countdown.next_hand", skip=skip)
             if over:
                 break
 
@@ -2485,21 +2624,128 @@ def format_winning_hand(player: PlayerState, win_tile: Tile) -> str:
     return "　".join(parts) + f"｜{win_tile}"
 
 
+class _SkipButton(discord.ui.Button):
+    """結算畫面的「⏭ 跳過」鈕（標籤帶進度 n/總人數）。"""
+    def __init__(self, skip: "ResultSkip", lang: str):
+        super().__init__(label=skip.label(lang), style=discord.ButtonStyle.secondary)
+        self.skip = skip
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self.skip.press(interaction)
+
+
+class ResultSkip:
+    """一局結算（和牌儀式＋倒數）的跳過投票：humans＝本局所有真人（才能按），voters＝在場真人（非電腦、非掛機，才計票）。
+    每位 voter 按一次；全員按過 → event 設起：和牌儀式直接快轉到最終畫面、倒數立刻結束。
+    每局重建一個；雙榮的多段儀式與倒數共用同一個。"""
+    def __init__(self, humans, voters):
+        self.humans  = set(str(u) for u in humans)
+        self.voters  = set(str(u) for u in voters)
+        self.pressed: set = set()
+        self.event   = asyncio.Event()
+        self.closed  = False
+        self.entries: list = []        # [{"view","btn","lang","msg"}]：每則附鈕的訊息
+        self._cleared: set = set()     # 已另外把 view 收掉的訊息 id
+
+    def label(self, lang: str) -> str:
+        total = len(self.voters)
+        if total <= 1:
+            return i18n.t("btn.skip", lang)
+        return i18n.t("btn.skip_n", lang, n=len(self.pressed & self.voters), total=total)
+
+    def new_view(self, lang: str) -> discord.ui.View:
+        v = discord.ui.View(timeout=None)
+        b = _SkipButton(self, lang)
+        v.add_item(b)
+        self.entries.append({"view": v, "btn": b, "lang": lang, "msg": None})
+        return v
+
+    def bind(self, view, msg) -> None:
+        """送出訊息後登記（之後更新進度、結束時收掉按鈕要用）。"""
+        for e in self.entries:
+            if e["view"] is view:
+                e["msg"] = msg
+
+    def final_kw(self, msg) -> dict:
+        """倒數結束還原結果時順便收掉按鈕：回傳要加進 edit 的參數。"""
+        if msg is not None:
+            self._cleared.add(getattr(msg, "id", id(msg)))
+        return {"view": None}
+
+    async def press(self, inter: discord.Interaction) -> None:
+        lang = i18n.get_user_lang(inter.user.id, inter.guild_id, inter.channel)
+        uid  = str(inter.user.id)
+        if uid not in self.humans:
+            await inter.response.send_message(i18n.t("skip.players_only", lang), ephemeral=True)
+            return
+        if self.closed or self.event.is_set():
+            await inter.response.defer()
+            return
+        if uid not in self.voters:                 # 掛機中的人不計票
+            await inter.response.send_message(i18n.t("skip.afk", lang), ephemeral=True)
+            return
+        if uid in self.pressed:
+            await inter.response.send_message(
+                i18n.t("skip.already", lang, n=len(self.pressed & self.voters), total=len(self.voters)),
+                ephemeral=True)
+            return
+        self.pressed.add(uid)
+        if self.pressed >= self.voters:
+            # 最後一票：先回應互動、再設事件（結算那邊接著會編輯／收掉按鈕，順序反了按鈕會被這次回應蓋回來）
+            try:
+                await inter.response.defer()
+            except Exception:
+                pass
+            self.event.set()
+            return
+        for e in self.entries:                      # 所有訊息上的進度一起更新
+            e["btn"].label = self.label(e["lang"])
+        mine = getattr(inter.message, "id", None)
+        mine_view = next((e["view"] for e in self.entries
+                          if e["msg"] is not None and getattr(e["msg"], "id", None) == mine), None)
+        others = [e for e in self.entries
+                  if e["msg"] is not None and getattr(e["msg"], "id", None) != mine]
+        try:
+            await inter.response.edit_message(view=mine_view)
+        except Exception:
+            try:
+                await inter.response.defer()
+            except Exception:
+                pass
+
+        async def _upd(e):
+            try:
+                await e["msg"].edit(view=e["view"])
+            except Exception:
+                pass
+        await asyncio.gather(*[_upd(e) for e in others])
+
+    async def close(self) -> None:
+        """結算結束：之後的按壓無效，並把還掛著按鈕的訊息收乾淨。"""
+        self.closed = True
+
+        async def _rm(e):
+            try:
+                await e["msg"].edit(view=None)
+            except Exception:
+                pass
+        await asyncio.gather(*[_rm(e) for e in self.entries
+                               if e["msg"] is not None
+                               and getattr(e["msg"], "id", id(e["msg"])) not in self._cleared])
+
+
 class CeremonyVoice:
     """和牌儀式的語音：揭曉到哪就唸到哪（標題＝自摸／榮和、每個役名、最後的打點階級），唸完才揭曉下一個。
     uid＝和牌者（用他的語音包；電腦＝房主的電腦語音；掛機／沒選＝不出聲，儀式照原本節奏走）。
-    opener＝標題時播的音；together＝雙榮時一起喊「榮」的人；table＝開場音用房主的包（流局滿貫的「流局」）。"""
-    def __init__(self, gid: str, uid, opener: str | None = None,
-                 together: list | None = None, table: bool = False):
-        self.gid, self.uid, self.opener = gid, uid, opener
-        self.together, self.table = together, table
+    opener＝標題時播的音（目前只有流局滿貫的「流局」；自摸／榮和改在宣告當下就喊）；
+    table＝開場音用房主的包。"""
+    def __init__(self, gid: str, uid, opener: str | None = None, table: bool = False):
+        self.gid, self.uid, self.opener, self.table = gid, uid, opener, table
 
     async def open(self) -> None:
         from . import sfx
         try:
-            if self.together:
-                await sfx.say_together(self.gid, "ron", self.together)
-            elif self.opener and self.table:
+            if self.opener and self.table:
                 await sfx.say_table(self.gid, self.opener)
             elif self.opener:
                 await sfx.say(self.gid, self.opener, self.uid)
@@ -2516,10 +2762,12 @@ class CeremonyVoice:
 
 async def win_ceremony(targets: list, gs: GameState, header_key: str, header_kw: dict,
                        hand_str: str, result, log: "st.SettleLog", show_log: bool = True,
-                       voice: CeremonyVoice | None = None) -> list:
+                       voice: CeremonyVoice | None = None, skip: "ResultSkip | None" = None) -> list:
     """和牌儀式：所有頻道（targets＝[(頻道, 語言), …]）**一起**逐步揭曉——標題 → 寶牌與手牌 → 一個一個役 → 等級與點數。
     有語音時每一步在文字出現後才播對應的音，等它唸完才揭曉下一個，文字和語音對得上；沒語音就照固定節奏。
     show_log=False 時不附最終分數表（雙榮時只在最後一位附上合計）。
+    skip＝「⏭ 跳過」投票：全員按過（event 設起）後，剩下的步驟不再等待、不再播語音，直接顯示最終畫面
+    （已經在播的語音讓它唸完，但不再等它）。
     回傳 [(訊息, 完整文字, 語言), …]，順序同 targets（發送失敗的訊息為 None）。"""
     loop = asyncio.get_running_loop()
     names = [n for n, *_ in (result.yaku or [])] + [n for n, *_ in (result.yakuman or [])]
@@ -2528,16 +2776,52 @@ async def win_ceremony(targets: list, gs: GameState, header_key: str, header_kw:
     top  = {lg: f"{head[lg]}\n{dora_reveal_text(gs, is_riichi, lg)}\n## {T.emojify_hand(hand_str)}"
             for _, lg in targets}
 
-    async def beat(edit, sound, wait: float) -> None:
+    def _fast() -> bool:                                   # 已按跳過 → 快轉
+        return skip is not None and skip.event.is_set()
+
+    async def _nap(secs: float) -> None:                   # 可被跳過打斷的等待
+        if secs <= 0:
+            return
+        if skip is None:
+            await asyncio.sleep(secs)
+            return
+        try:
+            await asyncio.wait_for(skip.event.wait(), secs)
+        except asyncio.TimeoutError:
+            pass
+
+    async def _play(sound) -> None:                        # 播語音並等它唸完；中途按跳過就不再等（語音在背景唸完）
+        if skip is None:
+            await sound()
+            return
+        task = asyncio.ensure_future(sound())
+        waiter = asyncio.ensure_future(skip.event.wait())
+        try:
+            await asyncio.wait({task, waiter}, return_when=asyncio.FIRST_COMPLETED)
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        finally:
+            waiter.cancel()
+        if not task.done():
+            _bg_tasks.add(task)
+            task.add_done_callback(_bg_tasks.discard)
+
+    async def beat(edit, sound, wait: float, essential: bool = False) -> None:
         """一步：先把所有訊息改好（文字真的出現了），再播對應的音並等它唸完；整步至少 wait 秒。
-        不能邊改邊播：Discord 編輯同一則訊息太頻繁會被限速延後，聲音就會跑在文字前面。"""
+        不能邊改邊播：Discord 編輯同一則訊息太頻繁會被限速延後，聲音就會跑在文字前面。
+        快轉中：非必要的中間步驟整步略過；essential（送標題、最終畫面）照做但不播音、不等待。"""
+        if _fast() and not essential:
+            return
         t0 = loop.time()
         await edit()
+        if _fast():
+            return
         if sound is not None:
-            await sound()
+            await _play(sound)
         rest = wait - (loop.time() - t0)
         if rest > 0:
-            await asyncio.sleep(rest)
+            await _nap(rest)
 
     async def _edit_all(build) -> None:
         async def one(m, lg):
@@ -2553,13 +2837,18 @@ async def win_ceremony(targets: list, gs: GameState, header_key: str, header_kw:
     async def _send_heads() -> None:                       # ① 只放自摸／榮和標題
         async def one(ch, lg):
             try:
-                return await ch.send(head[lg])
+                if skip is None:
+                    return await ch.send(head[lg])
+                v = skip.new_view(lg)
+                m = await ch.send(head[lg], view=v)
+                skip.bind(v, m)
+                return m
             except Exception:
                 return None
         sent = await asyncio.gather(*[one(ch, lg) for ch, lg in targets])
         msgs.extend(zip(sent, [lg for _, lg in targets]))
 
-    await beat(_send_heads, voice.open if voice else None, 1.0)
+    await beat(_send_heads, voice.open if voice else None, 1.0, essential=True)
     await beat(lambda: _edit_all(lambda lg: top[lg]), None, 1.0)   # ② 寶牌／裏寶牌＋手牌
 
     if result.yakuman:
@@ -2576,7 +2865,7 @@ async def win_ceremony(targets: list, gs: GameState, header_key: str, header_kw:
         await beat(lambda: _edit_all(lambda lg: top[lg] + "\n" + "\n".join(shown[lg])),
                    (lambda n=name: voice.say(n)) if voice and han != 0 else None, 0.9)
 
-    await asyncio.sleep(0.4)
+    await _nap(0.4)
     bodies = {}
     for lg in langs:                                       # ④ 等級與點數（滿貫以上唸階級）
         pts = i18n.t("win.points", lg, n=result.points)
@@ -2592,15 +2881,19 @@ async def win_ceremony(targets: list, gs: GameState, header_key: str, header_kw:
     from . import sfx
     tier = sfx.tier_sound(getattr(result, "name", "") or "")
     await beat(lambda: _edit_all(lambda lg: bodies[lg]),
-               (lambda: voice.say(tier)) if (voice and tier) else None, 0.0)
+               (lambda: voice.say(tier)) if (voice and tier) else None, 0.0, essential=True)
     return [(m, bodies[lg], lg) for m, lg in msgs]
 
 
 async def _result_countdown(pairs: list, secs: int = 5,
-                            tail_key: str = "countdown.next_hand") -> None:
+                            tail_key: str = "countdown.next_hand",
+                            skip: "ResultSkip | None" = None) -> None:
     """一局結果全部顯示完後，保留完整結果並於尾端倒數（每則訊息依其語言）。
-    pairs：[(訊息, 完整文字, 語言), ...]；tail_key：倒數後動作的翻譯鍵。"""
+    pairs：[(訊息, 完整文字, 語言), ...]；tail_key：倒數後動作的翻譯鍵；
+    skip：全員按過「⏭ 跳過」就立刻結束倒數；結束時一併收掉按鈕。"""
     for n in range(secs, 0, -1):
+        if skip is not None and skip.event.is_set():
+            break
         for m, base, lg in pairs:
             if not m:
                 continue
@@ -2609,14 +2902,22 @@ async def _result_countdown(pairs: list, secs: int = 5,
                 await m.edit(content=f"{base}\n\n{line}")
             except Exception:
                 pass
-        await asyncio.sleep(1)
+        if skip is None:
+            await asyncio.sleep(1)
+        else:
+            try:
+                await asyncio.wait_for(skip.event.wait(), 1)
+            except asyncio.TimeoutError:
+                pass
     # 倒數結束後還原為乾淨結果（保留下來的公開紀錄不會殘留倒數字樣）
     for m, base, lg in pairs:
         if m:
             try:
-                await m.edit(content=base)
+                await m.edit(content=base, **(skip.final_kw(m) if skip is not None else {}))
             except Exception:
                 pass
+    if skip is not None:
+        await skip.close()
 
 
 # ═══════════════════════════════════════════════════════════════
