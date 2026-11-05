@@ -40,90 +40,111 @@ def _mode(gs: GameState, lang: str) -> str:
 #  Board embed
 # ═══════════════════════════════════════════════════════════════
 
-def make_board_text(gs: GameState, status: str = "", open_hand: bool = False,
-                    lang: str = DEFAULT) -> str:
-    """牌局資訊（普通訊息版，用 # 標題放大牌面；牌與牌之間留空隔）
-    open_hand=True 時公開每家手牌（觀戰模式）。"""
-    # 寶牌指示：已翻開的顯示牌面，未翻開的顯示牌背 🀫（需槓才翻）
+def _river_str(p, cap: int | None = None) -> str:
+    """一家的牌河字串（只留最近 cap 張，None＝全部；被截掉時前面加 …）。
+    立直宣言牌（p.riichi_idx；宣言牌被鳴走時改為下一張捨牌）橫放。"""
+    ds = p.discards
+    start = 0 if cap is None else max(0, len(ds) - cap)
+    ri = getattr(p, "riichi_idx", -1)
+    body = "".join(T.side(tt) if i == ri else T.of(tt)
+                   for i, tt in enumerate(ds) if i >= start)
+    return ("…" if start else "") + body
+
+
+_MSG_LIMIT = 1950   # Discord 單則訊息上限 2000 字，留一點餘裕
+
+
+def _river_plain(p) -> str:
+    """牌河的 unicode 純字版（每張 1 字，橫放的立直牌一樣標不出來但順序完整）。
+    只在自訂表情版放不進 2000 字時當後備，絕不截斷。"""
+    return "".join(str(tt) for tt in p.discards)
+
+
+def _fit_block(build, p) -> str:
+    """組一家的訊息：build(river_str) → 完整文字。自訂表情版超過上限時，牌河改用 unicode 純字牌
+    （每張 1 字，順序完整，不截斷）。"""
+    if not p.discards:
+        return build("—")
+    full = _river_str(p)
+    txt = build(full)
+    if len(txt) <= _MSG_LIMIT:
+        return txt
+    return build(_river_plain(p))
+
+
+def _ind_str(gs: GameState) -> str:
+    """寶牌指示牌：已翻開的顯示牌面，未翻開的顯示牌背 🀫（需槓才翻）。"""
     total_ind = len(gs.dora_indicators)
     shown     = [T.of(tt) for tt in gs.dora_indicators[:gs.revealed_dora]]
     hidden    = [T.back()] * (total_ind - gs.revealed_dora)
-    ind_str   = "".join(shown + hidden)
+    return "".join(shown + hidden)
 
-    lines = [
+
+def _turn_line(gs: GameState, lang: str) -> str:
+    """標頭裡的「輪到誰」（▶ 風位「名字」）。放標頭而不放各家訊息，打牌時才不用多改一家的訊息。"""
+    p = gs.players[gs.current_seat] if 0 <= gs.current_seat < len(gs.players) else None
+    if p is None:
+        return ""
+    return f"▶ {_wind(p.seat, lang, gs)} {'🤖' if p.is_bot else ''}「{p.username}」"
+
+
+def board_header_text(gs: GameState, lang: str = DEFAULT) -> str:
+    """牌桌標頭訊息：局／模式、本場／立直棒／牌山、寶牌指示、輪到誰。"""
+    return "\n".join([
         f"## 🀄 {_round(gs, lang)}　{_mode(gs, lang)}",
         t("board.summary", lang, honba=gs.honba, sticks=gs.riichi_sticks, wall=gs.tiles_left),
-        f"# {ind_str}",
-    ]
-    for p in gs.players:
-        wind     = _wind(p.seat, lang, gs)
-        cur      = "▶" if p.seat == gs.current_seat else "　"
-        riichi   = t("label.riichi_tag", lang) if p.riichi else ""
-        bot_mark = "🤖" if p.is_bot else ""
-        kita     = "　" + t("label.kita", lang, n=p.kita) if getattr(p, "kita", 0) else ""
-        melds    = "　".join(T.meld(m) for m in p.melds) if p.melds else t("panel.none", lang)
-        # 牌河：每張牌之間留空隔
-        disc     = ("…" if len(p.discards) > 12 else "") + "".join(T.of(tt) for tt in p.discards[-12:]) if p.discards else "—"
-        lines.append(f"**{cur} {wind} {bot_mark}{p.username}{riichi}　（{p.score}）**{kita}")
-        lines.append(f"{t('panel.melds', lang)}：{melds}")
-        if open_hand:
+        f"# {_ind_str(gs)}",
+        _turn_line(gs, lang),
+    ]).rstrip("\n")
+
+
+def board_player_text(gs: GameState, p, lang: str = DEFAULT, open_hand: bool = False) -> str:
+    """公開牌桌「一家」的訊息：風位、名字、立直、點數、拔北、（開立直／觀戰亮手牌）、副露、完整牌河。"""
+    wind     = _wind(p.seat, lang, gs)
+    riichi   = t("label.riichi_tag", lang) if p.riichi else ""
+    bot_mark = "🤖" if p.is_bot else ""
+    kita     = "　" + t("label.kita", lang, n=p.kita) if getattr(p, "kita", 0) else ""
+    opened   = p.riichi and getattr(p, "open_riichi", False)
+    if opened:
+        riichi = t("label.open_riichi_tag", lang)
+
+    def build(disc: str) -> str:
+        lines = [f"> ## {wind} {bot_mark}「{p.username}」{riichi}（{p.score}）{kita}"]
+        if opened or open_hand:   # 開立直／觀戰：亮出手牌
             hand_tiles = sorted(p.hand, key=lambda x: (x.suit, x.value))
-            drawn = f"　＋{T.of(p.drawn_tile)}" if p.drawn_tile else ""
-            hstr = "".join(T.of(tt) for tt in hand_tiles) if hand_tiles else "—"
-            lines.append(f"{t('panel.your_hand', lang)}（{len(p.hand)}）：{hstr}{drawn}")
-        lines.append(f"🀫 {t('panel.river', lang)}（{len(p.discards)}）")
-        lines.append(f"## {disc}")
-    if status:
-        lines.append("")
-        # 用 Discord 引言區塊（每行前綴 >）顯示狀態
-        lines.append("\n".join(f"> {s}" for s in status.split("\n")))
-    return "\n".join(lines)
-
-
-# ═══════════════════════════════════════════════════════════════
-#  0.2 討論串渲染
-# ═══════════════════════════════════════════════════════════════
-
-def make_thread_board(gs: GameState, status: str = "", lang: str = DEFAULT) -> str:
-    """公開討論串的牌桌：玩家整行放大、副露只在有時顯示、牌河放大。"""
-    total_ind = len(gs.dora_indicators)
-    shown     = [T.of(tt) for tt in gs.dora_indicators[:gs.revealed_dora]]
-    hidden    = [T.back()] * (total_ind - gs.revealed_dora)
-    ind_str   = "".join(shown + hidden)
-
-    lines = [
-        f"## 🀄 {_round(gs, lang)}　{_mode(gs, lang)}",
-        t("board.summary", lang, honba=gs.honba, sticks=gs.riichi_sticks, wall=gs.tiles_left),
-        f"# {ind_str}",
-    ]
-    for idx, p in enumerate(gs.players):
-        if idx > 0:
-            # 玩家之間：長分隔線 + 上下留白，明顯分開
-            lines.append("")
-            lines.append("━" * 35)
-            lines.append("")
-        wind     = _wind(p.seat, lang, gs)
-        cur      = "▶" if p.seat == gs.current_seat else "　"
-        riichi   = t("label.riichi_tag", lang) if p.riichi else ""
-        bot_mark = "🤖" if p.is_bot else ""
-        kita     = "　" + t("label.kita", lang, n=p.kita) if getattr(p, "kita", 0) else ""
-        # 玩家整行放大、加引言 >、名字用「」標註
-        if p.riichi and getattr(p, "open_riichi", False):
-            riichi = t("label.open_riichi_tag", lang)
-        lines.append(f"> ## {cur} {wind} {bot_mark}「{p.username}」{riichi}（{p.score}）{kita}")
-        if p.riichi and getattr(p, "open_riichi", False):   # 開立直：亮出手牌
-            lines.append(t("label.open_hand", lang) + "：" +
-                         T.render(sorted(p.hand, key=lambda x: (x.suit, x.value))))
-        # 副露只在有時顯示
+            hstr = T.render(hand_tiles) if hand_tiles else "—"
+            drawn = f"　＋{T.of(p.drawn_tile)}" if (open_hand and p.drawn_tile) else ""
+            lines.append(f"{t('label.open_hand', lang)}：{hstr}{drawn}")
         if p.melds:
-            lines.append(t("panel.melds", lang) + "：" + "　".join(T.meld(m) for m in p.melds))
-        disc = ("…" if len(p.discards) > 12 else "") + "".join(T.of(tt) for tt in p.discards[-12:]) if p.discards else "—"
+            lines.append(t("panel.melds", lang) + "：" + "　".join(T.meld(m, p.seat) for m in p.melds))
         lines.append(f"{t('panel.river', lang)}（{len(p.discards)}）：")
         lines.append(f"## {disc}")
-    if status:
-        lines.append("")
-        lines.append("\n".join(f"> {s}" for s in status.split("\n")))
-    return "\n".join(lines)
+        return "\n".join(lines)
+    return _fit_block(build, p)
+
+
+def board_status_text(status: str = "") -> str:
+    """公開牌桌底下的狀態訊息（引言區塊）；沒有狀態時放個佔位，訊息才不會是空的。"""
+    if not status:
+        return "> —"
+    return "\n".join(f"> {s}" for s in status.split("\n"))
+
+
+def board_parts(gs: GameState, lang: str = DEFAULT, open_hand: bool = False) -> list[str]:
+    """公開牌桌分成多則：[標頭, 東家, 南家, …]（座位順序）。每家各一則、牌河完整不截斷。"""
+    return [board_header_text(gs, lang)] +            [board_player_text(gs, p, lang, open_hand) for p in gs.players]
+
+
+def make_board_text(gs: GameState, status: str = "", open_hand: bool = False,
+                    lang: str = DEFAULT) -> str:
+    """整桌合成一段文字（舊介面；實際發送請用 board_parts 分則送，免得超過 2000 字）。"""
+    parts = board_parts(gs, lang, open_hand) + ([board_status_text(status)] if status else [])
+    return "\n".join(parts)
+
+
+def make_thread_board(gs: GameState, status: str = "", lang: str = DEFAULT) -> str:
+    """同 make_board_text（不亮手牌）。"""
+    return make_board_text(gs, status, False, lang)
 
 
 def _last_discard_info(gs: GameState, lang: str = DEFAULT) -> str:
@@ -215,47 +236,51 @@ def dora_reveal_text(gs: GameState, is_riichi: bool = False, lang: str = DEFAULT
     return "　".join(parts)   # 寶牌與裏寶牌並排
 
 
-def river_panel(gs: GameState, lang: str = DEFAULT, cap: int | None = None) -> str:
-    """各家牌河（獨立的牌河訊息用）。cap=None 顯示完整牌河，否則各家只留最近 cap 張。"""
-    lines = [f"🀫 {t('panel.river', lang)}"]
-    for idx, p in enumerate(gs.players):
-        if idx > 0:
-            lines.append("─" * 20)
-        cur    = "▶ " if p.seat == gs.current_seat else ""
-        opened = p.riichi and getattr(p, "open_riichi", False)
-        riichi = (t("label.open_riichi_tag" if opened else "label.riichi_tag", lang)
-                  if p.riichi else "")
-        shown  = p.discards if cap is None else p.discards[-cap:]
-        trim   = "…" if len(shown) < len(p.discards) else ""
-        disc   = trim + "".join(T.of(tt) for tt in shown) if p.discards else "—"
-        lines.append(f"## {cur}{_wind(p.seat, lang, gs)}「{p.username}」{riichi}{_kita_tag(gs, p, lang)}")
+def river_player_text(gs: GameState, p, lang: str = DEFAULT) -> str:
+    """私人牌河「一家」的訊息：風位／名字／立直／拔北、副露、（開立直）手牌、完整牌河。"""
+    opened = p.riichi and getattr(p, "open_riichi", False)
+    riichi = (t("label.open_riichi_tag" if opened else "label.riichi_tag", lang)
+              if p.riichi else "")
+
+    def build(disc: str) -> str:
+        lines = [f"## {_wind(p.seat, lang, gs)}「{p.username}」{riichi}{_kita_tag(gs, p, lang)}"]
         if p.melds:   # 副露自成一行（名字下、牌河上）
-            lines.append(t("panel.melds", lang) + "：" + "　".join(T.meld(m) for m in p.melds))
+            lines.append(t("panel.melds", lang) + "：" + "　".join(T.meld(m, p.seat) for m in p.melds))
         if opened:   # 開立直：亮出手牌（不標待牌）
             lines.append(t("label.open_hand", lang) + "：" +
                          T.render(sorted(p.hand, key=lambda x: (x.suit, x.value))))
         lines.append(f"# {disc}")
-    return "\n".join(lines)
+        return "\n".join(lines)
+    return _fit_block(build, p)
+
+
+def river_header_text(gs: GameState, lang: str = DEFAULT) -> str:
+    """私人牌河的標頭訊息：場況（局／本場／立直棒／牌山＋寶牌）＋輪到誰。"""
+    head = "\n".join("> " + ln for ln in _board_info(gs, lang).split("\n"))
+    turn = _turn_line(gs, lang)
+    return head + (f"\n> {turn}" if turn else "")
+
+
+def river_parts(gs: GameState, lang: str = DEFAULT) -> list[str]:
+    """私人牌河分成多則：[場況標頭, 東家, 南家, …]，每家一則、牌河完整不截斷。"""
+    return [river_header_text(gs, lang)] + [river_player_text(gs, p, lang) for p in gs.players]
+
+
+def river_panel(gs: GameState, lang: str = DEFAULT, cap: int | None = None) -> str:
+    """各家牌河合成一段（舊介面，只給需要單一字串的地方；cap 已不使用）。"""
+    return "\n".join(["🀫 " + t("panel.river", lang)] +
+                     [river_player_text(gs, p, lang) for p in gs.players])
 
 
 def river_message_text(gs: GameState, lang: str = DEFAULT) -> str:
-    """牌河訊息（面板上方獨立的一則訊息）：最上方是場況（局／本場／立直棒／牌山＋寶牌），
-    下面接完整牌河。優先完整顯示；表情牌每張近 30 字元，超過 Discord 2000 字上限時
-    逐步只留各家最近 N 張。"""
-    head = "\n".join("> " + ln for ln in _board_info(gs, lang).split("\n")) + "\n" + "=" * 35 + "\n"
-    txt = head + river_panel(gs, lang, None)
-    for cap in (18, 15, 12, 10, 8, 6):
-        if len(txt) <= 1950:
-            return txt
-        txt = head + river_panel(gs, lang, cap)
-    return txt
+    """舊介面：整份牌河合成一段文字（實際發送請用 river_parts 分則送）。"""
+    return "\n".join(river_parts(gs, lang))
 
 
 def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = "",
                     last_info: str = "", board_info: str = "", river_info: str = "",
                     lang: str = DEFAULT) -> str:
     """私人討論串的個人面板：牌河、場況/寶牌、手牌｜剛摸到的牌、副露、提示。"""
-    uni, names = player.hand_display_with_names()
     hand_e = T.render(sorted(player.hand, key=lambda x: (x.suit, x.value)))  # 手牌用自訂表情
     sep = "=" * 35
     lines = []
@@ -288,11 +313,9 @@ def make_hand_panel(player: PlayerState, prompt: str = "", tenpai_note: str = ""
         lines.append(f"# {hand_e} | {dt}" if hand_e else f"# | {dt}")
     else:
         lines.append(f"# {hand_e}" if hand_e else t("panel.none", lang))
-    if names:
-        lines.append(names)
     # 副露（碰/吃/槓後）換行顯示
     if player.melds:
-        lines.append(t("panel.melds", lang) + "：" + "　".join(T.meld(m) for m in player.melds))
+        lines.append(t("panel.melds", lang) + "：" + "　".join(T.meld(m, player.seat) for m in player.melds))
     if tenpai_note:
         lines.append("")
         lines.append(tenpai_note)
@@ -320,8 +343,7 @@ def make_river_text(gs: GameState, lang: str = DEFAULT) -> str:
     for idx, p in enumerate(gs.players):
         if idx > 0:
             lines.append("─" * 24)   # 玩家之間分隔線
-        trim = "…" if len(p.discards) > 15 else ""
-        disc = trim + "".join(T.of(tt) for tt in p.discards[-15:]) if p.discards else t("river.none", lang)
+        disc = _river_str(p, 15) if p.discards else t("river.none", lang)
         lines.append(f"{_wind(p.seat, lang, gs)} {p.username}{_kita_tag(gs, p, lang)}")
         lines.append(f"# {disc}")
     lines.append("")
@@ -370,7 +392,7 @@ def make_meld_text(gs: GameState, lang: str = DEFAULT) -> str:
     for p in gs.players:
         if p.melds:
             any_meld = True
-            melds = "　".join(T.meld(m) for m in p.melds)
+            melds = "　".join(T.meld(m, p.seat) for m in p.melds)
             lines.append(f"{_wind(p.seat, lang, gs)}　{p.username}：{melds}")
     if not any_meld:
         lines.append(t("meld.none", lang))

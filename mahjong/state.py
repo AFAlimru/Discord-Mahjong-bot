@@ -35,7 +35,8 @@ _rank_queue:    dict = {"yonma": [], "sanma": []}   # 段位賽
 _casual_queue:  dict = {"yonma": [], "sanma": []}   # 休閒隨機匹配（不計段位）
 
 # ── 0.2 討論串 ──
-# game_id -> {"public","board_msg","private":{uid:Thread},"hand_msg":{uid:Message},"announce"}
+# game_id -> {"public","board_msg"(MsgGroup，觀戰牌桌：標頭＋每家一則＋狀態),"private":{uid:Thread},
+#   "hand_msg":{uid:Message},"river_msg":{uid:MsgGroup(標頭＋每家一則)},"announce"}
 _threads:       dict = {}
 # user_id -> asyncio.Queue（等待該玩家打字輸入時存在）
 _input_queues:  dict = {}

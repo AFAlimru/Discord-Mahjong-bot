@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .engine import GameState, PlayerState
-from .scoring import ScoreResult
+from .scoring import ScoreResult, _round_up
 
 
 # ─── 和牌結算 ───────────────────────────────────────────────────────────────
@@ -60,9 +60,10 @@ def apply_ron(gs: GameState, winner_seat: int, loser_seat: int,
     deltas = {p.seat: 0 for p in gs.players}
     honba_bonus = 300 * gs.honba
 
-    pay = result.ron_payment + honba_bonus
-    deltas[winner_seat] += pay
-    deltas[loser_seat] -= pay
+    # 一般：放銃者付全額；有包牌（且放銃者不是責任者）時責任者分擔，見 _ron_pays
+    for payer, amt in _ron_pays(gs, winner_seat, loser_seat, result, honba_bonus).items():
+        deltas[winner_seat] += amt
+        deltas[payer] -= amt
 
     # 立直棒全收
     stick = gs.riichi_sticks * 1000
@@ -75,14 +76,15 @@ def apply_ron(gs: GameState, winner_seat: int, loser_seat: int,
 
 def apply_ron_multi(gs: GameState, winners: list[tuple[int, ScoreResult]],
                     loser_seat: int) -> SettleLog:
-    """雙榮（ダブロン）：同一張捨牌被兩家榮和，放銃者分別支付兩家。
-    winners：[(座位, ScoreResult), …]，第一位為頭跳側（收本場棒與立直棒）。"""
+    """雙榮（ダブロン）／三響：同一張捨牌被兩家以上榮和，放銃者分別支付每一家。
+    winners：[(座位, ScoreResult), …]（人數不限），第一位為頭跳側（依放銃者下家順序；收本場棒與立直棒）。"""
     deltas = {p.seat: 0 for p in gs.players}
     honba_bonus = 300 * gs.honba
     for i, (wseat, res) in enumerate(winners):
-        pay = res.ron_payment + (honba_bonus if i == 0 else 0)  # 本場僅付頭跳側一次
-        deltas[wseat] += pay
-        deltas[loser_seat] -= pay
+        # 本場僅付頭跳側一次；包牌時由責任者分擔（同 apply_ron）
+        for payer, amt in _ron_pays(gs, wseat, loser_seat, res, honba_bonus if i == 0 else 0).items():
+            deltas[wseat] += amt
+            deltas[payer] -= amt
     # 立直棒全歸頭跳側
     stick = gs.riichi_sticks * 1000
     deltas[winners[0][0]] += stick
@@ -98,18 +100,22 @@ def apply_tsumo(gs: GameState, winner_seat: int, result: ScoreResult) -> SettleL
     winner = gs.players[winner_seat]
     honba_each = 100 * gs.honba
 
-    total = 0
+    pays: dict[int, int] = {}       # 各家本來要付的（不含本場）
+    honbas: dict[int, int] = {}     # 各家的本場
     for p in gs.players:
         if p.seat == winner_seat:
             continue
-        if winner.is_dealer:
-            pay = result.tsumo_each_payment + honba_each
+        if winner.is_dealer or not p.is_dealer:
+            pays[p.seat] = result.tsumo_each_payment
         else:
-            if p.is_dealer:
-                pay = result.tsumo_dealer_payment + honba_each
-            else:
-                pay = result.tsumo_each_payment + honba_each
-        deltas[p.seat] -= pay
+            pays[p.seat] = result.tsumo_dealer_payment
+        honbas[p.seat] = honba_each
+    _pao_tsumo(gs, winner_seat, result, pays, honbas)   # 包牌：責任者代付該役滿的份與全部本場
+
+    total = 0
+    for seat, amt in pays.items():
+        pay = amt + honbas[seat]
+        deltas[seat] -= pay
         total += pay
 
     deltas[winner_seat] += total
@@ -120,6 +126,68 @@ def apply_tsumo(gs: GameState, winner_seat: int, result: ScoreResult) -> SettleL
 
     _apply_deltas(gs, deltas)
     return SettleLog(deltas, note=f"{result.name} {result.describe()}")
+
+
+# ─── 包牌（責任支付）────────────────────────────────────────────────────────
+
+def attach_pao(result: ScoreResult, liab: dict, double_yakuman: bool, loser_seat: int | None = None) -> ScoreResult:
+    """把這個贏家的包牌紀錄掛到和牌結果上（result.pao）。
+    liab＝{役滿名: 責任者座位}（流程在碰／大明槓成立時記下）；只掛上這手牌真的有的役滿。
+    該役滿的底點＝8000×倍數（倍數照規則：double_yakuman 才算雙倍，否則一律單倍）。
+    榮和時放銃者就是責任者＝一般計算，不掛（loser_seat＝放銃者／被搶槓者；自摸傳 None）。"""
+    result.pao = []
+    if not liab:
+        return result
+    for name, mult in result.yakuman:
+        seat = liab.get(name)
+        if seat is None or seat == loser_seat:
+            continue
+        result.pao.append((name, seat, 8000 * (mult if double_yakuman else 1)))
+    return result
+
+
+def _ron_pays(gs: GameState, winner_seat: int, loser_seat: int, result: ScoreResult,
+              honba_bonus: int) -> dict[int, int]:
+    """榮和各家要付給贏家的金額 {座位: 金額}（含本場）。
+    沒有包牌：放銃者付 ron_payment＋本場。
+    有包牌（放銃者≠責任者）：包牌役滿的部分由責任者與放銃者各付一半，其餘照常由放銃者付；
+    本場由責任者付（有多個包牌時算在第一個責任者）。"""
+    pays = {loser_seat: result.ron_payment}
+    honba_payer = loser_seat
+    mult = 6 if gs.players[winner_seat].is_dealer else 4
+    for _name, liable, base in result.pao:
+        if liable == loser_seat or liable == winner_seat:
+            continue
+        part = _round_up(base * mult, 100)
+        pays[loser_seat] -= part // 2
+        pays[liable] = pays.get(liable, 0) + part // 2
+        if honba_payer == loser_seat:
+            honba_payer = liable
+    if honba_bonus:
+        pays[honba_payer] = pays.get(honba_payer, 0) + honba_bonus
+    return {s: a for s, a in pays.items() if a}
+
+
+def _pao_tsumo(gs: GameState, winner_seat: int, result: ScoreResult,
+               pays: dict[int, int], honbas: dict[int, int]) -> None:
+    """自摸的包牌：責任者代付其他人在「包牌役滿」那部分該付的份，並負擔全部本場（直接改 pays／honbas）。"""
+    winner = gs.players[winner_seat]
+    honba_moved = False
+    for _name, liable, base in result.pao:
+        if liable == winner_seat or liable not in pays:
+            continue
+        for p in gs.players:
+            if p.seat == winner_seat or p.seat == liable:
+                continue
+            part = _round_up(base * (2 if (winner.is_dealer or p.is_dealer) else 1), 100)
+            pays[p.seat] -= part
+            pays[liable] += part
+        if not honba_moved:
+            honba_moved = True
+            for s in list(honbas):
+                if s != liable:
+                    honbas[liable] += honbas[s]
+                    honbas[s] = 0
 
 
 # ─── 流局結算 ───────────────────────────────────────────────────────────────
@@ -208,18 +276,51 @@ def _reset_hand_flags(gs: GameState) -> None:
         p.riichi = False
 
 
-def is_game_over(gs: GameState, length: str = "tonpuu", tobi: bool = True) -> bool:
+def west_target(gs: GameState, rs, start_points: int | None = None) -> int:
+    """南入／西入與和了止め的門檻：規則的 west_target（依人數），房間自訂了起始點數就跟著平移
+    （門檻＋（自訂起始 − 規則起始））。"""
+    m = rs.for_mode(len(gs.players) == 3)
+    target = m["west_target"]
+    if start_points:
+        target += start_points - m["start"]
+    return target
+
+
+def is_game_over(gs: GameState, length: str = "tonpuu", tobi: bool = True,
+                 rs=None, start_points: int | None = None, renchan: bool = False) -> bool:
     """
-    判斷整局是否結束。
+    判斷整局是否結束（在 advance_* 之後呼叫，gs 已是「下一局」的狀態）。
     length: "tonpuu"=東風戰（打完東場）、"hanchan"=半莊（打完南場）
     tobi:   擊飛規則。True 時只要有人點數 < 0 即結束；False 時忽略負分繼續打。
+    rs／start_points／renchan：給了規則集 rs 才會套用下面兩條（不給＝舊行為）：
+      ・rs.west（南入／西入，サドンデス）：預定最後一局（東風戰東4、半莊南4）打完，沒人達門檻就延長到下一個場風；
+        延長期間每局結束只要有人 ≥ 門檻就結束；最多打到延長場風的最後一局（東風戰到南4、半莊到西4）。
+        桌上的立直棒不算分數；擊飛照常終局（上面先判）。
+      ・rs.agari_yame（和了止め／聽牌止め）：預定最後一局莊家要連莊（renchan＝莊家和了／流局聽牌），
+        而且結算後莊家是單獨第一名且 ≥ 門檻 → 結束。途中流局不算（呼叫端傳 renchan=False）。
+        延長局不用另外判：延長中有人 ≥ 門檻本來就結束。
     """
     if tobi and any(p.score < 0 for p in gs.players):
         return True
     end_wind = 1 if length == "tonpuu" else 2  # 1=東 2=南
-    # 已超過該場風最後一局（例如東風戰：round_wind 已進到 2）
-    if gs.round_wind > end_wind:
+    if rs is None:
+        # 已超過該場風最後一局（例如東風戰：round_wind 已進到 2）
+        return gs.round_wind > end_wind
+    target = west_target(gs, rs, start_points)
+    if rs.west:
+        if gs.round_wind > end_wind + 1:        # 延長場風也打完了（東風戰南4、半莊西4 之後）
+            return True
+        if gs.round_wind > end_wind:            # 延長局：有人達門檻就結束，否則繼續
+            return max(p.score for p in gs.players) >= target
+    elif gs.round_wind > end_wind:
         return True
+    # 和了止め：預定最後一局（東風戰東4／半莊南4，三麻東3／南3）莊家連莊時
+    if (rs.agari_yame and renchan and gs.round_wind == end_wind
+            and gs.round_num == len(gs.players)):
+        dealer = gs.players[gs.dealer_seat]
+        others = [p.score for p in gs.players if p.seat != dealer.seat]
+        if dealer.score >= target and (not others or dealer.score > max(others)):
+            return True
     return False
 
 
@@ -256,7 +357,8 @@ class FinalRow:
 def final_standings(gs: GameState, uma: tuple = None,
                     start_points: int = None,
                     return_points: int = None,
-                    length: str = "hanchan", ruleset: str = "mixed") -> list[FinalRow]:
+                    length: str = "hanchan", ruleset: str = "mixed",
+                    rs=None) -> list[FinalRow]:
     """
     依精算規則計算賽末積分：
         精算 =（結算點數 − 返點）÷ 1000 ＋ 順位馬
@@ -265,9 +367,28 @@ def final_standings(gs: GameState, uma: tuple = None,
     原點/返點預設：四麻 25000/30000、三麻 35000/40000。
     順位馬依 length/ruleset 選擇（天鳳式四麻東風 10-5、半莊 20-10）。
     頭名賞 =（返點 − 原點）÷1000 × 人數，全數歸於一位。
+
+    給了規則集 rs（rulesets.RuleSet）時，馬點／原點／返點改照規則集：
+      ・房間自訂了起始點數 start_points → 返點＝自訂起始 +（規則返點 − 規則起始）；沒自訂就用規則的起始與返點。
+      ・終局時桌上剩的立直棒：rs.leftover_sticks == "top" → 加進第一名的點數（並清掉立直棒）；"none" → 消失。
+    不給 rs 時維持舊行為（依 length／ruleset 選馬、原點 25000／35000、返點＝原點 + 5000）。
     """
     n = len(gs.players)
     is_sanma = (n == 3)
+    if rs is not None:
+        m = rs.for_mode(is_sanma)
+        if uma is None:
+            uma = m["uma"]
+        if start_points is None:
+            start_points = m["start"]
+            if return_points is None:
+                return_points = m["return_pts"]
+        elif return_points is None:
+            return_points = start_points + (m["return_pts"] - m["start"])
+        if rs.leftover_sticks == "top" and gs.riichi_sticks > 0 and gs.players:
+            top = min(gs.players, key=lambda p: (-p.score, p.seat))
+            top.score += gs.riichi_sticks * 1000
+            gs.riichi_sticks = 0
     if uma is None:
         uma = _pick_uma(is_sanma, length, ruleset)
     if start_points is None:

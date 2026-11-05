@@ -19,7 +19,7 @@ import discord
 
 from .render import (
     make_river_text, make_score_text, make_meld_text, make_action_log_text,
-    make_thread_board,
+    board_parts,
 )
 from .state import _games, _auto_modes
 from . import db
@@ -92,7 +92,10 @@ class TranslateBoardButton(discord.ui.Button):
                 i18n.t("msg.game_ended", i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)), ephemeral=True)
             return
         lang = i18n.get_user_lang(interaction.user.id, interaction.guild_id, interaction.channel)
-        await interaction.response.send_message(make_thread_board(gs, "", lang), ephemeral=True)
+        parts = board_parts(gs, lang)   # 每家一則（牌河完整，單則不超過 2000 字）
+        await interaction.response.send_message(parts[0], ephemeral=True)
+        for part in parts[1:]:
+            await interaction.followup.send(part, ephemeral=True)
 
 
 def make_board_view(gid: str, default_lang: str = i18n.DEFAULT) -> discord.ui.View:
@@ -102,7 +105,7 @@ def make_board_view(gid: str, default_lang: str = i18n.DEFAULT) -> discord.ui.Vi
     return v
 
 
-# ── ⚙️ 自動操作：自動和牌／自動拔北／不吃碰槓／自動摸切（每位玩家各自的設定，整場牌局有效）──
+# ── ⚙️ 自動操作：自動和牌／自動拔北／不吃碰槓／自動摸切（每位玩家各自的設定，每一局開始時重置）──
 # 顯示順序＝選單與面板標記的順序；(key, 選單名稱鍵, 說明鍵, 面板短名鍵, 是否只有三麻)
 AUTO_OPTIONS = (
     ("giri",   "auto.giri",   "auto.giri_desc",   "auto.s_giri",   False),

@@ -52,6 +52,7 @@ def _load() -> None:
         except Exception:
             by_code = {}
         by_uni: dict[str, str] = {}
+        by_uni_s: dict[str, str] = {}   # unicode → 橫牌表情
         for suit, rng in combos:   # unicode → 表情（回放／日誌裡存的是 str(Tile)）
             for v in rng:
                 reds = (False, True) if (v == 5 and suit in (Suit.MAN, Suit.PIN, Suit.SOU)) else (False,)
@@ -60,7 +61,10 @@ def _load() -> None:
                     e = by_code.get(t.code)
                     if e:
                         by_uni[str(t)] = e
-        _MAPS[skin] = {"code": by_code, "uni": by_uni}
+                    es = by_code.get(t.code + "_s")
+                    if es:
+                        by_uni_s[str(t)] = es
+        _MAPS[skin] = {"code": by_code, "uni": by_uni, "uni_s": by_uni_s}
 
 
 _load()
@@ -117,12 +121,20 @@ def of(tile: Union[Tile, str]) -> str:
     return _MAPS.get("default", {}).get("uni", {}).get(tile, tile)
 
 
+def side(tile: Union[Tile, str]) -> str:
+    """橫放的牌（立直宣言牌、副露裡別人打出的那張）：用 `<code>_s` 橫牌表情；
+    當前牌風沒有橫牌就退回直立的 of()（不借別的牌風，免得同一排混兩種牌風；還沒上傳橫牌表情時照舊顯示）。"""
+    if isinstance(tile, Tile):
+        return _cur()["code"].get(tile.code + "_s") or of(tile)
+    return of(tile)
+
+
 def render(tiles: Iterable, sep: str = "") -> str:
     """把一串牌渲染成顯示字串。自訂表情本身留白，預設無間隔。"""
     return sep.join(of(t) for t in tiles)
 
 
-_PURE_TILES = re.compile(r"^[\U0001F000-\U0001F02B🔴\s|｜｜+＋—-]+$")
+_PURE_TILES = re.compile(r"^[\U0001F000-\U0001F02B🔴\s|｜｜+＋—⁠-]+$")
 
 
 def is_tiles(s: str) -> bool:
@@ -142,8 +154,14 @@ def emojify(s: str) -> str:
     s = _MELD_NAME.sub("[", s)
     uni = _cur()["uni"]
     if not uni:
-        return s
+        return s.replace(SIDE_MARK, "")
     fallback = _MAPS.get("default", {}).get("uni", {})
+    if SIDE_MARK in s:   # 橫放標記＋牌 → 橫牌表情（該牌風沒有橫牌就退回直立）
+        side_map = _cur().get("uni_s", {})
+        for k in sorted(set(uni) | set(fallback), key=len, reverse=True):
+            if SIDE_MARK + k in s:
+                s = s.replace(SIDE_MARK + k, side_map.get(k) or uni.get(k) or fallback[k])
+        s = s.replace(SIDE_MARK, "")
     keys = set(uni) | set(fallback)
     for k in sorted(keys, key=len, reverse=True):   # 先換 🔴X 再換單字
         if k in s:
@@ -186,13 +204,76 @@ def back() -> str:
     return _get_code("back") or "🀫"
 
 
-def meld(m) -> str:
-    """把一個副露（Meld）渲染成顯示字串：只顯示 […]，不加「碰/吃」字樣（暗槓兩端蓋牌）。"""
-    if m.meld_type == 4 and len(m.tiles) == 4:   # 暗槓：頭尾蓋牌
-        body = back() + of(m.tiles[1]) + of(m.tiles[2]) + back()
+def _meld_order(m, owner_seat: Optional[int]):
+    """副露的顯示順序：[(Tile, 是否橫放), …]；暗槓或沒有 called／座位資訊（舊存檔）回 None（呼叫端照舊全直立）。"""
+    if m.meld_type == 4 and len(m.tiles) == 4:
+        return None
+    called = getattr(m, "called", None)
+    if called is None or owner_seat is None or m.from_seat < 0:
+        return None
+    n = getattr(m, "n_players", 4) or 4
+    rel = (m.from_seat - owner_seat) % n   # 1＝下家（右）、n-1＝上家（左）、其他＝對家
+    if m.meld_type == 1 or rel == n - 1:
+        pos = 0
+    elif rel == 1:
+        pos = -1
     else:
-        body = "".join(of(t) for t in m.tiles)
-    return f"[{body}]"
+        pos = 1
+    rest = list(m.tiles)   # 去掉被叫的那張（以及加槓補上的那張），剩下直立的
+    for x in (called, getattr(m, "added", None)):
+        if x is None:
+            continue
+        for i, t in enumerate(rest):
+            if t.code == x.code:
+                del rest[i]
+                break
+        else:
+            if rest:
+                rest.pop()
+    sides = [(called, True)]
+    if getattr(m, "added", None) is not None:
+        sides.append((m.added, True))
+    ups = [(t, False) for t in rest]
+    if pos == -1:
+        return ups + sides
+    return ups[:pos] + sides + ups[pos:]
+
+
+def meld(m, owner_seat: Optional[int] = None) -> str:
+    """把一個副露（Meld）渲染成顯示字串：只顯示 […]，不加「碰/吃」字樣（暗槓兩端蓋牌）。
+
+    有記錄 called（別人打的那張）且知道持有者座位時，依來源把那張橫放：
+    上家（左）→ 最左、對家 → 中間（槓為第二張）、下家（右）→ 最右；吃一律最左；
+    加槓在橫牌旁再橫放補上的那張。沒有 called（舊存檔）就照舊全直立。"""
+    if m.meld_type == 4 and len(m.tiles) == 4:   # 暗槓：頭尾蓋牌
+        return f"[{back() + of(m.tiles[1]) + of(m.tiles[2]) + back()}]"
+    order = _meld_order(m, owner_seat)
+    if order is None:
+        return "[" + "".join(of(t) for t in m.tiles) + "]"
+    return "[" + "".join(side(t) if sd else of(t) for t, sd in order) + "]"
+
+
+# 橫放標記：unicode 牌型字串裡，放在某張牌前面表示「這張橫放」。零寬、不可見，
+# 沒經過 emojify 的地方（純文字、舊程式）看起來與原本一樣；舊紀錄沒有標記＝全直立。
+SIDE_MARK = "⁠"
+
+
+def meld_str(m, owner_seat: Optional[int] = None) -> str:
+    """副露的 unicode 字串（同 str(Meld)），但被叫的那張前面加 SIDE_MARK；emojify 時換成橫牌表情。"""
+    order = _meld_order(m, owner_seat)
+    if order is None:
+        return str(m)
+    name = {1: "吃", 2: "碰", 3: "槓", 4: "暗槓"}.get(m.meld_type, "?")
+    return name + ":[" + " ".join((SIDE_MARK if sd else "") + str(t) for t, sd in order) + "]"
+
+
+def win_hand(concealed, melds, win_tile, owner_seat: Optional[int] = None) -> str:
+    """和牌牌型字串（儲存／顯示共用）：門前手牌＋副露（被叫那張帶橫放標記）＋｜＋和牌張（帶橫放標記）。
+    之後交給 emojify_hand 轉成表情；舊紀錄（沒有標記）照舊全直立。"""
+    parts = ["".join(str(t) for t in concealed)]
+    if melds:
+        parts.append("　".join(meld_str(m, owner_seat) for m in melds))
+    return "　".join(parts) + f"｜{SIDE_MARK}{win_tile}"
 
 
 def partial(tile: Union[Tile, str]) -> Optional["object"]:

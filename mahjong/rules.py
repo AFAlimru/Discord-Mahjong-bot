@@ -22,6 +22,7 @@ from .engine import (
 from .scoring import score_hand, WinContext
 from .state import _room_configs
 from . import i18n
+from . import rulesets
 from . import tiles as T
 
 # ═══════════════════════════════════════════════════════════════
@@ -126,7 +127,7 @@ def _indicator_to_dora(ind: Tile) -> Tile:
     if ind.suit == Suit.WIND:
         return Tile(Suit.WIND, (ind.value % 4) + 1)
     if ind.suit == Suit.DRAGON:
-        return Tile(Suit.DRAGON, (ind.value % 3) + 1)
+        return Tile(Suit.DRAGON, (ind.value - 2) % 3 + 1)   # value 1=中 2=發 3=白；白→發→中→白
     return Tile(ind.suit, (ind.value % 9) + 1)
 
 
@@ -138,11 +139,11 @@ def build_ctx(gs: GameState, player: PlayerState, win_tile: Tile, is_tsumo: bool
               is_rinshan: bool = False, is_chankan: bool = False,
               is_ippatsu: bool = False, is_double_riichi: bool = False,
               is_tenhou: bool = False, is_chiihou: bool = False,
-              open_ron_yakuman: bool = False) -> WinContext:
+              open_ron_yakuman: bool = False, is_renhou: bool = False) -> WinContext:
     n = len(gs.players)
     seat_wind = ((player.seat - gs.dealer_seat) % n) + 1
     last_tile = (gs.tiles_left == 0)
-    ruleset = _room_configs.get(gs.game_id, {}).get("ruleset", "mixed")
+    rs = rulesets.resolve(_room_configs.get(gs.game_id, {}))
     return WinContext(
         is_tsumo=is_tsumo,
         is_riichi=player.riichi,
@@ -153,7 +154,7 @@ def build_ctx(gs: GameState, player: PlayerState, win_tile: Tile, is_tsumo: bool
         round_wind=gs.round_wind,
         seat_wind=seat_wind,
         dora_tiles=gs.get_doras(),
-        ura_tiles=get_ura_tiles(gs),
+        ura_tiles=(get_ura_tiles(gs) if rs.ura else []),
         is_dealer=player.is_dealer,
         is_haitei=(is_tsumo and last_tile),
         is_houtei=((not is_tsumo) and last_tile),
@@ -161,8 +162,15 @@ def build_ctx(gs: GameState, player: PlayerState, win_tile: Tile, is_tsumo: bool
         is_chankan=is_chankan,
         is_tenhou=is_tenhou,
         is_chiihou=is_chiihou,
-        allow_double_yakuman=(ruleset != "tenhou"),
+        allow_double_yakuman=rs.double_yakuman,
         kita=getattr(player, "kita", 0),
+        ippatsu_on=rs.ippatsu,
+        ura_on=rs.ura,
+        kuitan=rs.kuitan,
+        kiriage=rs.kiriage,
+        kazoe=rs.kazoe,
+        renhou=rs.renhou,
+        is_renhou=is_renhou,
     )
 
 
@@ -336,8 +344,8 @@ def is_furiten(player: PlayerState, perm: dict, temp: dict) -> bool:
 
 
 def ai_should_ron(gs: GameState, player: PlayerState, tile: Tile,
-                  perm: dict = None, temp: dict = None) -> bool:
-    """AI 是否榮和：成胡有役且非振聽。"""
+                  perm: dict = None, temp: dict = None, is_renhou: bool = False) -> bool:
+    """AI 是否榮和：成胡有役且非振聽（人和規則開啟時，人和也算有役）。"""
     if perm is not None and is_furiten(player, perm, temp or {}):
         return False
-    return evaluate_win(gs, player, tile, is_tsumo=False) is not None
+    return evaluate_win(gs, player, tile, is_tsumo=False, is_renhou=is_renhou) is not None

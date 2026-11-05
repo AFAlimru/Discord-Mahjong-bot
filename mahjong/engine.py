@@ -166,15 +166,16 @@ class _MT19937:
         return y & 0xFFFFFFFF
 
 
-def _tenhou_tile(tid: int) -> Tile:
-    """天鳳牌號（0~135，每種 4 張；赤五＝16／52／88）→ Tile。順序：萬 筒 索 東南西北 白發中。"""
+def _tenhou_tile(tid: int, red: bool = True) -> Tile:
+    """天鳳牌號（0~135，每種 4 張；赤五＝16／52／88）→ Tile。順序：萬 筒 索 東南西北 白發中。
+    red＝False 時不標赤（無赤寶牌的規則）。"""
     kind, copy = divmod(tid, 4)
     if kind < 9:
-        return Tile(Suit.MAN, kind + 1, kind == 4 and copy == 0)
+        return Tile(Suit.MAN, kind + 1, red and kind == 4 and copy == 0)
     if kind < 18:
-        return Tile(Suit.PIN, kind - 8, kind == 13 and copy == 0)
+        return Tile(Suit.PIN, kind - 8, red and kind == 13 and copy == 0)
     if kind < 27:
-        return Tile(Suit.SOU, kind - 17, kind == 22 and copy == 0)
+        return Tile(Suit.SOU, kind - 17, red and kind == 22 and copy == 0)
     if kind < 31:
         return Tile(Suit.WIND, kind - 26)          # 東南西北＝WIND 1~4
     return Tile(Suit.DRAGON, {31: 3, 32: 2, 33: 1}[kind])   # 白發中＝DRAGON 3/2/1
@@ -194,10 +195,12 @@ def tenhou_yama(seed: list[int], sanma: bool) -> list[int]:
     return yama
 
 
-def _tenhou_wall(sanma: bool) -> tuple[list[Tile], str, str, str]:
-    """天鳳方式產生牌山：回傳 (牌山, 編碼字串, sha256, 種子十六進位)。"""
+def _tenhou_wall(sanma: bool, red_fives: int | None = None) -> tuple[list[Tile], str, str, str]:
+    """天鳳方式產生牌山：回傳 (牌山, 編碼字串, sha256, 種子十六進位)。
+    red_fives＝赤寶牌張數（None＝預設有赤；0＝無赤）。"""
     seed = [secrets.randbits(32) for _ in range(624)]
-    wall = [_tenhou_tile(t) for t in tenhou_yama(seed, sanma)]
+    red = red_fives is None or red_fives > 0
+    wall = [_tenhou_tile(t, red) for t in tenhou_yama(seed, sanma)]
     encoding = wall_encode(wall)
     sha256 = hashlib.sha256(encoding.encode()).hexdigest()
     return wall, encoding, sha256, ",".join(f"{x:08X}" for x in seed)
@@ -222,8 +225,10 @@ def _finalize_wall(tiles: list[Tile]) -> tuple[list[Tile], str, str]:
     return tiles, encoding, sha256
 
 
-def generate_wall_sanma() -> tuple[list[Tile], str, str]:
-    """生成三麻牌山 (108張，移除2-8萬)；一番街方式"""
+def generate_wall_sanma(red_fives: int | None = None) -> tuple[list[Tile], str, str]:
+    """生成三麻牌山 (108張，移除2-8萬)；一番街方式。
+    red_fives＝赤寶牌張數（None＝預設 2 張：5p5s 各一；0＝無赤）。"""
+    red_on = red_fives is None or red_fives > 0
     tiles: list[Tile] = []
 
     # 1萬、9萬 各4張
@@ -234,7 +239,7 @@ def generate_wall_sanma() -> tuple[list[Tile], str, str]:
     for suit in (Suit.SOU, Suit.PIN):
         for val in range(1, 10):
             for copy in range(4):
-                red = (val == 5 and copy == 3)
+                red = red_on and (val == 5 and copy == 3)
                 tiles.append(Tile(suit, val, red))
 
     # 風牌、龍牌
@@ -247,15 +252,17 @@ def generate_wall_sanma() -> tuple[list[Tile], str, str]:
     return _finalize_wall(tiles)
 
 
-def generate_wall_yonma() -> tuple[list[Tile], str, str]:
-    """生成四麻牌山 (136張，完整)；一番街方式"""
+def generate_wall_yonma(red_fives: int | None = None) -> tuple[list[Tile], str, str]:
+    """生成四麻牌山 (136張，完整)；一番街方式。
+    red_fives＝赤寶牌張數（None＝預設 3 張：5m5p5s 各一；0＝無赤）。"""
+    red_on = red_fives is None or red_fives > 0
     tiles: list[Tile] = []
 
     # 萬子、條子、餅子 各36張
     for suit in (Suit.MAN, Suit.SOU, Suit.PIN):
         for val in range(1, 10):
             for copy in range(4):
-                red = (val == 5 and copy == 3)
+                red = red_on and (val == 5 and copy == 3)
                 tiles.append(Tile(suit, val, red))
 
     # 風牌、龍牌
@@ -303,7 +310,29 @@ class Meld:
     meld_type: int  # MeldType
     tiles: list[Tile] = field(default_factory=list)
     from_seat: int = -1  # 誰打出的牌（-1表示暗槓）
-    
+    called: Optional[Tile] = None   # 從別人那邊拿來的那張（顯示時橫放）；暗槓與舊存檔為 None
+    added: Optional[Tile] = None    # 加槓時補上去的那張（顯示時疊在 called 旁橫放）
+    n_players: int = 4              # 對局人數（算「來自上家／對家／下家」用，三麻 3）
+
+    def to_dict(self) -> dict:
+        return {
+            "meld_type": int(self.meld_type),
+            "tiles": [t.to_dict() for t in self.tiles],
+            "from_seat": self.from_seat,
+            "called": self.called.to_dict() if self.called else None,
+            "added": self.added.to_dict() if self.added else None,
+            "n_players": self.n_players,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Meld":
+        c, a = d.get("called"), d.get("added")
+        return cls(d["meld_type"], [Tile.from_dict(t) for t in d.get("tiles", [])],
+                   d.get("from_seat", -1),
+                   Tile.from_dict(c) if c else None,
+                   Tile.from_dict(a) if a else None,
+                   d.get("n_players", 4))
+
     def __str__(self) -> str:
         type_names = {1: "吃", 2: "碰", 3: "槓", 4: "暗槓"}
         name = type_names.get(self.meld_type, "?")
@@ -331,6 +360,7 @@ class PlayerState:
     is_bot: bool = False
     kita: int = 0   # 三麻拔北（北寶牌）累計張數
     discard_taken: bool = False   # 本局是否曾有捨牌被鳴走（破壞流局滿貫資格）
+    riichi_idx: int = -1   # 立直宣言牌在 discards 的位置（橫放）；宣言牌被鳴走後它剛好指向「下一張捨牌」，改橫放那張
 
     @property
     def full_hand(self) -> list[Tile]:
@@ -404,6 +434,8 @@ class PlayerState:
             "hand": [t.to_dict() for t in self.hand],
             "drawn_tile": self.drawn_tile.to_dict() if self.drawn_tile else None,
             "discards": [t.to_dict() for t in self.discards],
+            "melds": [m.to_dict() for m in self.melds if isinstance(m, Meld)],
+            "riichi_idx": self.riichi_idx,
             "score": self.score,
             "riichi": self.riichi,
             "is_dealer": self.is_dealer,
@@ -416,6 +448,8 @@ class PlayerState:
         p.hand = [Tile.from_dict(t) for t in d["hand"]]
         p.drawn_tile = Tile.from_dict(d["drawn_tile"]) if d["drawn_tile"] else None
         p.discards = [Tile.from_dict(t) for t in d["discards"]]
+        p.melds = [Meld.from_dict(m) for m in d.get("melds", [])]   # 舊存檔沒有這欄
+        p.riichi_idx = d.get("riichi_idx", -1)
         p.score = d["score"]
         p.riichi = d["riichi"]
         p.is_dealer = d["is_dealer"]
@@ -450,6 +484,7 @@ class GameState:
     wall_sha256: str = ""
     wall_method: str = WALL_RIICHI_CITY     # 牌山生成方式（riichi_city／tenhou）
     wall_rng_seed: str = ""                 # 天鳳方式：這一局的 624 個種子（十六進位，逗號分隔）
+    red_fives: Optional[int] = None         # 赤寶牌張數（None＝預設：四麻 3／三麻 2；0＝無赤）；下一局沿用
 
     pending_discard: Optional[Tile] = None
     pending_from_seat: int = -1
@@ -484,7 +519,7 @@ class GameState:
                 next_val = (ind.value % 4) + 1
                 doras.append(Tile(Suit.WIND, next_val))
             elif ind.suit == Suit.DRAGON:
-                next_val = (ind.value % 3) + 1
+                next_val = (ind.value - 2) % 3 + 1   # value 1=中 2=發 3=白；白→發→中→白
                 doras.append(Tile(Suit.DRAGON, next_val))
             else:
                 next_val = (ind.value % 9) + 1
@@ -515,6 +550,7 @@ class GameState:
             "wall_sha256": self.wall_sha256,
             "wall_method": self.wall_method,
             "wall_rng_seed": self.wall_rng_seed,
+            "red_fives": self.red_fives,
             "pending_discard": self.pending_discard.to_dict() if self.pending_discard else None,
             "pending_from_seat": self.pending_from_seat,
         }
@@ -542,21 +578,23 @@ class GameState:
         gs.wall_sha256 = d["wall_sha256"]
         gs.wall_method = d.get("wall_method", WALL_RIICHI_CITY)
         gs.wall_rng_seed = d.get("wall_rng_seed", "")
+        gs.red_fives = d.get("red_fives")
         gs.pending_discard = Tile.from_dict(d["pending_discard"]) if d["pending_discard"] else None
         gs.pending_from_seat = d["pending_from_seat"]
         return gs
 
 
 def new_game(game_id: str, players_info: list[dict], is_sanma: bool = False,
-             start_points: int | None = None, wall_method: str = WALL_RIICHI_CITY) -> GameState:
-    """創建新牌局。wall_method＝牌山生成方式（一番街／天鳳）。"""
+             start_points: int | None = None, wall_method: str = WALL_RIICHI_CITY,
+             red_fives: int | None = None) -> GameState:
+    """創建新牌局。wall_method＝牌山生成方式（一番街／天鳳）；red_fives＝赤寶牌張數（None＝預設）。"""
     rng_seed = ""
     if wall_method == WALL_TENHOU:
-        wall, seed, sha, rng_seed = _tenhou_wall(is_sanma)
+        wall, seed, sha, rng_seed = _tenhou_wall(is_sanma, red_fives)
     elif is_sanma:
-        wall, seed, sha = generate_wall_sanma()
+        wall, seed, sha = generate_wall_sanma(red_fives)
     else:
-        wall, seed, sha = generate_wall_yonma()
+        wall, seed, sha = generate_wall_yonma(red_fives)
     player_count = 3 if is_sanma else 4
 
     layout = wall_to_layout(wall)
@@ -566,6 +604,7 @@ def new_game(game_id: str, players_info: list[dict], is_sanma: bool = False,
     gs.wall_sha256 = sha
     gs.wall_method = wall_method if wall_method in WALL_METHODS else WALL_RIICHI_CITY
     gs.wall_rng_seed = rng_seed
+    gs.red_fives = red_fives
     gs.live_wall = layout["live_wall"]
     gs.dora_indicators = layout["dora_indicators"]
     gs.ura_indicators = layout["ura_indicators"]

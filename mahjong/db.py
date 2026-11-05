@@ -93,7 +93,7 @@ def init_db() -> None:
                 skin         TEXT,                              -- 牌面樣式
                 notify_queue INTEGER NOT NULL DEFAULT 0,        -- 有人排隊時私訊通知
                 voice_pack   TEXT,                              -- 個人角色語音（語音包資料夾名）
-                ai_voice     TEXT                               -- 自己開的房裡電腦用的語音包（NULL＝電腦不出聲）
+                ai_voice     TEXT                               -- 自己開的房裡電腦用的語音包（NULL＝沒設定過→預設；''＝電腦不出聲）
             );
 
             -- 伺服器設定

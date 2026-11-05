@@ -36,9 +36,10 @@ SUPPORT_URL = os.getenv("SUPPORT_URL", "https://discord.gg/QNJMBhDrcj").strip()
 # ── 0.7.2 音效（FFmpeg 直接播檔 + 資料夾語音包）──
 # 音效檔根目錄；底下每個子資料夾＝一個語音包（見 sfx.py）。
 SOUNDS_DIR = os.getenv("SOUNDS_DIR", "assets/sounds")
+# 電腦語音的預設語音包（沒人設定過「電腦語音」時用；資料夾不存在＝電腦不出聲）
+DEFAULT_AI_VOICE = os.getenv("DEFAULT_AI_VOICE", "AI曼波").strip()
 
 # ── 遊戲常數 ──────────────────────────────────────────────────
 WIND_LABELS          = ["東", "南", "西", "北"]
-AI_NAMES             = ["AI(1)", "AI(2)", "AI(3)", "AI(4)"]
 DEFAULT_POINTS_YONMA = 25000
 DEFAULT_POINTS_SANMA = 35000

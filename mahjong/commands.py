@@ -18,18 +18,17 @@ import uuid
 import discord
 from discord import app_commands
 
-from .config import AI_NAMES
 from .numfmt import compact, signed as signed_num
 from . import db
 from . import i18n
 from . import rooms
 from . import hubs
-from .render import make_board_text
+from .render import board_parts
 from . import tiles as T
 from .ui import HelpButton, help_text
 from .views import RoomSettingsView
 from .flow import (launch_game, launch_ranked_game, launch_dm_game, _cleanup,
-                   _delete_threads, _delete_announce, force_end, end_request_view)
+                   _delete_threads, _delete_announce, force_end, end_request_view, bot_name)
 from . import matchmaking
 from .state import (
     _games, _channel_games, _waiting, _room_owners, _room_configs, _user_game,
@@ -147,7 +146,7 @@ class LobbyView(discord.ui.View):
             return
 
         ai_uid  = f"ai_{gid}_{self._ai_count}"
-        ai_name = AI_NAMES[self._ai_count % len(AI_NAMES)]
+        ai_name = bot_name(cfg.get("ai_level"), cfg.get("lang") or i18n.DEFAULT)   # 電腦不編號（風位分得出來）
         self._ai_count += 1
         _waiting[gid].append({"user_id": ai_uid, "username": ai_name, "is_bot": True})
         await self._update(interaction)
@@ -293,7 +292,8 @@ async def cmd_start(interaction: discord.Interaction) -> None:
                  if interaction.guild_id and hubs.of_channel(interaction.guild_id, interaction.channel)
                  else i18n.get_user_lang(user_id))
     sv = RoomSettingsView(gid="setup", lang=room_lang)
-    await interaction.response.send_message(i18n.t("settings.prompt", room_lang), view=sv, ephemeral=True)
+    await interaction.response.send_message(sv.panel_content(), view=sv, ephemeral=True)
+    sv.origin = interaction                # 細項視窗改完後用它更新面板上的規則摘要
     await sv.wait()
 
     is_sanma      = sv.sanma
@@ -302,8 +302,8 @@ async def cmd_start(interaction: discord.Interaction) -> None:
     length        = "hanchan" if sv.hanchan else "tonpuu"
     tobi          = sv.tobi
     ruleset       = sv.ruleset
-    # 起始點數：未指定則依模式預設（四麻 25000、三麻 35000）
-    start_points  = sv.start_points if sv.start_points is not None else (35000 if is_sanma else 25000)
+    # 起始點數：沒在數值設定裡指定就留 None＝照所選規則（WRC 30000，其餘四麻 25000、三麻 35000）
+    start_points  = sv.start_points
 
     gid = str(uuid.uuid4())[:8]
     _waiting[gid]            = [{"user_id": user_id, "username": interaction.user.display_name, "is_bot": False}]
@@ -311,6 +311,7 @@ async def cmd_start(interaction: discord.Interaction) -> None:
     _room_configs[gid]       = {
         "is_sanma": is_sanma, "thinking_time": thinking_time, "max_players": max_players,
         "length": length, "tobi": tobi, "ruleset": ruleset, "start_points": start_points,
+        "rules": sv.rules, "rule_over": dict(sv.rule_over),   # 規則預設＋細項（"ruleset" 是給還沒改用 rulesets 的舊程式）
         "kuikae": sv.kuikae, "open_riichi": sv.open_riichi, "abortive": sv.abortive,
         "wall": sv.wall_method, "ai_level": sv.ai_level,
         "lang": room_lang,
@@ -319,7 +320,7 @@ async def cmd_start(interaction: discord.Interaction) -> None:
     if interaction.guild_id is None:
         # DM：AI 補滿直接開打（跟電腦打，不列段位、不開討論串）
         _waiting[gid].extend(
-            {"user_id": f"ai_{gid}_{i}", "username": AI_NAMES[i % len(AI_NAMES)], "is_bot": True}
+            {"user_id": f"ai_{gid}_{i}", "username": bot_name(sv.ai_level, room_lang), "is_bot": True}
             for i in range(max_players - 1))
         await launch_dm_game(gid, interaction.user)
         return
@@ -457,8 +458,10 @@ async def cmd_status(interaction: discord.Interaction) -> None:
         await interaction.response.send_message(f"{head}\n{plist}", ephemeral=True)
         return
     open_hand = _room_configs.get(gid, {}).get("open_hand", False)
-    await interaction.response.send_message(
-        content=make_board_text(gs, "", open_hand, lang), ephemeral=True)
+    parts = board_parts(gs, lang, open_hand)   # 每家一則（牌河完整，單則不超過 2000 字）
+    await interaction.response.send_message(content=parts[0], ephemeral=True)
+    for part in parts[1:]:
+        await interaction.followup.send(part, ephemeral=True)
 
 
 def _web_stats_button(lang: str, row: int | None = None) -> discord.ui.Button | None:
