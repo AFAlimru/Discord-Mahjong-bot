@@ -3,6 +3,145 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.9.0] - 未發布（開發中）
+
+### 新增
+- **橫放的牌**：
+  - 資料：`engine.Meld` 新增 `called`（被鳴的那張，暗槓與舊存檔為 `None`）、`added`（加槓補上的那張）、`n_players`（算上家／對家／下家用，三麻 3）；
+    `PlayerState` 新增 `riichi_idx`（立直宣言牌在 `discards` 的位置，預設 −1）。`Meld`／`PlayerState` 的 `to_dict`／`from_dict` 一併存取
+    （`PlayerState` 之前不存副露，現在也存；舊存檔缺這些欄位照樣可讀）。flow 在吃、碰、大明槓、暗槓、加槓時寫入；真人與電腦立直、開立直、兩立直都會設 `riichi_idx`。
+  - 宣言牌被鳴走：被鳴走的牌本來就會從 `discards` 移除，所以 `riichi_idx` 剛好指到「下一張捨牌」，那張就改橫放，不需要額外狀態。
+  - 顯示：`tiles.side(tile)` 取橫牌表情（當前牌風 → 預設風 → 直立牌），`tiles.meld(m, owner_seat)` 依 `(from_seat − 持有者座位) % 人數` 決定橫牌位置
+    （下家＝最右、上家＝最左、對家＝中間，大明槓為第二張；吃最左；加槓在同位置橫放兩張；暗槓不變；沒有 `called` 的舊資料照舊全直立）。
+    `render._river_str()` 統一所有牌河（面板、討論串牌桌、牌河訊息、看牌河）並處理「只留最近 N 張」時的橫牌位置。
+  - 和牌牌型：`flow.format_winning_hand` 改走 `tiles.win_hand()`，仍輸出 unicode 字串，但副露被叫的那張與和牌張前面加零寬標記 `tiles.SIDE_MARK`（U+2060），
+    `emojify`／`emojify_hand` 遇到「標記＋牌」換成橫牌表情（該牌風沒有橫牌就退回直立；完全沒表情時標記清掉）。和牌儀式、公開／私人結果、雙榮、回放結算、最高和了都因此橫放；
+    標記不可見，沒有標記的舊紀錄（DB 最高和了、舊回放）照舊全直立，不需改資料庫。橫牌表情名稱較長，牌型字串在 2000 字上限內仍遠低於上限（最多 14 張）。
+  - 還是直立的：舊紀錄（沒有標記）、流局時的聽牌手牌顯示。
+- **更安全的表情上傳腳本**：`tools/build_and_upload_emojis.py` 每個牌風從 38 張變成 75 張（直立 37＋牌背＋橫放 37）。
+  橫牌是直立牌逆時針轉 90°，貼進 256×256 方框的底部、水平置中，排在直立牌旁邊時落在同一條底線上。
+  預設流程改成增量：登入 → 讀取現有應用程式表情 → 檢查本機 JSON 裡每張 `mj_<牌>` 的 ID 與應用程式上的一致（對不上就中止、什麼都不上傳；`--force` 可略過）
+  → 只上傳還沒有的名稱、絕不刪除 → 把「既有＋新增」合併寫回 JSON（既有條目不動，新增 `<牌>_s` 鍵）。
+  舊的刪光重建改成明確的 `--rebuild`（會警告 ID 全變、伺服器的 JSON 必須重新部署）；`--dry-run [資料夾]` 不登入，只把全部 PNG 產出供預覽
+  （預設 `tools/.tile_preview/<風格>/`，已 gitignore）。
+- **規則預設**：新增 `mahjong/rulesets.py`，把「這桌用什麼規則」集中成一份 `RuleSet`（frozen dataclass），計分、牌山、流程、結算都讀它。
+  欄位：`start`／`return_pts`／`uma`／`start_3`／`return_3`／`uma_3`、`leftover_sticks`（`"top"`／`"none"`）、`tobi`、`red_fives`／`red_fives_3`、
+  `ippatsu`／`ura`／`kuitan`／`kiriage`、`kazoe`（`"yakuman"`／`"sanbaiman"`）、`double_yakuman`、`renhou`（`"none"`／`"mangan"`）、`pao`（適用的役滿名 tuple）、
+  `riichi_need_1000`、`multi_ron`（`"double"`／`"triple"`／`"atamahane"`）、`abortive`（frozenset，`ABORT_ALL`＝九種九牌／四風連打／四槓散了／四家立直／三家和）、
+  `nagashi`、`kan_dora`（`"immediate"`／`"tenhou"`）、`west`／`west_target`／`west_target_3`、`agari_yame`、`sanma_ok`、`label`（三語顯示名）。
+  `PRESETS` 五套（數值依各組織官方規則，2026-11 查證；官方沒寫清楚的少數項目採常見慣例，註解在各欄旁）：
+
+  | 項目 | default（預設） | tenhou（天鳳） | majsoul（雀魂） | mleague（M聯盟） | wrc（WRC） |
+  |------|------|------|------|------|------|
+  | 起始／返點（四麻） | 25000／30000 | 25000／30000 | 25000／25000 | 25000／30000 | 30000／30000 |
+  | 順位馬（四麻） | 20/10/−10/−20 | 20/10/−10/−20 | 15/5/−5/−15 | 30/10/−10/−30 | 15/5/−5/−15 |
+  | 起始／返點（三麻） | 35000／40000 | 35000／40000 | 35000／35000 | （無三麻） | （無三麻） |
+  | 順位馬（三麻） | 20/0/−20 | 20/0/−20 | 15/0/−15 | — | — |
+  | 赤寶牌（四麻／三麻） | 3／2 | 3／2 | 3／2 | 3／2 | 0／0 |
+  | 一發／裏寶牌／喰斷 | 有 | 有 | 有 | 有 | 有 |
+  | 切上滿貫 | 無 | 無 | 無 | 有 | 有 |
+  | 13 飜以上 | 累計役滿 | 累計役滿 | 累計役滿 | 封頂三倍滿 | 累計役滿（13 飜＝單倍役滿點數） |
+  | 雙倍役滿 | 有 | 無 | 有 | 無 | 無 |
+  | 人和 | 無 | 無 | 無 | 無 | 滿貫 |
+  | 包牌 | 無 | 大三元、大四喜 | 大三元、大四喜 | 大三元、大四喜、四槓子 | 大三元、大四喜、四槓子 |
+  | 立直需 1000 點 | 是 | 是 | 是 | 是 | 否 |
+  | 多家榮和 | double | double | triple | atamahane | atamahane |
+  | 途中流局 | 全部五種 | 全部五種 | 四種（無三家和） | 無 | 無 |
+  | 流局滿貫 | 有 | 有 | 有 | 無 | 無 |
+  | 槓寶牌 | immediate | tenhou | tenhou | immediate | immediate |
+  | 擊飛 | 有 | 有 | 有 | 無 | 無 |
+  | 南入／西入（門檻四麻 30000／三麻 40000） | 無 | 有 | 有 | 無 | 無 |
+  | 和了止め | 無 | 有 | 有 | 無 | 無 |
+  | 終局立直棒 | 消失 | 給第一名 | 給第一名 | 給第一名 | 消失 |
+
+  `for_mode(sanma)` 依人數取出 `start`／`return_pts`／`uma`／`red`／`west_target`；`abortive_for(sanma)` 三麻自動去掉四風連打／四家立直／三家和。
+  M聯盟與 WRC `sanma_ok=False`，三麻時 `resolve` 退回 `default`。預設 `default` 的行為與 0.8.x 完全相同。
+  房間設定 `_room_configs[gid]` 新增 `"rules"`（預設名稱）與 `"rule_over"`（細項改過的欄位）；`preset_key` 相容舊的 `"ruleset"`（`mixed`→default、`tenhou`→tenhou），
+  `resolve(config)` 先取預設，再套 `rule_over`（只認 `OVERRIDABLE`）、面板的 `tobi`／`abortive` 開關，細項赤寶牌的有／無對三麻同步成 2／0。
+  `to_dict` 供存檔與牌譜用。`flow.launch_game`／`launch_dm_game`／`voice._config_from_settings`／`/mahjong start` 的設定都寫入 `rules`／`rule_over`；
+  `flow._start_points` 沒自訂起始點數時改讀規則（WRC 30000）。
+- **規則細項**：`views.RuleDetailsView`（按「🔧 細項」＝`RoomSettingsView.show_details`，ephemeral）＋`_DetailButton`，每顆對應 `rulesets.OVERRIDABLE` 的一個欄位：
+  `ippatsu`、`ura`、`red_fives`（有／無，三張或兩張依人數）、`kuitan`、`kiriage`、`multi_ron`（double → triple → atamahane 輪替）、`leftover_sticks`（top／none）。
+  `toggle` 只在跟目前預設（`base_rules()`）不同時才寫進 `panel.rule_over`；換預設（`rules_select`）會清空 `rule_over`。改完用 `refresh_panel` 更新共用面板訊息
+  （`origin` ephemeral 互動或 `panel_message`）。i18n `rules.det.*`、`rules.v.*`、`rules.multi.*`、`rules.left.*`（三語）。
+- **規則摘要**：`rulesets.summary(rs, lang, sanma, selected, start_points, hanchan)` 產生 4～6 行說明（預設名稱一行，再依「點數」「寶牌與役」「流局與結束」三個標籤各一行：起始／返點／馬點、赤牌與各役開關、途中流局／擊飛／南入／多家榮和／終局立直棒；
+  `rs.west` 或 `rs.agari_yame` 才多第 4 行，東風寫「南入」、半莊寫「西入」，不確定時兩個都寫；選了無三麻規則的預設又開三麻時多一行退回預設的說明）。
+  房間自訂起始點數時，起始、返點、延長門檻以同樣的差額平移。`RoomSettingsView.panel_content` 把它接在開頭文字後面，開面板與每次按鈕後都刷新；語音房面板改成 `base_content=voice.settings_hint`。i18n `rules.sum.*`。
+- **一炮多響三種處理**：`flow.collect_reactions_t(..., multi_ron=)` 依 `rs.multi_ron`：`atamahane` 時多人榮和只取離放銃者最近的下家，其餘人以 `("ron", uid, 被略過者 uid 清單)` 的 extra 帶回
+  （不會被當成「放過」而記振聽）；`triple` 時三家和照一般多家榮和處理；`double` 時三家和依途中流局設定（`sancha_abort`）。
+- **途中流局分種類**：`rs.abortive_for(is_sanma)` 決定這桌的途中流局集合，`play_hand_t` 逐項檢查（九種九牌、四風連打、四槓散了、四家立直、三家和各自獨立，`"三家和" in abortive` 傳給 `collect_reactions_t`）；
+  流局滿貫另看 `rs.nagashi`。舊的面板 `abortive` 開關仍有效（關＝空集合，開而預設沒有＝`ABORT_ALL`）。
+- **南入／西入與和了止め**：`settlement.west_target(gs, rs, start_points)`（依人數取門檻，自訂起始點數就平移）；`settlement.is_game_over(..., rs=, start_points=, renchan=)`：
+  `rs.west` 時預定最後一局（東風戰東4、半莊南4）打完沒人達門檻就延長，延長中任何一局結束有人達標就結束，最多到延長場風的最後一局（東風戰南4、半莊西4）；擊飛先判。
+  `rs.agari_yame` 時預定最後一局莊家連莊且是單獨第一、達門檻就結束。`flow` 以 `_renchan`（途中流局不算）傳入。不給 `rs` 時維持舊行為。
+- **包牌**：`settlement.attach_pao`（把包牌紀錄掛到 `result.pao`，底點＝8000×倍數，`double_yakuman` 才算雙倍）、`_ron_pays`（榮和：包牌役滿的部分由責任者與放銃者各付一半，本場由責任者付）、
+  `_pao_tsumo`（自摸：責任者代付其他人在該役滿的份並負擔全部本場）。`flow` 的 `pao_map` 每局重算，`_note_pao` 在碰／大明槓成立時登記
+  （第 3 組三元牌＝大三元、第 4 組風牌＝大四喜、第 4 個槓＝四槓子且限大明槓），只登記 `rs.pao` 有列的役滿；`_pao` 在各條和牌路徑掛上，結果訊息多顯示誰負責支付（i18n `result.pao`）。
+- **人和（WRC）**：`flow._is_renhou(p, any_call)`（閒家、尚未打過牌、場上無任何鳴牌含暗槓）；`rules.build_ctx(..., is_renhou=)` 傳給 `WinContext.is_renhou`，
+  `scoring` 在 `renhou == "mangan"` 且沒有役滿時，人和固定算滿貫，唯一的役是「人和」，不與其他役／寶牌複合；`ai_can_ron` 也認人和。
+- **切上滿貫與 13 飜封頂**：`WinContext` 新增 `ippatsu_on`、`ura_on`、`kuitan`、`kiriage`、`kazoe`、`renhou`、`is_renhou`，`rules.build_ctx` 從 `rs` 填入（裏寶牌關閉時 `ura_tiles` 為空、`allow_double_yakuman=rs.double_yakuman`）。
+  `_finalize_points`：`kiriage` 時 base ≥ 1920（4 飜 30 符、3 飜 60 符）算滿貫；`kazoe == "sanbaiman"` 時 13 飜以上不升累計役滿，維持三倍滿。喰斷關閉時副露的斷么九不成立（暗槓視為門前）。
+- **槓寶牌後翻**：`flow` 的 `_kan_dora(closed)`／`_flush_dora()`／`pending_dora`：`rs.kan_dora == "tenhou"` 時暗槓立刻翻，大明槓與加槓先記著，等這個人打牌之後（別家反應與榮和之前）才翻；
+  打牌前又宣告下一個槓時先把前一個翻出來；嶺上開花、搶槓時沒打牌就不翻。`"immediate"` 維持立刻翻。
+- **赤寶牌開關**：`engine.generate_wall_yonma`／`generate_wall_sanma`／`_tenhou_wall`／`_tenhou_tile` 與 `new_game` 新增 `red_fives` 參數（0＝全部不標赤），`GameState.red_fives` 存進 `to_dict`／`from_dict`，下一局沿用；
+  `launch_game` 等處以 `rs.for_mode(is_sanma)["red"]` 傳入。
+- **終局立直棒**：`settlement.final_standings(..., rs=)` 在 `rs.leftover_sticks == "top"` 時把桌上剩的立直棒加進第一名點數再精算，`"none"` 為消失；
+  馬點／原點／返點也改讀 `rs.for_mode`，房間自訂起始點數時返點＝自訂起始＋（規則返點 − 規則起始）。不給 `rs` 維持舊行為。
+
+### 變更
+- **電腦語音預設曼波**：`config.DEFAULT_AI_VOICE`（環境變數 `DEFAULT_AI_VOICE`，預設 `AI曼波`）。`sfx._ai_pack` 依序看房主、同桌真人（要在語音房）的 `user_prefs.ai_voice`：有語音包就用；空字串＝明確選了「電腦不出聲」→ 不出聲；都沒設定過（NULL）→ 用預設語音包（`_pack_ok` 檢查資料夾存在，不存在＝不出聲）。
+  `voice.VoicePackSelect`（電腦語音）選「不出聲」改存空字串（原本存 NULL，所以以前關過的人會變回預設、要再關一次），沒設定過時選單標成預設語音包。
+- **牌河每家一則訊息**：
+  - 渲染（`render.py`）：新增 `board_parts`（公開牌桌：`board_header_text` 標頭＋每家 `board_player_text`）、`board_status_text`（底部狀態引言，沒有狀態放 `> —` 佔位）、
+    `river_parts`（私人牌河：`river_header_text` 場況標頭＋每家 `river_player_text`）。牌河一律完整（`_river_str` 不再傳 cap），不再有「…」；
+    每家單則若超過 1950 字（`_MSG_LIMIT`），`_fit_block` 改用 unicode 純字牌（每張 1 字、順序完整）重組，不截斷。原本放在各家名字前的 ▶ 移到標頭一行（`_turn_line`：▶ 風位「名字」），
+    這樣出牌只會動到該家那一則＋標頭，換人不必多編輯一則。`make_board_text`／`make_thread_board`／`river_panel`／`river_message_text` 保留為「整桌合成一段」的舊介面（發送路徑不再使用）。
+  - 流程（`flow.py`）：新增 `MsgGroup`（`send`／`edit_jobs`／`sync`／`delete`，記下每則上次送出的內容，只編輯內容有變的）。`_threads[gid]["board_msg"]`（觀戰牌桌：標頭＋每家＋狀態，「🌐 翻譯」鈕掛在最後的狀態訊息）
+    與 `["river_msg"][uid]`（標頭＋每家）都改存 `MsgGroup`；`setup_channels`／`setup_threads`／`setup_dms` 建立，`play_hand_t` 的 `_river_edits`／`render_board`、`wait_turn_action`、換局流程改用 `edit_jobs`／`sync`
+    （原本的 `_river_cache` 移除，快取改在群組內）；結算時 `delete()` 逐則刪除。`ui.TranslateBoardButton` 與 `/mahjong status`（`commands.cmd_status`）改成分則私密訊息送出（首則回應、其餘 followup）。
+  - 重啟接續：牌桌訊息本來就不存 ID（接續時舊頻道由 `purge_saved_surfaces` 整個刪掉、`setup_threads` 重發整組），所以不需要新的存檔欄位，舊存檔照常接續。
+- **自動操作每局重置**：`match_loop_t` 在一局結算完、發下一手牌之前清掉該局 `_auto_modes` 中這個 gid 的全部項目（面板標記由 `ui.auto_marker` 即時計算，自然消失）；`auto.title` 三語改成「每局開始時重置」。
+- **段位賽改用天鳳預設**：段位賽設定沿用 `"ruleset": "tenhou"`，經 `preset_key` 對應到 `tenhou` 預設，因此一併有南入／西入、和了止め、包牌（大三元、大四喜）、槓寶牌後翻、終局立直棒歸第一名。
+  雙倍役滿維持無（與原本的完全天鳳式相同）。
+- **天鳳四麻東風戰順位馬**：`tenhou` 預設的 `uma` 一律 20/10/−10/−20（官方規則），不再分戰長用 10/5；`settlement._pick_uma` 與 `UMA_YONMA_TONPUU` 只剩沒給 `rs` 時的舊行為使用。
+- **WRC 起始點數 30000**：`rulesets.PRESETS["wrc"].start=30000`（返點同），`flow._start_points` 改讀規則。
+- **「📐 規則」按鈕改成下拉選單**：`RoomSettingsView.rules_select`（`row=0`，選項由 `_sync_rules_select` 依語言重建，M聯盟／WRC 附「僅四麻」說明）取代原本的切換按鈕；
+  選預設時 `_sync_toggles_from_rules` 把擊飛、途中流局按鈕同步成該預設的值（之後玩家仍可自己切）。版面見下面「設定面板整理」。
+- **起家隨機**：新增 `flow._prepare_seating(gid, players_info)`，在 `launch_game`、`launch_dm_game`、`launch_match_game` 呼叫 `new_game` 之前，用 `secrets.SystemRandom().shuffle` **就地**洗牌 `_waiting[gid]`
+  （名單第 0 位＝seat 0＝東家／起家）。就地洗是為了讓 `match_loop_t` 與 `deal_next_hand` 之後每一手拿到的 `players_info` 順序都跟開局一致；
+  `engine.new_game` 本身不洗牌（基準測試工具要固定座位）；斷線重連（`resume_game`）用快照裡的座位，不重洗。
+  房主（`_room_owners[gid]`）不變，只是不再等於東家。牌桌上各面板（`render.make_thread_board`／牌河／手牌／結果）本來就照 `gs.players`（座位）順序排，不用改，起家自然排在最上面。
+  大廳等待名單（`LobbyView._content`）還是照加入順序。語音房 `_start_voice_game` 的註解同步改掉（原本寫「房主＝東家＝members[0]」）。
+- **電腦名字**：移除 `config.AI_NAMES`（AI(1)～AI(4)）。新增 i18n `bot.name`（zh_tw「電腦」／ja「CPU」／en「CPU」）與 `flow.bot_name(level, lang)`（預設回 `bot.name`）；
+  `LobbyView.ai_btn`、`/mahjong start` 的 DM 補電腦、`voice._start_voice_game` 補電腦都改用它（不再編號）；
+  房間設定在開房後才改（語音房的面板）也對，所以 `_prepare_seating` 在開局前會依房間設定與語言把所有 `is_bot` 的 `username` 重設一次。
+  電腦名字現在會重複，已檢查沒有任何東西用 `username` 當鍵：統計、段位、牌譜的 `players`、`names`、`rank_of` 都用 `user_id`；電腦本來就不寫入 `game_records`／活躍度。
+- **語音房開局訊息不 @ 房主**：`voice._start_voice_game` 開局後的訊息不再附 `voice.host`（「房主＝東家 @某人｜…」，三語都已刪），改附新的 `voice.end_hint`（沒有 mention 欄位：要結束對局按下面的按鈕，非房主需房主同意）。
+- **設定面板整理**（`views.RoomSettingsView`）：目標是精簡、不換行、不靠顏色猜狀態。
+  - （後續調整）`panel_content()` 改成：標題 → `settings.sum.game`（`**四麻・東風戰**`）→ `settings.sum.opts2`（`思考 25 秒・一番街牌山`＋電腦難度標籤）→ `rulesets.compact` 三行（`rules.sum.c1`＝`規則 **預設**{extra}`，`extra`＝`rules.sum.fallback`（`（M聯盟沒有三麻規則）`）＋`rules.diff.head`（`：切上滿貫・…`）；`rules.sum.pts`＝`25,000 起・30,000 返`；`rules.sum.uma`＝`馬 +20/+10/-10/-20`）。拿掉小字提示（刪除 `settings.hint`／`settings.hint_voice`）。以下是第一版的說明，差異行與提示已被這條取代。
+  - `panel_content()` 預設 4 行：`base_content`（只有標題 `⚙️ **房間設定**`，語音房是 `voice.settings_hint`，沒有全形冒號或破折號）→ `settings.sum.game`（`**四麻・東風戰**　思考 25 秒・一番街牌山`，面板有選用的電腦開關時接上它的標籤文字，不帶表情符號）→ `rulesets.compact`（`rules.sum.c1`：`規則 **預設**　25,000 起・30,000 返・馬 +20/+10/-10/-20`）→ 小字提示（一般面板 `settings.hint`＝「開局前都能改；調好後按「確認」」，語音房 `settings.hint_voice`＝「…滿員自動開局時用當下的設定」，依 `show_confirm` 選）。
+    有跟「預設」不同的項目時，在規則行後多一行 `-#` 小字「與預設不同：…」（`rules.diff.*`）：赤寶牌、一發、裏寶牌、喰斷、切上滿貫、擊飛、途中流局、多家榮和、終局立直棒，以及面板自己的食替（允許）與開立直（開），還有南入／西入（含門檻）、和了止め；
+    選了沒有三麻規則的預設又開三麻時，退回預設的說明也放在這一行（`rules.sum.fallback`，不再獨立一行）。沒有差異就不顯示這行。完整列表的 `rulesets.summary` 只留給細項視窗（`RuleDetailsView.content`）使用。
+  - 按鈕版面：第 0 列規則下拉、第 1 列「對局」（`toggle_sanma`、`toggle_length`、`modify_time`、`toggle_wall`、[`toggle_ai`]）、第 2 列「規則」（`toggle_tobi`、`toggle_abortive`、`show_details`）、第 3 列 `confirm`。
+    食替（`kuikae`）與開立直（`open_riichi`）移到細項視窗當一般開關（`RuleDetailsView._PANEL_FIELDS`：直接改 `panel.kuikae`／`panel.open_riichi`，不進 `rule_over`，開局時 `commands`／`voice` 照舊從面板取值）；`toggle_kuikae`、`toggle_open_riichi` 移除。
+  - 按鈕標籤改短，直接顯示目前的值：`四麻`／`三麻`、`東風戰`／`半莊戰`、`數值設定`、`牌山生成：一番街`／`牌山生成：天鳳`（`settings.wall_btn`）、電腦難度（私有的標籤，`_hard_ai_label` 會去掉開頭的表情符號）；開關用 `擊飛 ✓`／`擊飛 ✗`、`途中流局 ✓`／`✗`（藍色＝開、灰色＝關，另有記號不只靠顏色）。
+    按鈕與面板文字拿掉裝飾用的表情符號（規則下拉選項、確認、完成、與電腦開始、語音包下拉等），只留標題 ⚙️、下拉選單 📐、🔧 細項。
+  - 開關鈕的標籤與顏色統一由 `_refresh_buttons()` 依狀態設定（開或不是預設值＝`primary` 藍、關＝`secondary` 灰；`modify_time`、`show_details` 是動作鈕，固定灰），所有 toggle 回呼都改走 `_edit(interaction)`：刷新按鈕後同時編輯訊息的文字與 view，
+    原本牌山、食替、開立直、電腦開關只更新 view 不更新文字。`_sync_toggles_from_rules`（換預設、三麻退回預設）也改呼叫 `_refresh_buttons`。
+  - 語音房面板：`voice.CpuStartButton` 新增 `row` 參數，`_post_settings_panel` 固定放第 3 列（語音房沒有確認鈕，所以第 3 列是空的），語音包下拉 `VoicePackSelect` 在第 4 列；
+    有沒有電腦開關都在 5 列 × 5 顆的限制內。
+  - i18n（三語）：新增 `settings.hint`／`settings.hint_voice`、`settings.sum.game`、`settings.wallname.*`、`rules.sum.c1`、`rules.diff.*`、`rules.det.kuikae`／`openriichi`、`rules.v.allow`／`deny`、`bot.name`、`voice.end_hint`；
+    改寫 `settings.prompt`、`voice.settings_hint`、`rules.sum.name`／`l1`～`l4`／`fallback`；刪除 `voice.host`、`settings.sum.opts`、`settings.v.kuikae_*`、`settings.sanma_state`、`settings.length_*`、`settings.wall_*`、`settings.kuikae_*`、`settings.openriichi_*`。
+    各語言檔裡的「——」一併改成一般標點。
+- **手牌面板不再列牌名文字**：`render.make_hand_panel` 移除 `player.hand_display_with_names()` 的呼叫與牌圖下面那行牌名文字（`engine.PlayerState.hand_display_with_names` 本身保留）。
+
+### 修正
+- **紅寶牌沒算到**：`scoring._score_standard` 把拆解出的面子（`_build_groups` 以 `_key_to_tile` 重建、不帶 `red` 標記）傳給 `_dora_han`，所以門前一般型手裡的紅五都數成 0 張（七對子、國士走原本的牌，不受影響；副露的紅五也不受影響）。
+  現在改用原本的牌（手牌＋和牌張＋副露前三張）計算寶牌／裏寶牌／赤寶牌；寶牌與裏寶牌張數不變（只比花色數字）。
+- **三元牌的寶牌順序顛倒**：`engine.GameState.get_doras` 與 `rules._indicator_to_dora`（裏寶牌）用 `(value % 3) + 1`，在 value 1=中、2=發、3=白 的編碼下變成 白→中、發→白、中→發。改成 `(value - 2) % 3 + 1`，即標準的 白→發→中→白。
+- **點數不到 1000 也能立直**：`flow.play_hand_t` 的人類路徑（立直按鈕的可用條件）與電腦路徑（`ai_riichi`）原本沒檢查點數，點數 < 1000 仍可立直而變成負分。
+  現在 `rs.riichi_need_1000` 為真（除 WRC 外的預設）時，持有 < 1000 點不能立直。
+
 ## [0.8.6] - 2026-10-31
 
 ### 新增

@@ -96,6 +96,8 @@ class ScoreResult:
     tsumo_dealer_payment: int = 0             # 自摸：莊家支付（閒家和牌時）
     tsumo_each_payment: int = 0               # 自摸：每位閒家支付
     valid: bool = False       # 是否有役（可和）
+    # 包牌（責任支付）：[(役滿名, 責任者座位, 該役滿的底點＝8000×倍數), …]；由 settlement.attach_pao 填，沒有包牌就是空的
+    pao: list[tuple[str, int, int]] = field(default_factory=list)
 
     def describe(self) -> str:
         parts = [f"{n} {h}飜" for n, h in self.yaku]
@@ -287,6 +289,14 @@ class WinContext:
     is_dealer: bool = False
     allow_double_yakuman: bool = True   # True=混合(有雙倍役滿) / False=天鳳(全部單倍)
     kita: int = 0                        # 三麻拔北（北寶牌）張數，每張 +1 飜
+    # ── 規則集（rulesets.RuleSet）帶進來的開關；預設值＝雀月原本的規則 ──
+    ippatsu_on: bool = True              # False＝不計一發
+    ura_on: bool = True                  # False＝不計裏寶牌（含槓裏）
+    kuitan: bool = True                  # False＝斷么九限門前（暗槓視為門前）
+    kiriage: bool = False                # True＝切上滿貫（4 翻 30 符、3 翻 60 符算滿貫）
+    kazoe: str = "yakuman"               # 13 翻以上："yakuman"＝累計役滿；"sanbaiman"＝封頂三倍滿
+    renhou: str = "none"                 # 人和："none"＝無、"mangan"＝滿貫
+    is_renhou: bool = False              # 這手和牌是人和（由 flow 判定後傳入；renhou="none" 時忽略）
 
 
 def _round_up(n: int, step: int) -> int:
@@ -347,15 +357,28 @@ def score_hand(
             if r:
                 candidates.append(r)
 
-    if not candidates:
-        return ScoreResult(valid=False)
-
     # 取最高分（先比役滿倍數，再比點數）
     def rank(r: ScoreResult):
         ym = sum(x[1] for x in r.yakuman)
         return (ym, r.points, r.han, r.fu)
 
-    best = max(candidates, key=rank)
+    best = max(candidates, key=rank) if candidates else None
+
+    # ── 人和（滿貫）：役滿照役滿算；否則固定滿貫、唯一的役是「人和」（不與其他役／寶牌複合）──
+    if ctx.is_renhou and ctx.renhou == "mangan" and not (best and best.yakuman):
+        shape = None                                   # 牌型：None＝沒和牌、"chiitoi"、"std"
+        if len(melds) == 0 and is_chiitoitsu(full_concealed):
+            shape = "chiitoi"
+        if need >= 0 and _decompose_standard(Counter(tk(t) for t in full_concealed), need):
+            shape = "std"
+        if shape is not None:
+            r = ScoreResult(yaku=[("人和", 5)], han=5, fu=(best.fu if best else (25 if shape == "chiitoi" else 30)))
+            _finalize_points(r, ctx)
+            r.valid = True
+            return r
+
+    if not candidates:
+        return ScoreResult(valid=False)
     return best
 
 
@@ -374,13 +397,13 @@ def _score_chiitoitsu(all14, win_tile, ctx: WinContext, menzen: bool) -> Optiona
         yaku.append(("開立直", 2)); han += 2       # 開立直＝2 飜（取代立直）
     elif ctx.is_riichi:
         yaku.append(("立直", 1)); han += 1
-    if ctx.is_ippatsu:
+    if ctx.is_ippatsu and ctx.ippatsu_on:
         yaku.append(("一發", 1)); han += 1
     if ctx.is_tsumo and menzen:
         yaku.append(("門前清自摸和", 1)); han += 1
     yaku.append(("七對子", 2)); han += 2
 
-    # 斷么九
+    # 斷么九（七對子必門前，不受喰斷影響）
     if all(not is_terminal_or_honor(t) for t in all14):
         yaku.append(("斷么九", 1)); han += 1
     # 混一色 / 清一色
@@ -519,7 +542,7 @@ def _score_standard(concealed, melds, win_tile, ctx: WinContext,
         yaku.append(("開立直", 2)); han += 2       # 開立直＝2 飜（取代立直）
     elif ctx.is_riichi:
         yaku.append(("立直", 1)); han += 1
-    if ctx.is_ippatsu:
+    if ctx.is_ippatsu and ctx.ippatsu_on:
         yaku.append(("一發", 1)); han += 1
 
     # 門前清自摸和
@@ -531,8 +554,8 @@ def _score_standard(concealed, melds, win_tile, ctx: WinContext,
     if pinfu:
         yaku.append(("平和", 1)); han += 1
 
-    # 斷么九
-    if all(not is_terminal_or_honor(t) for t in all14):
+    # 斷么九（不喰斷時限門前；暗槓不破門前）
+    if (ctx.kuitan or menzen) and all(not is_terminal_or_honor(t) for t in all14):
         yaku.append(("斷么九", 1)); han += 1
 
     # 役牌（場風/自風/三元）
@@ -604,8 +627,9 @@ def _score_standard(concealed, melds, win_tile, ctx: WinContext,
     if han == 0:
         return None  # 無役不可和（dora 不算役）
 
-    # 寶牌（在確定有役後才加）
-    han += _dora_han(all14, ctx, yaku, melds_full=melds)
+    # 寶牌（在確定有役後才加）；用原本的牌算——拆解出的面子是重建的牌，沒有紅五標記
+    orig14 = list(concealed) + [win_tile] + [t for m in melds for t in m.tiles[:3]]
+    han += _dora_han(orig14, ctx, yaku, melds_full=melds)
 
     # 符計算
     fu = _calc_fu(groups, pair, win_group, win_tile, ctx, menzen, pinfu, ron_completes_kotsu)
@@ -840,7 +864,7 @@ def _dora_han(all_tiles, ctx: WinContext, yaku: list, melds_full=None) -> int:
         if n:
             yaku.append(("寶牌", n)); extra += n
     # 裏寶牌（立直才有）
-    if ctx.ura_tiles and (ctx.is_riichi or ctx.is_double_riichi):
+    if ctx.ura_on and ctx.ura_tiles and (ctx.is_riichi or ctx.is_double_riichi):
         n = sum(1 for t in all_tiles for d in ctx.ura_tiles if tk(t) == tk(d))
         if melds_full:
             for m in melds_full:
@@ -945,7 +969,7 @@ def _finalize_yakuman(r: ScoreResult, ctx: WinContext):
 
 def _finalize_points(r: ScoreResult, ctx: WinContext):
     han, fu = r.han, r.fu
-    if han >= 13:
+    if han >= 13 and ctx.kazoe != "sanbaiman":
         base = 8000; r.name = "累計役滿"
     elif han >= 11:
         base = 6000; r.name = "三倍滿"
@@ -957,7 +981,7 @@ def _finalize_points(r: ScoreResult, ctx: WinContext):
         base = 2000; r.name = "滿貫"
     else:
         base = fu * (2 ** (2 + han))
-        if base >= 2000:
+        if base >= 2000 or (ctx.kiriage and base >= 1920):   # 切上滿貫：4 翻 30 符、3 翻 60 符
             base = 2000; r.name = "滿貫"
         else:
             r.name = ""

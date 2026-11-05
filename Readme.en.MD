@@ -22,7 +22,8 @@ Play full-rules Japanese (Riichi) mahjong right inside Discord. Supports 4-playe
 - **Custom tile emojis + button play**: tiles are shown as uploaded Discord application emojis. On your turn every tile in your hand is a clickable button, and chi / pon / kan / ron / tsumo / riichi / kita have buttons too. The **black tile skin** unlocks at the 日全食 (Total Eclipse) rank (`/mahjong skin`).
 - **Full scoring**: 42 yaku plus seven pairs / thirteen orphans, reduced han for open hands, no win without yaku, fu and points (standard settlement).
 - **Situational yaku**: riichi / ippatsu / double riichi, haitei / houtei, rinshan kaihou, chankan, tenhou / chiihou.
-- **House rules**: kuikae forbidden (default), **open riichi** (2 han + revealed hand; dealing into it pays yakuman), **abortive draws** on/off, mixed / full Tenhou rules.
+- **House rules**: kuikae forbidden (default), **open riichi** (2 han + revealed hand; dealing into it pays yakuman), **abortive draws** on/off.
+- **Rule presets**: pick **Default** (the bot's original rules), **Tenhou**, **Mahjong Soul**, **M.League** or **WRC** when opening a room — each sets starting points / return, uma, red fives, ippatsu / ura, kiriage, atamahane / triple ron, abortive draws, west round, pao, renhou and more (values follow each organisation's official rules). The 🔧 Details button tweaks individual options, and the panel shows a summary of the rules in effect. M.League and WRC are 4-player only.
 - **Furiten**: discard / temporary / riichi furiten (based on the full discard history, including called tiles), with live warnings on your panel for furiten / no yaku / partial no yaku.
 - **Sanma**: 108 tiles, kita (north dora), no chi.
 - **Full matches**: dealer repeats / honba, riichi sticks, noten penalties, busting, final placement uma.
@@ -33,7 +34,7 @@ Play full-rules Japanese (Riichi) mahjong right inside Discord. Supports 4-playe
 - **Character voices**: each player picks their own voice pack, so pon, riichi, wins, and yaku names are called out loud; the host sets the CPU voice with `/mahjong ai_voice` (sound files are not included in the source; see below for how to make a pack).
 - **Category-based lobby**: `/setup create` (or the "🏗️ Create lobby" button in the setup guide) creates a "Suzume Mahjong" category with a read-only button lobby, a 💬 text channel (for opening rooms and chatting), and a 🔊 matchmaking voice channel. Game channels are created inside the category and deleted automatically when the game ends. You can create one lobby per language — rooms opened from a lobby use that lobby's language.
 - **Hand panel in DMs**: press "📩 Hand via DM" in the waiting room to get your hand panel in DMs for that game.
-- **Ranked (cross-server)**: `/mahjong rank` for global matchmaking (**only with players of a similar rank**); ranked games are played in DMs. Lunar-eclipse themed ranks (新人 Newcomer → … → 血月 Blood Moon, with levels 1–3 in every tier except the top) plus an R rating. Ranked always uses full Tenhou rules and the Tenhou wall generator.
+- **Ranked (cross-server)**: `/mahjong rank` for global matchmaking (**only with players of a similar rank**); ranked games are played in DMs. Lunar-eclipse themed ranks (新人 Newcomer → … → 血月 Blood Moon, with levels 1–3 in every tier except the top) plus an R rating. Ranked always uses the Tenhou preset and the Tenhou wall generator.
 - **Casual matchmaking**: `/mahjong match` gathers players across servers; unranked.
 - **Play against CPUs**: DM the bot `/mahjong start` and CPUs fill the table.
 - **AFK handling**: players who keep timing out are switched to auto-discard (tsumogiri) and can take back control with one click; the game ends if every human is AFK.
@@ -66,6 +67,7 @@ Suzume Tsuk/
 │   ├── engine.py          # Tiles / wall (SHA-256) / game state / winning shapes / tenpai
 │   ├── scoring.py         # Yaku detection + fu + points
 │   ├── settlement.py      # Hand settlement + final uma
+│   ├── rulesets.py        # Rule presets (Default / Tenhou / Mahjong Soul / M.League / WRC) and detail toggles
 │   ├── ui.py / views.py   # Buttons, views, room settings panel
 │   ├── perms.py           # Bot permission requirements and checks
 │   ├── db.py              # SQLite persistence
@@ -118,9 +120,11 @@ Tile emojis belong to **your own bot application**, so upload them once with you
 
 ```bash
 pip install pymupdf pillow "discord.py>=2.4"
-python tools/build_and_upload_emojis.py          # 38 white tiles
-python tools/build_and_upload_emojis.py black    # 38 black tiles (rank reward skin)
+python tools/build_and_upload_emojis.py          # white (38 upright + 37 sideways)
+python tools/build_and_upload_emojis.py black    # black (rank reward skin)
 ```
+
+> By default only missing emojis are uploaded and nothing is deleted (safe to re-run; existing IDs stay). `--dry-run` only renders PNGs for preview; `--rebuild` deletes and re-creates everything (IDs change, redeploy the JSON).
 
 > The generated `mahjong/tile_emojis*.json` files **belong to that bot and must not be copied between deployments** (already gitignored).
 
@@ -159,7 +163,7 @@ python tools/build_and_upload_emojis.py black    # 38 black tiles (rank reward s
 
 ## ⚙️ Room Settings
 
-The room panel lets you adjust: **length** (East-only / Hanchan), **busting**, **sanma**, **rules** (mixed / Tenhou), **kuikae** (forbidden / allowed), **open riichi** (off / on), **abortive draws** (on / off), **wall generator** (Riichi City / Tenhou), **thinking time**, and **starting points**. Ranked games always use full Tenhou rules and the Tenhou wall.
+The room panel lets you adjust: **length** (East-only / Hanchan), **busting**, **sanma**, **rule preset** (Default / Tenhou / Mahjong Soul / M.League / WRC) with the 🔧 Details toggles (ippatsu, ura dora, red fives, kuitan, kiriage, multi-ron mode, leftover riichi sticks), **kuikae** (forbidden / allowed), **open riichi** (off / on), **abortive draws** (on / off), **wall generator** (Riichi City / Tenhou), **thinking time**, and **starting points**. Ranked games always use the Tenhou preset and the Tenhou wall.
 
 ---
 

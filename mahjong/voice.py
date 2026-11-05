@@ -24,7 +24,6 @@ import uuid
 import discord
 
 from .state import _waiting, _room_owners, _room_configs, _user_game
-from .config import AI_NAMES
 from . import db
 from . import i18n
 from . import rooms
@@ -42,6 +41,7 @@ def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> 
         return {
             "is_sanma": sanma, "thinking_time": 25, "max_players": 3 if sanma else 4,
             "length": "tonpuu", "tobi": True, "ruleset": "mixed", "start_points": None,
+            "rules": "default", "rule_over": {},
             "kuikae": False, "open_riichi": False, "abortive": True, "wall": "riichi_city", "ai_level": "normal",
             "lang": lang, "ranked": False, "open_hand": False,
         }
@@ -51,6 +51,7 @@ def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> 
         "max_players": 3 if sanma else 4,
         "length": "hanchan" if sv.hanchan else "tonpuu",
         "tobi": sv.tobi, "ruleset": sv.ruleset, "start_points": sv.start_points,
+        "rules": sv.rules, "rule_over": dict(sv.rule_over),   # "ruleset"＝舊程式相容（tenhou／mixed）
         "kuikae": sv.kuikae, "open_riichi": sv.open_riichi, "abortive": sv.abortive,
         "wall": sv.wall_method, "ai_level": sv.ai_level,
         "lang": lang, "ranked": False, "open_hand": sv.open_hand,
@@ -129,9 +130,9 @@ class SanmaStartButton(discord.ui.Button):
 
 class CpuStartButton(discord.ui.Button):
     """語音房「與電腦開始」按鈕：用 AI 補滿剩下座位，立刻開一場休閒對局。"""
-    def __init__(self, vc_id: int, lang: str):
+    def __init__(self, vc_id: int, lang: str, row: int | None = None):
         super().__init__(style=discord.ButtonStyle.secondary,
-                         label=i18n.t("voice.cpu_btn", lang))
+                         label=i18n.t("voice.cpu_btn", lang), row=row)
         self._vc_id = vc_id
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -171,8 +172,11 @@ class VoicePackSelect(discord.ui.Select):
         self.ai = ai                           # True＝設定「電腦語音」（自己開的房裡電腦用的聲音）
         get  = db.get_user_ai_voice if ai else db.get_user_voice
         cur  = get(str(uid)) if uid else None
+        if ai and uid and cur is None:         # 沒設定過＝預設的電腦語音
+            from .config import DEFAULT_AI_VOICE
+            cur = DEFAULT_AI_VOICE
         opts = [discord.SelectOption(label=i18n.t("voice.ai_off" if ai else "voice.pack_off", lang),
-                                     value=self.NONE)]
+                                     value=self.NONE, default=(ai and uid is not None and cur == ""))]
         opts += [discord.SelectOption(label=p[:100], value=p[:100], default=(p == cur))
                  for p in sfx.list_packs()[:24]]
         super().__init__(placeholder=i18n.t("voice.ai_select" if ai else "voice.pack_select", lang),
@@ -183,7 +187,7 @@ class VoicePackSelect(discord.ui.Select):
         val   = self.values[0]
         uid   = str(interaction.user.id)
         if self.ai:
-            db.set_user_ai_voice(uid, None if val == self.NONE else val)
+            db.set_user_ai_voice(uid, "" if val == self.NONE else val)   # 空字串＝明確關閉（None＝沒設定過→用預設）
             msg = (i18n.t("voice.ai_cleared", ulang) if val == self.NONE
                    else i18n.t("voice.ai_set", ulang, pack=f"**{val}**"))
             await interaction.response.send_message(msg, ephemeral=True)
@@ -207,7 +211,7 @@ class VoicePackSelect(discord.ui.Select):
 
 async def _start_voice_game(vc: discord.VoiceChannel, members: list,
                             sanma: bool | None = None, fill_ai: bool = False) -> None:
-    from .flow import launch_game
+    from .flow import launch_game, bot_name
     guild = vc.guild
     hub   = (hubs.by_id(guild.id, _voice_rooms.get(vc.id, {}).get("hub_id"))
              or hubs.of_channel(guild.id, vc))         # 這間語音房是從哪個大廳開的
@@ -219,7 +223,7 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
             pass
         _voice_rooms[vc.id]["starting"] = False
         return
-    # 語音局沒有「開房者」→ 房主固定給**東家**（起家＝members[0]＝seat 0＝莊家）
+    # 語音局沒有「開房者」→ 房主固定給 members[0]（進房順序第一位）；起家（東家）開局時才隨機洗牌決定，不一定是房主
     host = members[0]
     lang = hubs.lang_for(guild.id, vc)     # 房間語言＝這個大廳的語言（只有一個大廳＝伺服器語言）
     gid  = str(uuid.uuid4())[:8]
@@ -230,10 +234,9 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
     _room_configs[gid] = _config_from_settings(sv, lang, sanma_override=sanma)
     if fill_ai:                            # 用電腦補滿剩下的座位
         max_p = _room_configs[gid]["max_players"]
+        nm    = bot_name(_room_configs[gid].get("ai_level"), lang)
         for i in range(max_p - len(_waiting[gid])):
-            _waiting[gid].append({"user_id": f"ai_{gid}_{i}",
-                                  "username": AI_NAMES[i % len(AI_NAMES)],
-                                  "is_bot": True})
+            _waiting[gid].append({"user_id": f"ai_{gid}_{i}", "username": nm, "is_bot": True})
     try:                                   # 開局時把設定面板整則刪掉（不留死面板）
         if sv is not None:
             sv.stop()
@@ -318,10 +321,11 @@ async def _post_settings_panel(vc, lang: str) -> None:
     try:
         from .views import RoomSettingsView
         sv = RoomSettingsView(gid=f"vc{vc.id}", lang=lang, timeout=None,
-                              show_confirm=False)   # 語音房不用確認鈕，開局時面板自動消失
-        sv.add_item(CpuStartButton(vc.id, lang))
+                              show_confirm=False,   # 語音房不用確認鈕，開局時面板自動消失
+                              base_content=i18n.t("voice.settings_hint", lang))
+        sv.add_item(CpuStartButton(vc.id, lang, row=3))   # 單獨一列（第 3 列，沒有確認鈕所以是空的），不擠進「對局」列
         sv.add_item(VoicePackSelect(lang))   # 每個人在面板上選自己的角色語音
-        msg = await vc.send(i18n.t("voice.settings_hint", lang), view=sv)
+        msg = await vc.send(sv.panel_content(), view=sv)
         _voice_rooms[vc.id]["settings"] = sv
         _voice_rooms[vc.id]["settings_msg"] = msg
     except Exception as e:

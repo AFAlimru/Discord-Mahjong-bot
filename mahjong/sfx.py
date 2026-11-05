@@ -36,7 +36,7 @@ import shlex
 import shutil
 import discord
 
-from .config import SOUNDS_DIR
+from .config import SOUNDS_DIR, DEFAULT_AI_VOICE
 from .state import _threads
 from . import db
 
@@ -188,19 +188,22 @@ def _voice_pack(vc, uid, gid: str | None = None) -> str | None:
 
 def _ai_pack(gid: str, vc) -> str | None:
     """電腦的語音包：房主設定的「電腦語音」優先，否則同桌任一位設定過的真人（都要還在語音房）；
-    都沒設＝電腦不出聲。"""
+    設定過「電腦不出聲」（存成空字串）就不出聲；都沒設定過＝預設語音包 DEFAULT_AI_VOICE。"""
     from .state import _room_owners
     host = _room_owners.get(gid)
     for uid in ([host] if host else []) + _humans(gid):
         if not _in_room(vc, uid):
             continue
         try:
-            pack = _pack_ok(db.get_user_ai_voice(str(uid)))
+            val = db.get_user_ai_voice(str(uid))
         except Exception:
-            pack = None
+            val = None
+        if val == "":                     # 明確選了「電腦不出聲」
+            return None
+        pack = _pack_ok(val)
         if pack:
             return pack
-    return None
+    return _pack_ok(DEFAULT_AI_VOICE)
 
 
 def _has_bots(gid: str) -> bool:
