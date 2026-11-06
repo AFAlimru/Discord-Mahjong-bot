@@ -161,6 +161,16 @@ async def on_ready() -> None:
         matchmaking.start_sweeper()
     except Exception as e:
         print(f"⚠️ 排隊清掃器啟動失敗: {e}")
+    try:                                      # Discord 狀態：對局中人數＋網站網址（每分鐘更新）
+        from mahjong import presence
+        presence.start(bot)
+    except Exception as e:
+        print(f"⚠️ 狀態更新器啟動失敗: {e}")
+    try:                                      # 比賽：報名按鈕（重啟後仍有效）＋排程器（到時間自動開桌）
+        from mahjong import tournament
+        tournament.start(bot)
+    except Exception as e:
+        print(f"⚠️ 比賽排程啟動失敗: {e}")
     try:                                      # 等待房逾時清掃器（開了沒人加入的殘留房）
         from mahjong import flow as _flow
         _flow.start_room_sweeper()

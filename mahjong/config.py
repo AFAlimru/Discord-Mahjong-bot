@@ -27,6 +27,11 @@ DEV_GUILD_ID = os.getenv("DEV_GUILD_ID", "").strip()
 # ── 資料庫 ────────────────────────────────────────────────────
 DATABASE_PATH = os.getenv("DATABASE_PATH", "mahjong.db")
 
+# 機器人管理員（Discord 使用者 id，逗號分隔）：能管理所有比賽。沒設定＝只有各比賽的主辦能管理
+ADMIN_IDS = {x.strip() for x in os.getenv("ADMIN_DISCORD_ID", "").split(",") if x.strip()}
+# 一般玩家能不能自己建立比賽（預設只有管理員）
+TOURNAMENT_PLAYER_CREATE = os.getenv("TOURNAMENT_PLAYER_CREATE", "").strip().lower() in ("1", "true", "yes")
+
 # ── 網站（公開網址；大廳面板的「🌐 網頁」按鈕用，留空則不顯示）──
 WEB_BASE_URL = os.getenv("WEB_BASE_URL", "").strip()
 

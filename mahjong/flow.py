@@ -59,6 +59,7 @@ from . import db
 from . import i18n
 from . import tiles as T
 from . import rooms
+from . import spectate
 
 # 0.7：bot 參考（run.py 啟動時設定）——DM 面板、語音配對需要拿 User 物件
 BOT: discord.Client | None = None
@@ -457,6 +458,12 @@ async def setup_threads(gid: str, channel: discord.TextChannel, gs: GameState,
 
 
 def _cleanup(gid: str, channel_id: str) -> None:
+    try:                       # 比賽的桌被中途關掉＝這桌作廢，等主辦決定重打或不打
+        from . import tournament
+        tournament.on_cleanup(gid)
+    except Exception as e:
+        print(f"[tournament] 清理比賽桌失敗：{e!r}")
+    spectate.finish(gid)       # 觀戰紀錄與頻道留到延遲播完才清（已結束過＝不動作）
     gs = _games.pop(gid, None)
     if gs:
         for p in gs.players:
@@ -579,7 +586,7 @@ def save_surfaces(gid: str) -> None:
         return
     ann = th.get("announce")
     config["surfaces"] = {
-        "channels": [t.id for t in _deletable_surfaces(th)],
+        "channels": [t.id for t in _deletable_surfaces(th)] + spectate.channel_ids(gid),
         "voice": th["voice"].id if th.get("voice") is not None else None,
         "announce": [ann.channel.id, ann.id] if ann is not None else None,
     }
@@ -689,6 +696,7 @@ async def force_end(gid: str) -> int:
         if not th.get("is_dm"):
             await asyncio.sleep(3)
             failed = await _delete_threads(th)
+    await spectate.close(gid)
     _cleanup(gid, parent_cid)
     return failed
 
@@ -1606,11 +1614,15 @@ async def play_hand_t(gid: str, channel: discord.TextChannel):
             except Exception:
                 pass
             await refresh_feeds()         # 每筆動作即時更新所有玩家面板的動態
-        if board_msg is None:   # 真人對局沒有公開牌桌（資訊改用按鈕看）
-            return
         T.set_skin(None)   # 公開牌桌一律預設牌風
         rlang = config.get("lang", i18n.DEFAULT)   # 觀戰牌桌用房間語言
-        status = feed_text(key, rlang, **kw) if key else ""
+        try:
+            status = feed_text(key, rlang, **kw) if key else ""
+        except Exception:
+            status = ""
+        spectate.record(gid, gs, status)   # 觀戰快照（沒有開放觀戰的局什麼都不做）
+        if board_msg is None:   # 真人對局沒有公開牌桌（資訊改用按鈕看）
+            return
         try:
             await board_msg.sync(board_parts(gs, rlang) + [board_status_text(status)])
         except Exception:
@@ -2568,6 +2580,8 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 priv_pairs.extend(x for x in priv_res if x)
 
             pairs = pub_pairs + priv_pairs
+            for _m, _txt, _lg in pub_pairs:                  # 觀戰：結果文字（即時頻道馬上貼，明牌頻道延遲貼）
+                spectate.event(gid, _txt)
             result_msg = pub_pairs[0][0] if pub_pairs else None
             priv_msgs  = [p[0] for p in priv_pairs]
 
@@ -2622,6 +2636,8 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 _auto_modes.pop(_k, None)
             new_gs = deal_next_hand(gid, players_info, gs)
             _games[gid] = new_gs
+            spectate.new_hand(gid)
+            spectate.record(gid, new_gs, "")
             try:                                          # 每局牌山落地（供日後完整重現手牌）
                 db.log_action(gid, new_gs.turn,
                               {"t": "handstart", "wall": new_gs.wall_seed,
@@ -2672,6 +2688,13 @@ async def match_loop_t(gid: str, channel: discord.TextChannel) -> None:
                 await tch.send(_standings_lines(rows, lg))
             except Exception as e:
                 print(f"[standings] 發送最終順位失敗：{e}")
+        spectate.event(gid, _standings_lines(rows, config.get("lang", i18n.DEFAULT)))
+        spectate.finish(gid, gs)
+        try:                                          # 比賽的桌：記錄這局的精算結果
+            from . import tournament
+            tournament.on_game_end(gid, gs)
+        except Exception as e:
+            print(f"[tournament] 記錄結果失敗：{e!r}")
         # 之後才寫資料庫與個人統計
         try:
             db.finish_game(gid, gs.to_dict())
@@ -3123,15 +3146,18 @@ async def launch_game(gid: str, channel: discord.TextChannel) -> None:
         _cleanup(gid, str(channel.id))
         return
 
+    spectate.register(gid, channel, gs, config)     # 觀戰：開始記快照（有人要看才建頻道）
+    _watch = spectate.watch_view(gid, config.get("lang", i18n.DEFAULT))
+    _kw = {"view": _watch} if _watch is not None else {}
     if _threads[gid].get("is_channels"):
         announce = await channel.send(
             f"🀄 {rooms.label(gid)} 遊戲開始！牌桌頻道 {_threads[gid]['public'].mention}，"
-            f"真人玩家請到自己的手牌頻道（或私訊）出牌。"
+            f"真人玩家請到自己的手牌頻道（或私訊）出牌。", **_kw
         )
     else:
         announce = await channel.send(
             f"🀄 {rooms.label(gid)} 遊戲開始！牌桌在討論串 {_threads[gid]['public'].mention}，"
-            f"真人玩家請到自己的私人討論串出牌（直接打字）。"
+            f"真人玩家請到自己的私人討論串出牌（直接打字）。", **_kw
         )
     _threads[gid]["announce"] = announce
     save_surfaces(gid)
@@ -3251,7 +3277,7 @@ async def launch_match_game(players: list[dict], mode: str, ranked: bool = True)
         "kuikae": False, "open_riichi": False,   # 匹配局：禁食替、無開立直
         "abortive": True,                        # 匹配局：有途中流局（天鳳規則）
         "wall": "tenhou" if ranked else "riichi_city",   # 段位賽固定天鳳牌山
-        "lang": i18n.DEFAULT, "ranked": ranked, "open_hand": False,
+        "lang": i18n.DEFAULT, "ranked": ranked, "open_hand": False, "spectate": False,
     }
     _prepare_seating(gid, info)
     start_pts = _start_points(_room_configs[gid], is_sanma)
@@ -3456,9 +3482,11 @@ async def resume_game(gid: str, channel: discord.TextChannel) -> None:
         _cleanup(gid, str(channel.id))
         return
 
+    spectate.register(gid, channel, gs, config)
+    _watch = spectate.watch_view(gid, config.get("lang", i18n.DEFAULT))
     announce = await channel.send(
         f"🀄 {rooms.label(gid)} 已從中斷處接續！牌桌在 {_threads[gid]['public'].mention}，"
-        f"真人玩家請到自己的私人討論串出牌。"
+        f"真人玩家請到自己的私人討論串出牌。", **({"view": _watch} if _watch is not None else {})
     )
     _threads[gid]["announce"] = announce
     rec = config.get("surfaces") or {}
@@ -3499,6 +3527,11 @@ async def finalize_interrupted(gid: str, channel: discord.TextChannel) -> None:
         db.finish_game(gid, gs.to_dict())
     except Exception as e:
         print(f"[recover] finish_game 失敗：{e}")
+    try:                                          # 比賽的桌：中斷結算也算這桌的結果
+        from . import tournament
+        tournament.on_game_end(gid, gs)
+    except Exception as e:
+        print(f"[tournament] 記錄結果失敗：{e!r}")
     await purge_saved_surfaces(getattr(channel, "guild", None), config, voice=True)
     rooms.unregister(gid)
 

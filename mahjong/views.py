@@ -121,6 +121,7 @@ class RoomSettingsView(View):
         self.panel_message = None   # 公開面板（語音房）的訊息，按「細項」時記下
         self.kuikae = False        # 食替：預設禁止（False=禁止）
         self.open_riichi = False   # 開立直：預設關閉
+        self.spectate = True       # 觀戰：預設開放
         self.abortive = True       # 途中流局（九種九牌／四風連打／四槓散了／四家立直／三家和）：預設開啟
         self.wall_method = "riichi_city"   # 牌山生成："riichi_city"=一番街 / "tenhou"=天鳳
         self.ai_level = "normal"           # 電腦種類（私有模組才有其他選項）
@@ -180,7 +181,8 @@ class RoomSettingsView(View):
             opts += "・" + _hard_ai_label(self.ai_level, lang)
         rules = rulesets.compact(self.effective_rules(), lang, self.sanma, selected=self.rules,
                                  start_points=self.start_points, hanchan=self.hanchan,
-                                 kuikae=self.kuikae, open_riichi=self.open_riichi)
+                                 kuikae=self.kuikae, open_riichi=self.open_riichi,
+                                 spectate=self.spectate)
         return "\n".join((base, game, opts, *rules))
 
     def _refresh_buttons(self) -> None:
@@ -332,12 +334,13 @@ class RuleDetailsView(View):
     """規則細項：只有按「細項」的人看得到（ephemeral），但改的是共用面板的設定（panel.rule_over）。
     權限跟面板上其他按鈕一樣（沒有額外限制）。rule_over 只存跟預設不同的值。"""
     _ROWS = {"ippatsu": 0, "ura": 0, "red_fives": 0, "kuitan": 0, "open_riichi": 0,
-             "kiriage": 1, "multi_ron": 1, "leftover_sticks": 1, "kuikae": 1}
-    _PANEL_FIELDS = ("kuikae", "open_riichi")        # 不在 RuleSet 裡、直接存在面板上的開關
+             "kiriage": 1, "multi_ron": 1, "leftover_sticks": 1, "kuikae": 1, "spectate": 2}
+    _PANEL_FIELDS = ("kuikae", "open_riichi", "spectate")        # 不在 RuleSet 裡、直接存在面板上的開關
     _KEYS = {"ippatsu": "rules.det.ippatsu", "ura": "rules.det.ura", "red_fives": "rules.det.red",
              "kuitan": "rules.det.kuitan", "kiriage": "rules.det.kiriage",
              "multi_ron": "rules.det.multi", "leftover_sticks": "rules.det.left",
-             "kuikae": "rules.det.kuikae", "open_riichi": "rules.det.openriichi"}
+             "kuikae": "rules.det.kuikae", "open_riichi": "rules.det.openriichi",
+             "spectate": "rules.det.spectate"}
     _MULTI_CYCLE = ("double", "triple", "atamahane")
 
     def __init__(self, panel: "RoomSettingsView"):
@@ -370,6 +373,8 @@ class RuleDetailsView(View):
             return i18n.t(f"rules.left.{v}", self.lang)
         if f == "kuikae":
             return i18n.t("rules.v.allow" if v else "rules.v.deny", self.lang)
+        if f == "spectate":
+            return i18n.t("rules.v.open" if v else "rules.v.closed", self.lang)
         return i18n.t("rules.v.on" if v else "rules.v.off", self.lang)
 
     def sync(self) -> None:

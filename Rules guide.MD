@@ -311,10 +311,11 @@
 
 | 指令 | 說明 |
 |------|------|
-| `/mahjong start` | 開房（設定戰長／擊飛／三麻／規則／食替／開立直／途中流局／牌山生成／思考秒數／起始點數；私訊＝跟電腦打） |
+| `/mahjong start` | 開房（設定戰長／擊飛／三麻／規則／食替／開立直／觀戰／途中流局／牌山生成／思考秒數／起始點數；私訊＝跟電腦打） |
 | `/mahjong join` | 加入此頻道的房間；私訊＝隨機匹配 |
 | `/mahjong rank` · `/mahjong match` | 段位賽 · 隨機匹配（跨伺服器） |
 | `/mahjong status` · `/mahjong fairness` | 查看當前牌局 · 牌山公平性驗證 |
+| `/mahjong watch [房號]` | 觀戰（即時不含手牌；明牌頻道延遲 3 分鐘；玩家本人不能看） |
 | `/mahjong end` | 結束對局（房主直接結束，其他人需房主同意） |
 | `/mahjong stats` · `/mahjong profile` | 個人統計 · 個人卡 |
 | `/mahjong history` · `/mahjong replay <房號>` | 牌譜 · 回放 |
