@@ -3,7 +3,7 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
-## [0.9.1] - 未發布（開發中）
+## [0.9.1] - 2026-11-07
 
 ### 新增
 - **Discord 狀態**（新檔 `mahjong/presence.py`，`run.on_ready` 呼叫 `presence.start(bot)`）：每 60 秒算一次進行中對局（`state._games`）裡的真人人數（同一人只算一次、電腦不算），組成 `presence.playing`（「{n} 人對局中」）＋`config.WEB_BASE_URL` 的網域，用 `discord.Game` 設成「正在玩」；文字沒變就不呼叫 Discord。沒設網址或網址是本機（127.*／localhost）就只顯示人數。
