@@ -3,6 +3,42 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.9.1] - 未發布（開發中）
+
+### 新增
+- **Discord 狀態**（新檔 `mahjong/presence.py`，`run.on_ready` 呼叫 `presence.start(bot)`）：每 60 秒算一次進行中對局（`state._games`）裡的真人人數（同一人只算一次、電腦不算），組成 `presence.playing`（「{n} 人對局中」）＋`config.WEB_BASE_URL` 的網域，用 `discord.Game` 設成「正在玩」；文字沒變就不呼叫 Discord。沒設網址或網址是本機（127.*／localhost）就只顯示人數。
+- **觀戰**（新檔 `mahjong/spectate.py`）：
+  - 設定：`RoomSettingsView.spectate`（預設 True）放在 `RuleDetailsView` 的 `_PANEL_FIELDS`（第 3 列，跟食替、開立直同類，直接存在面板上），房間設定鍵 `spectate`；
+    `rulesets.compact(..., spectate=)` 在不開放時把「不開放觀戰」列進「與預設不同」。`commands.cmd_start`／`voice._config_from_settings` 寫進 `_room_configs`，語音房沒有面板時預設開；
+    段位／匹配局（`launch_match_game`）寫 `spectate: False`，私訊對局走 `launch_dm_game` 不經過 `launch_game`，所以不登記。`spectate.enabled(config)` 另外排除 `ranked`。
+  - 記錄：`launch_game`／`resume_game` 呼叫 `spectate.register(gid, channel, gs, config)`，之後每次牌桌更新（`play_hand_t.render_board`，不管公開牌桌有沒有放；換局的 `deal_next_hand` 之後）呼叫 `spectate.record(gid, gs, status)`：
+    一次組好**明牌版文字**（`board_parts(gs, lang, True)` ＋狀態）與**結構化字典**（`_build_state`），存進每局的環形緩衝（`_Rec.snaps`，約 `RING_KEEP`＝300 秒，但一定留著目前延遲可見的那一張；文字完全相同就不重複存）。
+    沒有人看的時候不呼叫 Discord；不開放觀戰的局只留輕量紀錄（供 `is_player`／`watchable_games(include_closed=True)`），不存快照。
+    和牌／流局結果文字在 `match_loop_t` 取公開頻道那組訊息的最終版本，用 `spectate.event` 記成事件（附時間與第幾手）；最終順位也一樣；`spectate.finish(gid, gs)` 記最後一張 `finished` 快照。
+  - 頻道：`spectate.ensure_channels(guild, gid)`（以 `rec.lock` 防止同時建兩次）在第一次有人要看時建 **觀戰-<房號>**（即時）與 **觀戰明牌-<房號>**，開在對局頻道所在的類別（沒有就用開房頻道的類別）；
+    @everyone 可看不能發言，機器人可管理，這場每位真人玩家（含選了 DM 的）加 `view_channel=False` 的成員覆寫（拿不到 Member 就用 `discord.Object`）。頻道 id 經 `flow.save_surfaces` 存進 `surfaces.channels`，
+    重啟後的 `purge_saved_surfaces` 跟其他對局頻道一起清。
+  - 即時頻道：`MsgGroup`（標頭＋每家一則＋狀態，同公開牌桌的只改有變的那幾則），`record` 發現頻道存在就排程一個合併式的同步任務（`_live_loop`，連續更新只送最新的一版）；結果事件馬上貼。
+  - 明牌頻道：`_publisher` 每 `TICK`＝3 秒執行 `_publish_once`：把時間 ≤ 現在 − `SPECTATE_DELAY`（180 秒）的最新快照同步上去，結果事件在它自己的時間點貼出（貼之前先把牌桌同步到那個時間點的版本，順序才對）。
+    第一張快照可見之前只放「開局 3 分鐘後開始顯示」。建頻道時更早的結果不補貼。對局結束後發佈器把最終快照與結果播完就自己結束。
+  - 清理：`spectate.finish`（`match_loop_t` 結尾與 `_cleanup` 都會呼叫，可重複）排程 `_closer`，在結束時間 ＋ 180 秒 ＋ `CLOSE_AFTER`（600 秒）後 `close(gid)` 刪兩個頻道並丟掉紀錄；`force_end` 直接 `await spectate.close(gid)`。
+  - 入口：`/mahjong watch [房號]`（房號用 `rooms.parse`，可自動完成；不帶房號＝列出這個伺服器可觀戰的對局下拉選單）、開局公告上的按鈕（`WatchButton`，`launch_game`／`resume_game` 的公告）、大廳面板新增 `hub:watch` 按鈕（第 0 列，既有面板按「🔁 更新面板」後才會出現）。
+    `request_watch` 會檢查：不在這個伺服器／已結束／不開放／申請人是這場的玩家就拒絕，其餘 defer 後建（或沿用）頻道並用 ephemeral 回兩個連結。
+  - 給網站的介面（同一個行程，直接呼叫）：`watchable_games(guild_id=None, include_closed=False)`、`live_state(gid)`（沒有手牌；開立直的人手牌本來就公開，保留）、`delayed_state(gid, now=None)`（含手牌，`ready` 為 False 時附 `available_in` 秒數）、`is_player(gid, user_id)`。
+    狀態是可直接轉 JSON 的字典：局／本場／立直棒／牌山、寶牌（未翻開是 `back`）、每家的風位／名字／電腦／點數／立直／`riichi_idx`／牌河（`{tile, side}`，立直牌 `side`＝True）／副露（沿用 `tiles._meld_order` 的橫放，暗槓兩端 `back`）／拔北，明牌版另有 `hand`；`results` 是結果的純文字（牌表情換成牌代碼）。
+  - 其他：`open_hand`（公開牌桌亮手牌）維持原狀，跟觀戰無關。新增文字鍵 `spectate.*`、`hub.btn.watch`、`rules.det.spectate`、`rules.v.open`／`rules.v.closed`、`rules.diff.nospectate`，`help.guide` 加上指令說明，三語都有。
+- **比賽**（新檔 `mahjong/tournament.py`；`db.py` 新增 `tournaments`／`tournament_entrants`／`tournament_tables`／`tournament_results` 四張表與 `tour_*` 讀寫函式、`game_record_count`；`config.py` 新增 `ADMIN_IDS`（`ADMIN_DISCORD_ID`）與 `TOURNAMENT_PLAYER_CREATE`）：
+  - 資料：`tournaments` 存名稱／伺服器／頻道／主辦／開賽時間（unix 秒）／狀態（`draft`→`registration`→`running`→`finished`，或 `cancelled`）／`visibility`（`public`／`private`）／`join_mode`（`open`／`invite`）／名額／是否要報到／報到分鐘數／`rules`（規則預設、細項、戰長、思考秒數、起始點數、牌山、食替、開立直、觀戰…，鍵同房間設定）／`format`（預賽輪數、晉級人數、決賽輪數、每桌人數、自動接續、輪間隔分鐘）／`state`（排程的內部紀錄）。
+    `tournament_entrants`：`registered`／`selected`／`waitlist`／`withdrawn`＋報到時間＋來源（`web`／`discord`／`manual`）＋抽選順序。`tournament_tables`：階段／輪／桌號／`gid`／座位（user_id，電腦是 `cpu`）／狀態（`pending`／`running`／`finished`／`void`）／`closed`（作廢後主辦決定不重打）。`tournament_results`：每桌每個真人的座位／順位／最終點數／精算 pt（小數 1 位）。
+  - 報名與權限：`register`／`unregister`／`checkin`（開賽前 `checkin_minutes` 分鐘到開賽時間）是玩家自己的操作；邀請制（`join_mode='invite'`）玩家不能自己報，要 `add_entrant(..., by=主辦)`。會改資料的管理函式都必須帶 `by=`，內部用 `can_manage`（主辦或 `ADMIN_IDS`）檢查，`by=None` 是系統（排程、測試）；建立比賽看 `can_create`（管理員，或 `TOURNAMENT_PLAYER_CREATE` 開啟後所有人）。出錯統一丟 `TournamentError(code)`。
+  - 抽選：`draw` 超過名額就用 `secrets` 隨機選（可帶 seed 重現），其餘照抽出順序候補；`trim` 把人數削到一桌人數的整數倍；`set_selection` 手動指定；開賽前可重抽。
+  - 分桌：`seat_round` 隨機分桌，人數不整除時平均分配並補電腦；預賽第 2 輪起試 3000 種洗牌挑「以前同桌次數」最少的。第 1 輪開賽時沒報到的已選者換成有報到的候補（照抽選順序），再不夠就留給電腦。
+  - 開桌：`start_round` 把每桌用既有的 `flow.launch_game` 開成真的對局（房間設定由比賽規則轉出，另帶 `tournament` 標記，房主設成主辦，不經等待大廳），開完在比賽頻道貼各桌名單與牌桌連結。排程器 `tournament.start(bot)`（`run.on_ready` 呼叫）每 15 秒 `tick`：到時間自動開第 1 輪；一輪全部打完就貼排名，間隔 `round_gap_minutes` 後開下一輪（預賽→決賽），全部打完結束比賽並貼最終名次。重啟後會補記「對局其實已正常打完但結果沒記」的桌。
+  - 結果：`flow.match_loop_t` 結算時呼叫 `tournament.on_game_end`（`finalize_interrupted` 也會），用**比賽自己的規則**呼叫 `settlement.final_standings`（終局立直棒、馬點、同點由座位決勝都照它），只記真人；`flow._cleanup` 呼叫 `on_cleanup`，桌子還在進行就被關掉＝標成 `void`，擋住進度直到主辦用 `rerun_table`（同一批人重開）或 `void_table`（作廢不重打）處理。`bind_game` 把玩家自己開的對局綁到一桌：已打完（`game_records` 有戰績）就馬上匯入，還在打就等它打完自動記錄。
+  - 排名：預賽累計 pt；同分比單場最高 pt → 那場的座位（起家起）→ 報名先後。前 `advance_n` 名進決賽，最終名次＝決賽排名，其餘接在後面照預賽排名。
+  - Discord：公告用 `discord.ui.DynamicItem`（`TourButton`，custom_id `tour:<join|leave|checkin>:<比賽 id>`）做常駐按鈕，重啟後不用重掛 view；公告訊息（人數、狀態、按鈕）合併更新。`/mahjong tournament` 列出這個伺服器的比賽。新增文字鍵 `tour.*`。
+  - 給網站的介面（同一個行程直接呼叫）：`create`／`update`／`publish`／`cancel`／`get`／`list_all`／`standings`／`draw`／`set_selection`／`add_entrant`／`remove_entrant`／`seat_round`／`start_round`／`void_table`／`rerun_table`／`bind_game`／`register`／`unregister`／`checkin`／`can_manage`／`can_create`。
+
 ## [0.9.0] - 2026-11-05
 
 ### 新增

@@ -23,6 +23,7 @@ from . import db
 from . import i18n
 from . import rooms
 from . import hubs
+from . import spectate
 from .render import board_parts
 from . import tiles as T
 from .ui import HelpButton, help_text
@@ -312,7 +313,7 @@ async def cmd_start(interaction: discord.Interaction) -> None:
         "is_sanma": is_sanma, "thinking_time": thinking_time, "max_players": max_players,
         "length": length, "tobi": tobi, "ruleset": ruleset, "start_points": start_points,
         "rules": sv.rules, "rule_over": dict(sv.rule_over),   # 規則預設＋細項（"ruleset" 是給還沒改用 rulesets 的舊程式）
-        "kuikae": sv.kuikae, "open_riichi": sv.open_riichi, "abortive": sv.abortive,
+        "kuikae": sv.kuikae, "open_riichi": sv.open_riichi, "spectate": sv.spectate, "abortive": sv.abortive,
         "wall": sv.wall_method, "ai_level": sv.ai_level,
         "lang": room_lang,
     }
@@ -332,6 +333,24 @@ async def cmd_start(interaction: discord.Interaction) -> None:
     msg   = await interaction.followup.send(lobby._content(lobby.lang), view=lobby)
     lobby.lobby_message = msg
     _lobbies[gid] = lobby
+
+
+@mahjong.command(name="watch", description="觀戰：看正在進行的對局（即時不含手牌，明牌延遲 3 分鐘）")
+@app_commands.describe(room="（選填）房號；不填就列出可以觀戰的對局")
+async def cmd_watch(interaction: discord.Interaction, room: str = None) -> None:
+    await spectate.command_watch(interaction, room)
+
+
+@cmd_watch.autocomplete("room")
+async def _watch_room_ac(interaction: discord.Interaction, current: str):
+    return [app_commands.Choice(name=n, value=v)
+            for n, v in spectate.room_choices(interaction.guild_id, current)]
+
+
+@mahjong.command(name="tournament", description="比賽：看這個伺服器的比賽與報名狀況")
+async def cmd_tournament(interaction: discord.Interaction) -> None:
+    from . import tournament
+    await tournament.command_list(interaction)
 
 
 @mahjong.command(name="join", description="加入房間（頻道內＝此房；私訊＝跨伺服器隨機匹配）")
@@ -1310,7 +1329,8 @@ class LobbyPanel(discord.ui.View):
         labels = {"rank": "hub.btn.rank", "match": "hub.btn.match", "daily": "hub.btn.daily",
                   "profile": "hub.btn.profile", "skin": "hub.btn.skin", "history": "hub.btn.history",
                   "replay": "hub.btn.replay", "yaku": "hub.btn.yaku", "lang": "hub.btn.lang",
-                  "voice": "hub.btn.voice", "news": "hub.btn.news", "refresh": "hub.btn.refresh"}
+                  "voice": "hub.btn.voice", "news": "hub.btn.news", "refresh": "hub.btn.refresh",
+                  "watch": "hub.btn.watch"}
         for c in self.children:
             cid = (getattr(c, "custom_id", "") or "").replace("hub:", "")
             if cid in labels:
@@ -1350,6 +1370,11 @@ class LobbyPanel(discord.ui.View):
                        custom_id="hub:notify", row=0)
     async def notify(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _toggle_notify(interaction)
+
+    @discord.ui.button(label="👁 觀戰", style=discord.ButtonStyle.secondary,
+                       custom_id="hub:watch", row=0)
+    async def watch(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await spectate.send_picker(interaction)
 
     @discord.ui.button(label="👤 個人資訊", style=discord.ButtonStyle.secondary,
                        custom_id="hub:profile", row=1)

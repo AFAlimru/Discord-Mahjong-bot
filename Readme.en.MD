@@ -36,6 +36,7 @@ Play full-rules Japanese (Riichi) mahjong right inside Discord. Supports 4-playe
 - **Hand panel in DMs**: press "📩 Hand via DM" in the waiting room to get your hand panel in DMs for that game.
 - **Ranked (cross-server)**: `/mahjong rank` for global matchmaking (**only with players of a similar rank**); ranked games are played in DMs. Lunar-eclipse themed ranks (新人 Newcomer → … → 血月 Blood Moon, with levels 1–3 in every tier except the top) plus an R rating. Ranked always uses the Tenhou preset and the Tenhou wall generator.
 - **Casual matchmaking**: `/mahjong match` gathers players across servers; unranked.
+- **Tournaments**: an organizer creates a tournament (time, rules, format). Players press Join on its announcement and Check in shortly before the start; if there are more entries than seats, entrants are drawn by lot. Tables start automatically at the scheduled time; preliminary rounds redraw random tables every round and rank by total score, and the top players go to the final. Players who don't show up are replaced by the waitlist or the computer, and the computer never counts. `/mahjong tournament` lists this server's tournaments.
 - **Play against CPUs**: DM the bot `/mahjong start` and CPUs fill the table.
 - **AFK handling**: players who keep timing out are switched to auto-discard (tsumogiri) and can take back control with one click; the game ends if every human is AFK.
 - **Game logs & replays**: `/mahjong history` lets you flip through your games one by one and open a replay directly; `/mahjong replay <room code>` plays the game back step by step (hands, win ceremony, switchable point of view). Room codes are 5 characters (e.g. `K7Q2M`).
@@ -147,6 +148,8 @@ python tools/build_and_upload_emojis.py black    # black (rank reward skin)
 | `/mahjong match` | Casual matchmaking (unranked) |
 | `/mahjong end` | Force-end a game (the host ends it directly; others need the host's approval) |
 | `/mahjong status` · `/mahjong fairness` | Current game status · wall commitment (fairness check) |
+| `/mahjong watch [room code]` | Spectate a game (live without hands; a hands channel 3 minutes behind; players of that game can't watch) |
+| `/mahjong tournament` | Tournaments in this server (Join and Check in are buttons on the announcement) |
 | `/mahjong stats` · `/mahjong profile` | Stats · profile card |
 | `/mahjong history` · `/mahjong replay <room code>` | Game log (flip with ◀ ▶, replay directly) · replay |
 | `/mahjong daily` · `/mahjong tasks` | Daily check-in · tasks |
@@ -163,7 +166,7 @@ python tools/build_and_upload_emojis.py black    # black (rank reward skin)
 
 ## ⚙️ Room Settings
 
-The room panel lets you adjust: **length** (East-only / Hanchan), **busting**, **sanma**, **rule preset** (Default / Tenhou / Mahjong Soul / M.League / WRC) with the 🔧 Details toggles (ippatsu, ura dora, red fives, kuitan, kiriage, multi-ron mode, leftover riichi sticks), **kuikae** (forbidden / allowed), **open riichi** (off / on), **abortive draws** (on / off), **wall generator** (Riichi City / Tenhou), **thinking time**, and **starting points**. Ranked games always use the Tenhou preset and the Tenhou wall.
+The room panel lets you adjust: **length** (East-only / Hanchan), **busting**, **sanma**, **rule preset** (Default / Tenhou / Mahjong Soul / M.League / WRC) with the 🔧 Details toggles (ippatsu, ura dora, red fives, kuitan, kiriage, multi-ron mode, leftover riichi sticks), **kuikae** (forbidden / allowed), **open riichi** (off / on), **spectating** (open / closed), **abortive draws** (on / off), **wall generator** (Riichi City / Tenhou), **thinking time**, and **starting points**. Ranked games always use the Tenhou preset and the Tenhou wall.
 
 ---
 

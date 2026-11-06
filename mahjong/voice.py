@@ -42,7 +42,7 @@ def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> 
             "is_sanma": sanma, "thinking_time": 25, "max_players": 3 if sanma else 4,
             "length": "tonpuu", "tobi": True, "ruleset": "mixed", "start_points": None,
             "rules": "default", "rule_over": {},
-            "kuikae": False, "open_riichi": False, "abortive": True, "wall": "riichi_city", "ai_level": "normal",
+            "kuikae": False, "open_riichi": False, "spectate": True, "abortive": True, "wall": "riichi_city", "ai_level": "normal",
             "lang": lang, "ranked": False, "open_hand": False,
         }
     sanma = sanma_override if sanma_override is not None else sv.sanma
@@ -52,7 +52,7 @@ def _config_from_settings(sv, lang: str, sanma_override: bool | None = None) -> 
         "length": "hanchan" if sv.hanchan else "tonpuu",
         "tobi": sv.tobi, "ruleset": sv.ruleset, "start_points": sv.start_points,
         "rules": sv.rules, "rule_over": dict(sv.rule_over),   # "ruleset"＝舊程式相容（tenhou／mixed）
-        "kuikae": sv.kuikae, "open_riichi": sv.open_riichi, "abortive": sv.abortive,
+        "kuikae": sv.kuikae, "open_riichi": sv.open_riichi, "spectate": sv.spectate, "abortive": sv.abortive,
         "wall": sv.wall_method, "ai_level": sv.ai_level,
         "lang": lang, "ranked": False, "open_hand": sv.open_hand,
     }

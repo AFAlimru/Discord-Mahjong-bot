@@ -240,7 +240,8 @@ def summary(rs: RuleSet, lang: str, sanma: bool = False, selected: str | None = 
 
 def compact(rs: RuleSet, lang: str, sanma: bool = False, selected: str | None = None,
             start_points: int | None = None, hanchan: bool | None = None,
-            kuikae: bool = False, open_riichi: bool = False) -> list[str]:
+            kuikae: bool = False, open_riichi: bool = False,
+            spectate: bool = True) -> list[str]:
     """設定面板用的精簡規則文字（3 行）：
     規則名稱（後面接三麻退回預設的說明、跟「預設」不同的項目、南入／西入、和了止め）／起始與返點／馬點。kuikae／open_riichi 是面板自己的開關（不在 RuleSet 裡），跟預設不同（允許食替／開立直）也列在這行。
     參數意義同 summary()。"""
@@ -279,6 +280,8 @@ def compact(rs: RuleSet, lang: str, sanma: bool = False, selected: str | None = 
         items.append(t("rules.diff.kuikae"))
     if open_riichi:
         items.append(t("rules.diff.openriichi"))
+    if not spectate:
+        items.append(t("rules.diff.nospectate"))
     if rs.west:
         ext = (t("rules.sum.ext_t") if hanchan is False else t("rules.sum.ext_h") if hanchan
                else f"{t('rules.sum.ext_t')}／{t('rules.sum.ext_h')}")
