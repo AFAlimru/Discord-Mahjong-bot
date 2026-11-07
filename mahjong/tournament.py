@@ -1001,8 +1001,31 @@ def _summary(t: dict, ents: list[dict]) -> dict:
     }
 
 
+def progress(t: dict, tables: list[dict]) -> dict:
+    """進度（給網站顯示）：共幾輪、目前這輪（最近一個已開始的輪次）、這輪幾桌打完、下一輪是哪一輪與預計開始時間。
+    keys：total_rounds／round_index（目前是第幾輪，還沒開始＝None）／stage／round_no／tables／tables_done／round_done／
+    next（[stage, round_no] 或 None）／next_at（自動接續才有，否則 None）／seated_only（已排桌但還沒開打）。"""
+    order = _stage_order(t)
+    started = _started(tables)
+    cur = started[-1] if started else None
+    rt = [x for x in tables if cur is not None and (x["stage"], x["round_no"]) == cur]
+    done_n = sum(_is_done(x) for x in rt)
+    round_done = bool(rt) and done_n == len(rt)
+    nxt = _next_round(t, tables)
+    next_at = None
+    if cur is not None and round_done and nxt is not None and t["format"]["auto_advance"]:
+        next_at = max((x["finished_at"] or 0) for x in rt) + t["format"]["round_gap_minutes"] * 60
+    return {"total_rounds": len(order),
+            "round_index": (order.index(cur) + 1) if cur in order else None,
+            "stage": cur[0] if cur else None, "round_no": cur[1] if cur else None,
+            "tables": len(rt), "tables_done": done_n, "round_done": round_done,
+            "next": list(nxt) if nxt else None, "next_at": next_at,
+            "seated_only": bool(tables) and cur is None}
+
+
 def get(tid: int) -> dict:
-    """完整資料：比賽設定＋報名名單（不含 withdrawn 以外的過濾，狀態都帶著）＋每桌＋排名。找不到丟 not_found。"""
+    """完整資料：比賽設定＋報名名單（不含 withdrawn 以外的過濾，狀態都帶著）＋每桌＋排名＋進度。找不到丟 not_found。
+    has_results＝至少有一桌的結果（網站用它決定要不要顯示排名；沒有結果就不該有名次）。"""
     t, ents, names, _ = _ctx(int(tid))
     out = _summary(t, ents)
     out["entrants"] = [{k: e[k] for k in ("user_id", "username", "status", "checked_in_at", "source",
@@ -1020,6 +1043,8 @@ def get(tid: int) -> dict:
                         == (tb["stage"], tb["round_no"], tb["table_no"])],
         })
     out["tables"] = tables
+    out["has_results"] = bool(res)
+    out["progress"] = progress(t, db.tour_tbl_list(t["id"]))
     out["standings"] = standings(t["id"])
     return out
 

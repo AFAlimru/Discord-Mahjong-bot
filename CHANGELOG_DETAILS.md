@@ -3,6 +3,30 @@
 開發過程的完整紀錄（含實作說明、檔案與函式層級的細節）。
 簡易版請看 [CHANGELOG.md](CHANGELOG.md)。
 
+## [0.9.2] - 2026-11-07
+
+### 新增
+- **馬點可自訂**（`views.RoomSettingsModal`、`rulesets`）：
+  - 數值設定對話框從 2 個欄位變 3 個（上限 5），新增「馬點」`TextInput`（可留空、`max_length=30`）。標籤與範例依面板目前人數（四麻 `20,10,-10,-20`、三麻 `15,0,-15`），placeholder 是目前規則預設的馬點，已經自訂過就把目前的值帶進去。
+  - 解析 `rulesets.parse_uma`：接受半形／全形逗號、頓號、空白分隔，全形數字、`+`／`-`（含全形）。驗證 `rulesets.uma_error`：項數要對（四麻 4、三麻 3）、整數且每項絕對值 ≤ `UMA_MAX`（100）、總和 0。
+    錯誤分三種（項數、整數與範圍、總和），ephemeral 訊息三語都有（`err.uma_count`／`err.uma_num`／`err.uma_sum`），出錯時整個對話框都不套用（思考秒數也不改）。留空＝清掉自訂，照規則預設。
+  - 儲存在房間設定的 `rule_over["uma"]`（整數 list，不在 `OVERRIDABLE` 裡，所以不會出現在「細項」）。`rulesets.resolve` 在最後讀它：`valid_uma` 通過才套用，四麻覆寫 `uma`、三麻覆寫 `uma_3`；
+    項數對不上目前人數（例如面板選三麻但存的是四個數字、或語音房「三人先開」強制三麻）就忽略，不報錯。`config["ranked"]` 為真時一律忽略，段位賽仍是固定的天鳳馬點（匹配局的房間設定本來就沒有 `rule_over`，這是雙重保險）。
+  - `settlement.final_standings` 本來就用 `resolve()` 出來的 RuleSet 取馬點，不用改；面板規則摘要的「馬 …」行（`rulesets.compact`）、細項視窗的摘要（`rulesets.summary`）也是讀同一個 RuleSet，所以會一起變。比賽（`tournament.py`）走同一個 `resolve`，`rule_over` 裡放 `uma` 同樣有效。
+  - 面板切換三麻／四麻（`toggle_sanma`）時，`rule_over["uma"]` 項數對不上新人數就刪掉。換規則預設（`rules_select`）原本就會清空 `rule_over`，自訂馬點跟著清掉，行為跟細項一致。
+- **語音房也能手牌改私訊**（`voice.DmHandButton`）：語音房設定面板第 3 列（跟「與電腦開始」同一列，面板維持 5 列內）新增「📩 手牌改私訊」。只有目前在這間語音房裡的人能按，按一下開、再按關，回覆沿用大廳的 `lobby.dm_on`／`lobby.dm_off`（ephemeral）。
+  選擇先記在 `_voice_rooms[vc.id]["dm_uids"]`；開局時（`_start_voice_game`）寫進這場的房間設定 `dm_uids`，只留真的上桌的真人，之後由 `flow` 開桌時讀同一個 `dm_uids`，跟文字頻道大廳的 `LobbyView.dm_btn` 是同一套機制。開局中（`starting`）按鈕不再生效。
+- **最大和了可以自己選**：`/mahjong profile` 的「最大和了」改成顯示你選的那次和牌（沒選就維持打點最高的那次）。可以從自己的牌譜裡挑一次和牌；選的牌譜被刪掉就自動改回最高。資訊卡上選過的會標「自選」。
+
+### 修正
+- **回放裡電腦的牌河**：牌譜中電腦的出牌名字前面帶 🤖，回放對不上座位，電腦打出的牌不會出現在牌河，現在修好了。
+- **結束後還能觀戰**（`spectate`）：
+  - `watchable_games` 不再略過已結束的局，回傳多了 `finished`、`ended_at`，已結束的排在後面；`find_by_code` 找得到已結束的局（房號被新局用掉時，進行中的優先）；`request_watch` 不再回「這場已經結束」，已結束的局也能建觀戰頻道（`_Rec.live_final` 在結束那張快照時存下無手牌版牌桌，結束後才建的即時頻道用它，不會露手牌）。
+  - `live_state`／`delayed_state` 多了 `ended`、`ended_at`、`end_in`（明牌還要幾秒播到結尾）、`closes_in`（紀錄還剩幾秒清掉）。明牌本來就靠環形緩衝播最後 `SPECTATE_DELAY` 秒，播到結束快照時 `finished` 才變 True、才有最終結果。
+  - Discord：`finish` 時若即時頻道已開，貼 `spectate.ended_live`；明牌頻道播到結尾前貼一則 `spectate.ended_pending` 並在播完時刪掉、改貼 `spectate.ended_hands`（`_after_show`），發佈器等這則貼完才結束。選單與自動完成的選項加 `spectate.tag_ended`。
+  - `close(gid)` 對已正常打完的局預設不動作（外面的房間清理，例如對已結束的房間按結束，不會讓觀戰提早消失），只有 `_closer` 到期或 `force=True` 才收；進行中的局被強制結束仍立刻收掉。`record` 在 `finish` 之後不再追加快照。`finish(gid)` 沒帶 `gs` 時改用 `_games` 裡的對局補最後一張快照。
+- **觀戰畫面不再露出使用者 ID**（`spectate.plain`／`record`）：動態文字裡「輪到下家」用的 `<@id>` 提及，轉成純文字時改成該局的玩家名字（`_Rec.names`），不認識的 id 寫「玩家」；寫進 Discord 觀戰頻道的狀態列也先換掉，所以不會提及到人。
+
 ## [0.9.1] - 2026-11-07
 
 ### 新增

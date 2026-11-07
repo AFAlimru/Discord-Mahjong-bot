@@ -50,7 +50,7 @@ def _ceremony(snap, win, e, wd, wh, uid2name, lang, d0):
             head.append(T.emojify_hand(wh[u]))
         snap("\n".join(head), d0)                                  # ① 標題＋寶牌＋手牌
         ym, yk = det.get("yakuman", []), det.get("yaku", [])
-        items = [(n, None) for n in ym] if ym else [(n, h) for n, h in yk]
+        items = [(n, None) for n in ym] if ym else [(n, h) for n, h in yk if h]   # 0 飜的（如裏寶牌 0）不列
         shown = []
         for n, h in items:
             disp = i18n.yaku(n, lang)
@@ -75,6 +75,7 @@ def build_frames(events: list[dict], lang: str = i18n.DEFAULT):
             for uid, info in pl.items():
                 seats[info["seat"]] = info["name"]
                 name2seat[info["name"]] = info["seat"]
+                name2seat["🤖 " + info["name"]] = info["seat"]   # 牌譜裡電腦的出牌動態名字前面有 🤖
                 uid2name[uid] = info["name"]
             n = len(pl) or 4
             break

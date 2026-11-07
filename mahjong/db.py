@@ -218,6 +218,11 @@ def init_db() -> None:
             conn.execute("ALTER TABLE user_prefs ADD COLUMN ai_voice TEXT")
         except Exception:
             pass
+        for col, ddl in (("showcase_game", "TEXT"), ("showcase_hand", "INTEGER")):
+            try:                                   # 0.9.2：個人資訊卡的「最大和了」可以改選哪一次和牌
+                conn.execute(f"ALTER TABLE user_activity ADD COLUMN {col} {ddl}")
+            except Exception:
+                pass
         try:                                       # 0.8.5：記住管理員刪過指南頻道
             conn.execute("ALTER TABLE guild_settings ADD COLUMN guide_dismissed INTEGER NOT NULL DEFAULT 0")
         except Exception:
@@ -827,6 +832,121 @@ def update_best_win(user_id: str, points: int, name: str = "", hand: str = "",
             "updated_at=excluded.updated_at",
             (user_id, username, points, name, hand, now)
         )
+
+
+# ─── 個人資訊卡的「最大和了」（可改選牌譜裡的某一次和牌）─────────────────────
+
+def _win_from(a: dict, uid: str, game_id: str, hand_no: int, ts: str = "", room_no=None) -> dict | None:
+    """由一筆結算事件取出 uid 的和牌資料；uid 沒有和牌＝None。"""
+    wp = a.get("wp") or {}
+    if uid not in wp:
+        return None
+    wd = (a.get("wd") or {}).get(uid) or {}
+    return {
+        "game_id": game_id, "hand_no": hand_no, "room_no": room_no, "ts": ts,
+        "points": int(wp[uid] or 0),
+        "name": wd.get("name") or "",
+        "yaku": wd.get("yaku") or [], "yakuman": wd.get("yakuman") or [],
+        "han": wd.get("han") or 0, "fu": wd.get("fu") or 0,
+        "hand": (a.get("wh") or {}).get(uid) or "",
+        "type": a.get("win") or "",
+        "dora": a.get("dora") or [], "ura": a.get("ura") or [],
+    }
+
+
+def list_user_wins(user_id: str, limit: int = 300) -> list[dict]:
+    """某玩家在自己打過的對局牌譜裡的所有和牌（新到舊，最多 limit 筆）。
+    每筆 hand_no ＝ 該場第幾局（從 0 起，與回放的局序相同）。"""
+    uid = str(user_id)
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT s.game_id, s.rn, s.action, s.timestamp, g.room_no FROM ("
+            "  SELECT game_id, id, action, timestamp, "
+            "         ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY id) - 1 AS rn "
+            "  FROM game_log WHERE action LIKE '%\"t\": \"settle\"%' "
+            "    AND game_id IN (SELECT game_id FROM game_records WHERE user_id=? AND game_id IS NOT NULL)"
+            ") s LEFT JOIN games g ON g.game_id = s.game_id "
+            "WHERE s.action LIKE ? ORDER BY s.timestamp DESC, s.id DESC",
+            (uid, f'%"{uid}"%')
+        ).fetchall()
+    out = []
+    for r in rows:
+        try:
+            a = json.loads(r["action"])
+        except Exception:
+            continue
+        w = _win_from(a, uid, r["game_id"], r["rn"], r["timestamp"] or "", r["room_no"])
+        if w:
+            out.append(w)
+            if len(out) >= limit:
+                break
+    return out
+
+
+def get_user_win(user_id: str, game_id: str, hand_no: int) -> dict | None:
+    """指定的那一次和牌；這場不是該玩家打的、牌譜不存在、那局沒和牌＝None。"""
+    uid = str(user_id)
+    try:
+        hand_no = int(hand_no)
+    except (TypeError, ValueError):
+        return None
+    with get_connection() as conn:
+        if not conn.execute("SELECT 1 FROM game_records WHERE game_id=? AND user_id=? LIMIT 1",
+                            (game_id, uid)).fetchone():
+            return None
+        row = conn.execute("SELECT room_no FROM games WHERE game_id=?", (game_id,)).fetchone()
+        rows = conn.execute("SELECT action, timestamp FROM game_log WHERE game_id=? "
+                            "AND action LIKE '%\"t\": \"settle\"%' ORDER BY id", (game_id,)).fetchall()
+    if not row or not (0 <= hand_no < len(rows)):
+        return None
+    try:
+        a = json.loads(rows[hand_no]["action"])
+    except Exception:
+        return None
+    return _win_from(a, uid, game_id, hand_no, rows[hand_no]["timestamp"] or "", row["room_no"])
+
+
+def set_showcase_win(user_id: str, game_id: str, hand_no: int, username: str = None) -> None:
+    """記下玩家要展示的和牌（呼叫端要先用 get_user_win 確認是他自己的）。"""
+    now = datetime.utcnow().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO user_activity (user_id,username,showcase_game,showcase_hand,updated_at) "
+            "VALUES (?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET "
+            "showcase_game=excluded.showcase_game, showcase_hand=excluded.showcase_hand, "
+            "updated_at=excluded.updated_at",
+            (user_id, username, game_id, int(hand_no), now))
+
+
+def clear_showcase_win(user_id: str) -> None:
+    """回到自動（顯示打點最高的那次）。"""
+    with get_connection() as conn:
+        conn.execute("UPDATE user_activity SET showcase_game=NULL, showcase_hand=NULL WHERE user_id=?",
+                     (user_id,))
+
+
+def get_showcase_choice(user_id: str, act: dict | None = None) -> dict | None:
+    """玩家選的和牌（還找得到才回傳）；沒選、牌譜已刪、那局不是他和的＝None。"""
+    act = act if act is not None else (get_activity(user_id) or {})
+    gid = act.get("showcase_game")
+    if not gid or act.get("showcase_hand") is None:
+        return None
+    return get_user_win(user_id, gid, act["showcase_hand"])
+
+
+def get_display_best_win(user_id: str, act: dict | None = None) -> dict | None:
+    """資訊卡／個人頁顯示的「最大和了」：有選且還找得到就用選的，否則用自動記錄的最高和了。
+    回傳 {points, name, hand, chosen, game_id, hand_no, room_no}；完全沒有和牌＝None。"""
+    act = act if act is not None else (get_activity(user_id) or {})
+    w = get_showcase_choice(user_id, act)
+    if w:
+        w["chosen"] = True
+        return w
+    pts = act.get("best_win", 0) or 0
+    if not pts:
+        return None
+    return {"points": pts, "name": act.get("best_win_name") or "", "hand": act.get("best_win_hand") or "",
+            "chosen": False, "game_id": None, "hand_no": None, "room_no": None}
 
 
 def get_activity_leaderboard(limit: int = 100) -> list[dict]:

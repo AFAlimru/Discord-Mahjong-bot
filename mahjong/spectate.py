@@ -18,6 +18,9 @@
 - 網站用的公開介面：watchable_games / live_state / delayed_state / is_player（回傳都可直接轉 JSON）。
 
 每局的紀錄放在這個模組自己的 _recs（對局結束、_cleanup 之後還留著，直到延遲播完再過一段時間才清掉）。
+對局結束後：即時畫面馬上顯示「已結束」與最終結果；明牌畫面把最後 SPECTATE_DELAY 秒的緩衝播完，
+播到結束點才顯示最終結果（播完前顯示「對局已結束，延遲畫面播放中」）。紀錄保留到 CLOSE_AFTER 後才清掉，
+這段時間內網站與 Discord 都還能進來看。
 沒有人看的時候只做字串與字典的組裝，不呼叫 Discord。"""
 from __future__ import annotations
 
@@ -75,6 +78,7 @@ class _Rec:
         self.tag = rooms.tag(gid)                    # 頻道名用的房號代碼（對局結束後房號登記會被清掉，所以先記下）
         self.players = [{"seat": p.seat, "user_id": p.user_id, "name": p.username, "is_bot": p.is_bot}
                         for p in gs.players]
+        self.names = {p["user_id"]: p["name"] for p in self.players}     # 狀態文字裡的 <@id> 換成名字用
         self.snaps: list[_Snap] = []
         self.events: list[_Ev] = []
         self.hand_no = 0
@@ -88,11 +92,15 @@ class _Rec:
         self.live_parts: list[str] | None = None
         self.live_dirty = False
         self.live_events: list[str] = []
+        self.live_final: list[str] | None = None     # 結束時的即時版牌桌（不含手牌），結束後才建的即時頻道用
+        self.live_end_sent = False
         self.live_task: asyncio.Task | None = None
         self.del_grp = None
         self.del_notice = None
         self.del_shown: _Snap | None = None
         self.del_ev_idx = 0
+        self.del_pending = None                      # 「對局已結束，延遲畫面播放中」那則訊息
+        self.del_end_sent = False
         self.pub_task: asyncio.Task | None = None
         self.close_task: asyncio.Task | None = None
 
@@ -171,9 +179,22 @@ def _emoji_codes() -> dict:
     return _rev_cache
 
 
-def plain(text: str) -> str:
-    """Discord 文字 → 純文字：拿掉 markdown 標記，牌表情換成牌代碼（如 1m），橫放標記去掉。"""
+_MENTION_RE = re.compile(r"<@[!&]?(\d+)>")
+_CHANNEL_RE = re.compile(r"<#\d+>")
+
+
+def _demention(text: str, names: dict | None) -> str:
+    """<@使用者id> 換成遊戲裡的名字（找不到就寫「玩家」），不要把 id 露給觀戰的人，也不會真的提及人。"""
+    names = names or {}
+    s = _MENTION_RE.sub(lambda m: names.get(m.group(1)) or "玩家", text)
+    return _CHANNEL_RE.sub("", s)
+
+
+def plain(text: str, names: dict | None = None) -> str:
+    """Discord 文字 → 純文字：拿掉 markdown 標記，牌表情換成牌代碼（如 1m），橫放標記去掉；
+    提及（<@id>）換成名字。"""
     rev = _emoji_codes()
+    text = _demention(text, names)
     s = _EMO_RE.sub(lambda m: " " + rev.get(m.group(0), "?").replace("_s", "") + " ", text)
     s = s.replace(T.SIDE_MARK, "")
     out = []
@@ -228,7 +249,7 @@ def _build_state(gs, rec: _Rec, status: str, finished: bool) -> dict:
         "round_wind": gs.round_wind, "round_num": gs.round_num, "round_text": _round(gs, lang),
         "honba": gs.honba, "riichi_sticks": gs.riichi_sticks, "wall": gs.tiles_left,
         "dora": dora, "dealer_seat": gs.dealer_seat, "turn_seat": gs.current_seat,
-        "players": players, "status": plain(status), "finished": bool(finished),
+        "players": players, "status": plain(status, rec.names), "finished": bool(finished),
     }
 
 
@@ -249,13 +270,24 @@ def _results(rec: _Rec, upto: float | None) -> list:
     if not evs:
         return []
     h = evs[-1].hand
-    return [plain(e.text) for e in evs if e.hand == h]
+    return [plain(e.text, rec.names) for e in evs if e.hand == h]
 
 
 def _base(rec: _Rec) -> dict:
     return {"gid": rec.gid, "room_no": rec.room_no,
             "room": rooms.code(rec.room_no) if rec.room_no else None,
             "guild_id": rec.guild_id, "started_at": rec.started_at}
+
+
+def _ended_info(rec: _Rec, now: float | None = None) -> dict:
+    """結束相關欄位：ended＝對局已打完；ended_at；end_in＝明牌畫面還要幾秒才播到結束點（沒結束＝None）；
+    closes_in＝還剩幾秒觀戰紀錄會被清掉（沒結束＝None）。"""
+    if rec.finished_at is None:
+        return {"ended": False, "ended_at": None, "end_in": None, "closes_in": None}
+    now = _clock() if now is None else now
+    return {"ended": True, "ended_at": rec.finished_at,
+            "end_in": max(0, int(math.ceil(rec.finished_at + SPECTATE_DELAY - now))),
+            "closes_in": max(0, int(math.ceil(rec.finished_at + SPECTATE_DELAY + CLOSE_AFTER - now)))}
 
 
 def live_state(gid: str) -> dict | None:
@@ -267,6 +299,7 @@ def live_state(gid: str) -> dict | None:
     out = _base(rec)
     out.update(_strip_hands(snap.state))
     out.update(ready=True, updated_at=snap.ts, results=_results(rec, None))
+    out.update(_ended_info(rec))
     return out
 
 
@@ -294,9 +327,11 @@ def delayed_state(gid: str, now: float | None = None) -> dict | None:
     if snap is None:
         first = rec.snaps[0].ts if rec.snaps else now
         out.update(ready=False, available_in=max(0, int(math.ceil(first + SPECTATE_DELAY - now))))
+        out.update(_ended_info(rec, now))
         return out
     out.update(copy.deepcopy(snap.state))
     out.update(ready=True, updated_at=snap.ts, results=_results(rec, cutoff))
+    out.update(_ended_info(rec, now))
     return out
 
 
@@ -305,21 +340,21 @@ def _round_of(rec: _Rec) -> str:
 
 
 def watchable_games(guild_id: str | None = None, include_closed: bool = False) -> list[dict]:
-    """進行中、可以觀戰的對局（include_closed＝連「不開放觀戰」的也列，spectate 欄位會是 False）。"""
+    """可以觀戰的對局：進行中的，加上剛結束、紀錄還沒清掉的（finished 欄位 True）。
+    include_closed＝連「不開放觀戰」的也列，spectate 欄位會是 False。"""
     out = []
     for rec in list(_recs.values()):
-        if rec.finished_at is not None:
-            continue
         if guild_id is not None and rec.guild_id != str(guild_id):
             continue
         if not (rec.enabled or include_closed):
             continue
         d = _base(rec)
         d.update(mode=rec.mode, round=_round_of(rec), spectate=rec.enabled,
+                 finished=rec.finished_at is not None, ended_at=rec.finished_at,
                  players=[p["name"] for p in rec.players],
                  humans=[p["name"] for p in rec.players if not p["is_bot"]])
         out.append(d)
-    out.sort(key=lambda d: (d["room_no"] is None, d["room_no"] or 0))
+    out.sort(key=lambda d: (d["finished"], d["room_no"] is None, d["room_no"] or 0))
     return out
 
 
@@ -332,9 +367,12 @@ def record(gid: str, gs, status: str = "", finished: bool = False) -> None:
     rec = _recs.get(gid)
     if rec is None or not rec.enabled or gs is None:
         return
+    if rec.finished_at is not None and not finished:
+        return                                # 結束後不再有新畫面（最後一張快照已經是 finished）
     try:
         T.set_skin(None)                      # 公開畫面一律預設牌風
         now = _clock()
+        status = _demention(status, rec.names)    # 提及換成名字（Discord 觀戰頻道也一樣，不會提及到人）
         parts = board_parts(gs, rec.lang, True) + [board_status_text(status)]
         prev = rec.latest
         rec.status = status
@@ -345,9 +383,13 @@ def record(gid: str, gs, status: str = "", finished: bool = False) -> None:
             while (len(rec.snaps) >= 2 and rec.snaps[1].ts <= now - SPECTATE_DELAY
                    and rec.snaps[0].ts < now - RING_KEEP):
                 rec.snaps.pop(0)
-        if rec.live_grp is not None:
-            rec.live_parts = board_parts(gs, rec.lang, False) + [board_status_text(status)]
-            _kick_live(rec)
+        if finished or rec.live_grp is not None:
+            live = board_parts(gs, rec.lang, False) + [board_status_text(status)]
+            if finished:
+                rec.live_final = live
+            if rec.live_grp is not None:
+                rec.live_parts = live
+                _kick_live(rec)
     except Exception as e:
         print(f"[spectate] 記錄快照失敗：{e!r}")
 
@@ -382,12 +424,21 @@ def finish(gid: str, gs=None, status: str = "") -> None:
     if not rec.enabled:
         _recs.pop(gid, None)
         return
+    if gs is None:
+        gs = _games.get(gid)                  # _cleanup 呼叫時對局還在 _games 裡，用它補一張結束快照
     if gs is not None:
         record(gid, gs, status, finished=True)
     elif rec.latest is not None and not rec.latest.state["finished"]:
         st = copy.deepcopy(rec.latest.state)
         st["finished"] = True
         rec.snaps.append(_Snap(rec.finished_at, rec.latest.parts, st))
+    if rec.live_grp is not None:                  # 即時頻道已經開著：貼「已結束」
+        rec.live_events.append(i18n.t("spectate.ended_live", rec.lang))
+        rec.live_end_sent = True
+        try:
+            _kick_live(rec)
+        except RuntimeError:
+            pass
     try:
         rec.close_task = asyncio.get_running_loop().create_task(_closer(rec))
         _bg_tasks.add(rec.close_task)
@@ -400,14 +451,19 @@ async def _closer(rec: _Rec) -> None:
     deadline = rec.finished_at + SPECTATE_DELAY + CLOSE_AFTER
     while _clock() < deadline:
         await asyncio.sleep(min(5.0, max(0.0, deadline - _clock())))
-    await close(rec.gid)
+    await close(rec.gid, force=True)
 
 
-async def close(gid: str) -> None:
-    """立刻收掉：停掉背景任務、刪觀戰頻道、丟掉紀錄（/end 強制結束與延遲到期都走這）。"""
-    rec = _recs.pop(gid, None)
+async def close(gid: str, force: bool = False) -> None:
+    """立刻收掉：停掉背景任務、刪觀戰頻道、丟掉紀錄（/end 強制結束走這）。
+    已經正常打完的局不會被外面的房間清理提早收掉（force=False），要等 _closer 到期才清；
+    進行中的局被強制結束＝直接收。"""
+    rec = _recs.get(gid)
     if rec is None:
         return
+    if rec.finished_at is not None and rec.enabled and not force:
+        return
+    _recs.pop(gid, None)
     for tk in (rec.live_task, rec.pub_task):
         if tk is not None and not tk.done() and tk is not asyncio.current_task():
             tk.cancel()
@@ -488,6 +544,30 @@ async def _show(rec: _Rec, snap: _Snap | None) -> None:
     rec.del_shown = snap
 
 
+async def _after_show(rec: _Rec) -> None:
+    """對局結束後的提示：延遲畫面還沒播到結束點＝貼一則「播放中」，播到了＝刪掉它、貼「已結束」。"""
+    if rec.finished_at is None or rec.del_ch is None or rec.del_end_sent:
+        return
+    caught = rec.del_shown is not None and rec.del_shown.state["finished"]
+    if caught:
+        if rec.del_pending is not None:
+            try:
+                await rec.del_pending.delete()
+            except Exception:
+                pass
+            rec.del_pending = None
+        try:
+            await rec.del_ch.send(i18n.t("spectate.ended_hands", rec.lang))
+        except Exception:
+            pass
+        rec.del_end_sent = True
+    elif rec.del_pending is None:
+        try:
+            rec.del_pending = await rec.del_ch.send(i18n.t("spectate.ended_pending", rec.lang))
+        except Exception:
+            pass
+
+
 async def _publish_once(rec: _Rec, now: float | None = None) -> None:
     """把「現在減延遲」以前的東西依時間順序顯示：快照以最新的為準，結果文字在它的時間點貼出。"""
     now = _clock() if now is None else now
@@ -501,11 +581,12 @@ async def _publish_once(rec: _Rec, now: float | None = None) -> None:
         except Exception:
             pass
     await _show(rec, _visible(rec, cutoff))
+    await _after_show(rec)
 
 
 def _publish_done(rec: _Rec) -> bool:
     return (rec.finished_at is not None and rec.del_ev_idx >= len(rec.events)
-            and rec.latest is not None and rec.del_shown is rec.latest)
+            and rec.latest is not None and rec.del_shown is rec.latest and rec.del_end_sent)
 
 
 async def _publisher(rec: _Rec) -> None:
@@ -582,8 +663,21 @@ async def ensure_channels(guild, gid: str):
             T.set_skin(None)
             rec.live_parts = (board_parts(gs, rec.lang, False) + [board_status_text(rec.status)]
                               if gs is not None else
-                              (rec.latest.parts[:-1] if rec.latest else []))   # 沒有 gs 時退用快照（呼叫端已擋掉已結束的局）
+                              (rec.live_final or [board_status_text(rec.status)]))   # 已結束的局用結束時存的即時版（沒有手牌）
             rec.live_grp = await MsgGroup.send(ch, rec.live_parts)
+            if rec.finished_at is not None:       # 結束後才建頻道：補貼最後的結果與「已結束」
+                h = rec.events[-1].hand if rec.events else None
+                for e in rec.events:
+                    if e.hand == h:
+                        try:
+                            await ch.send(e.text)
+                        except Exception:
+                            pass
+                try:
+                    await ch.send(i18n.t("spectate.ended_live", rec.lang))
+                except Exception:
+                    pass
+                rec.live_end_sent = True
         if rec.del_ch is None:
             ch = await guild.create_text_channel(
                 i18n.t("spectate.ch_hands", rec.lang, tag=tag), category=cat,
@@ -620,8 +714,6 @@ async def request_watch(interaction: discord.Interaction, gid: str) -> None:
         return await refuse("spectate.not_found")
     if not rec.enabled:
         return await refuse("spectate.closed")
-    if rec.finished_at is not None:
-        return await refuse("spectate.over")
     if is_player(gid, interaction.user.id):
         return await refuse("spectate.is_player")
     if not interaction.response.is_done():
@@ -638,14 +730,17 @@ async def request_watch(interaction: discord.Interaction, gid: str) -> None:
 
 
 def find_by_code(guild_id, text: str):
-    """房號代碼 → 這個伺服器正在進行的那局的 gid（找不到＝None）。"""
+    """房號代碼 → 這個伺服器正在進行（或剛結束、還能看）的那局的 gid（找不到＝None）。"""
     n = rooms.parse(text)
     if n is None:
         return None
+    ended = None
     for rec in _recs.values():
-        if rec.guild_id == str(guild_id) and rec.finished_at is None and rec.room_no == n:
-            return rec.gid
-    return None
+        if rec.guild_id == str(guild_id) and rec.enabled and rec.room_no == n:
+            if rec.finished_at is None:
+                return rec.gid               # 房號可能已經被新的一局用掉，進行中的優先
+            ended = ended or rec.gid
+    return ended
 
 
 class WatchButton(discord.ui.Button):
@@ -663,8 +758,9 @@ class _WatchSelect(discord.ui.Select):
         opts = []
         for g in games[:25]:
             names = "・".join(g["humans"] or g["players"])
+            tag = f"　{i18n.t('spectate.tag_ended', lang)}" if g.get("finished") else ""
             opts.append(discord.SelectOption(
-                label=f"{g['room'] or ''}　{g['round']}"[:100], value=g["gid"],
+                label=f"{g['room'] or ''}　{g['round']}{tag}"[:100], value=g["gid"],
                 description=names[:100] or None))
         super().__init__(placeholder=i18n.t("spectate.pick", lang), options=opts)
 
@@ -705,11 +801,12 @@ async def command_watch(interaction: discord.Interaction, room: str | None = Non
     await request_watch(interaction, gid)
 
 
-def room_choices(guild_id, current: str = "") -> list[tuple[str, str]]:
+def room_choices(guild_id, current: str = "", lang: str = i18n.DEFAULT) -> list[tuple[str, str]]:
     """房號自動完成用：[(顯示, 房號代碼)]。"""
     cur = (current or "").strip().upper().lstrip("#")
     out = []
     for g in watchable_games(guild_id):
         if g["room"] and g["room"].startswith(cur):
-            out.append((f"{g['room']}　{g['round']}　{'・'.join(g['humans'] or g['players'])}"[:100], g["room"]))
+            tag = f"　{i18n.t('spectate.tag_ended', lang)}" if g.get("finished") else ""
+            out.append((f"{g['room']}　{g['round']}{tag}　{'・'.join(g['humans'] or g['players'])}"[:100], g["room"]))
     return out[:25]

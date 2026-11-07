@@ -162,6 +162,34 @@ class CpuStartButton(discord.ui.Button):
         await _start_voice_game(vc, free, fill_ai=True)
 
 
+class DmHandButton(discord.ui.Button):
+    """語音房的「📩 手牌改私訊」：跟文字頻道大廳同一個機制，每人各自切換、只影響這一場。
+    開局前記在 _voice_rooms[vc]["dm_uids"]，開局時寫進房間設定的 dm_uids（flow 開桌時讀）。"""
+    def __init__(self, vc_id: int, lang: str, row: int | None = None):
+        super().__init__(style=discord.ButtonStyle.secondary,
+                         label=i18n.t("lobby.dm_btn", lang), row=row)
+        self._vc_id = vc_id
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        uid  = str(interaction.user.id)
+        lang = i18n.get_user_lang(uid, interaction.guild_id, interaction.channel)
+        vc   = interaction.guild.get_channel(self._vc_id) if interaction.guild else None
+        info = _voice_rooms.get(self._vc_id)
+        if vc is None or info is None or info.get("starting"):
+            await interaction.response.send_message(i18n.t("msg.no_open_room", lang), ephemeral=True)
+            return
+        if not any(m.id == interaction.user.id for m in vc.members):
+            await interaction.response.send_message(i18n.t("voice.not_in_room", lang), ephemeral=True)
+            return
+        dm_uids = info.setdefault("dm_uids", set())
+        if uid in dm_uids:
+            dm_uids.discard(uid)
+            await interaction.response.send_message(i18n.t("lobby.dm_off", lang), ephemeral=True)
+        else:
+            dm_uids.add(uid)
+            await interaction.response.send_message(i18n.t("lobby.dm_on", lang), ephemeral=True)
+
+
 class VoicePackSelect(discord.ui.Select):
     """切換**自己的**角色語音（個人設定；語音包＝assets/sounds 下的資料夾，用選單不用打字）。
     對局中誰的動作就用誰選的聲音；沒選＝他的動作不出聲。uid＝標出這人目前的選擇（共用面板不標）。"""
@@ -232,6 +260,9 @@ async def _start_voice_game(vc: discord.VoiceChannel, members: list,
     _room_owners[gid]  = str(host.id)
     sv = _voice_rooms.get(vc.id, {}).get("settings")
     _room_configs[gid] = _config_from_settings(sv, lang, sanma_override=sanma)
+    # 進房後按了「📩 手牌改私訊」的人（只算真的上桌的真人）
+    _room_configs[gid]["dm_uids"] = (set(_voice_rooms.get(vc.id, {}).get("dm_uids") or ())
+                                     & {str(m.id) for m in members})
     if fill_ai:                            # 用電腦補滿剩下的座位
         max_p = _room_configs[gid]["max_players"]
         nm    = bot_name(_room_configs[gid].get("ai_level"), lang)
@@ -324,6 +355,7 @@ async def _post_settings_panel(vc, lang: str) -> None:
                               show_confirm=False,   # 語音房不用確認鈕，開局時面板自動消失
                               base_content=i18n.t("voice.settings_hint", lang))
         sv.add_item(CpuStartButton(vc.id, lang, row=3))   # 單獨一列（第 3 列，沒有確認鈕所以是空的），不擠進「對局」列
+        sv.add_item(DmHandButton(vc.id, lang, row=3))     # 同一列：📩 手牌改私訊（每人各自切換）
         sv.add_item(VoicePackSelect(lang))   # 每個人在面板上選自己的角色語音
         msg = await vc.send(sv.panel_content(), view=sv)
         _voice_rooms[vc.id]["settings"] = sv

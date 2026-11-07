@@ -27,6 +27,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field, replace, asdict
 
 ABORT_ALL = frozenset({"九種九牌", "四風連打", "四槓散了", "四家立直", "三家和"})
@@ -152,6 +153,39 @@ OVERRIDABLE = ("ippatsu", "ura", "red_fives", "kuitan", "kiriage", "multi_ron", 
 _LEGACY = {"mixed": "default", "tenhou": "tenhou"}
 
 
+UMA_MAX = 100          # 自訂馬點每一項的絕對值上限
+
+
+def uma_error(v, sanma: bool) -> str | None:
+    """自訂馬點哪裡不合法："count"（人數不對）／"range"（不是整數或超過 ±UMA_MAX）／"sum"（總和不是 0）；合法回 None。"""
+    if not isinstance(v, (list, tuple)) or len(v) != (3 if sanma else 4):
+        return "count"
+    if not all(isinstance(x, int) and not isinstance(x, bool) and abs(x) <= UMA_MAX for x in v):
+        return "range"
+    if sum(v) != 0:
+        return "sum"
+    return None
+
+
+def valid_uma(v, sanma: bool) -> tuple | None:
+    """自訂馬點合法就回 tuple，否則 None。"""
+    return tuple(v) if uma_error(v, sanma) is None else None
+
+
+def parse_uma(text: str) -> list | None:
+    """把「20,10,-10,-20」這類輸入轉成整數 list；格式不對（含空字串）回 None。
+    接受全形逗號、頓號、空白分隔，與「+」「-」號（含全形）；人數、總和、範圍由 uma_error 檢查。"""
+    s = (text or "").translate(str.maketrans("，、；;＋－−", ",,,,+--"))
+    s = s.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+    parts = [x for x in re.split(r"[,\s]+", s) if x]
+    if not parts:
+        return None
+    try:
+        return [int(x) for x in parts]
+    except ValueError:
+        return None
+
+
 def preset_key(config: dict) -> str:
     """房間設定用的是哪一套預設（含舊設定 ruleset 的相容）。"""
     k = (config or {}).get("rules")
@@ -180,6 +214,10 @@ def resolve(config: dict) -> RuleSet:
         over["abortive"] = ABORT_ALL
     if "red_fives" in over:                      # 細項的赤寶牌只有「有／無」：三麻跟著
         over["red_fives_3"] = 2 if over["red_fives"] else 0
+    # 自訂馬點（數值設定）：人數對得上才套用；段位賽固定天鳳規則不吃這個
+    custom = valid_uma((config.get("rule_over") or {}).get("uma"), bool(config.get("is_sanma")))
+    if custom is not None and not config.get("ranked"):
+        over["uma_3" if config.get("is_sanma") else "uma"] = custom
     return replace(rs, **over) if over else rs
 
 

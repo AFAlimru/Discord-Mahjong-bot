@@ -850,11 +850,13 @@ def _profile_embed(u) -> discord.Embed:
     total = (y["games"] if y else 0) + (s["games"] if s else 0)
     lines.append(f"{L('profile.games')}：{total}")
 
-    best = act.get("best_win", 0) or 0
+    bw = db.get_display_best_win(uid, act)   # 玩家在網站上選的那次和牌；沒選就是打點最高的
+    best = bw["points"] if bw else 0
     if best:
-        nm   = act.get("best_win_name") or ""
-        hand = act.get("best_win_hand") or ""
-        lines.append(f"{L('profile.best_win')}：**{(nm + ' ') if nm else ''}{best} {L('profile.points')}**")
+        nm   = bw.get("name") or ""
+        hand = bw.get("hand") or ""
+        tag  = f"（{L('profile.best_win_picked')}）" if bw.get("chosen") else ""
+        lines.append(f"{L('profile.best_win')}：**{(nm + ' ') if nm else ''}{best} {L('profile.points')}**{tag}")
         if hand:
             lines.append(T.emojify_hand(hand))
     else:

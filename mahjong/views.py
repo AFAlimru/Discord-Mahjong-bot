@@ -27,7 +27,7 @@ from . import rulesets
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class RoomSettingsModal(Modal):
-    """房間設定對話框：思考秒數 + 起始點數"""
+    """房間設定對話框：思考秒數 + 起始點數 + 馬點"""
 
     def __init__(self, config: dict = None, lang: str = i18n.DEFAULT, panel: "RoomSettingsView | None" = None, **kwargs):
         super().__init__(title=i18n.t("settings.numbers_title", lang), **kwargs)
@@ -45,8 +45,22 @@ class RoomSettingsModal(Modal):
             placeholder=i18n.t("settings.points_ph", lang),
             required=False, max_length=7,
         )
+        # 馬點：人數看面板現在是三麻還是四麻；已經自訂過就帶入目前的值，留空＝照規則預設
+        self.sanma = bool(self.config.get("sanma"))
+        cur = rulesets.valid_uma((self.config.get("rule_over") or {}).get("uma"), self.sanma)
+        base = (panel.base_rules() if panel is not None else rulesets.PRESETS["default"]).for_mode(self.sanma)["uma"]
+        self.uma = TextInput(
+            label=i18n.t("settings.uma_label", lang, ex=self._example()),
+            placeholder=",".join(str(u) for u in base),
+            default=",".join(str(u) for u in cur) if cur else None,
+            required=False, max_length=30,
+        )
         self.add_item(self.thinking_time)
         self.add_item(self.start_points)
+        self.add_item(self.uma)
+
+    def _example(self) -> str:
+        return "15,0,-15" if self.sanma else "20,10,-10,-20"
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         """提交時的回調"""
@@ -72,13 +86,33 @@ class RoomSettingsModal(Modal):
                 await interaction.response.send_message(i18n.t("err.points_range", lang), ephemeral=True)
                 return
 
+        uma_raw = self.uma.value.strip()
+        uma = None                             # None＝清掉自訂，照規則預設
+        if uma_raw:
+            vals = rulesets.parse_uma(uma_raw)
+            err = "num" if vals is None else rulesets.uma_error(vals, self.sanma)
+            if err is not None:
+                key = {"count": "err.uma_count", "sum": "err.uma_sum"}.get(err, "err.uma_num")
+                await interaction.response.send_message(
+                    i18n.t(key, lang, n=3 if self.sanma else 4, ex=self._example(), max=rulesets.UMA_MAX),
+                    ephemeral=True)
+                return
+            uma = vals
+
         if self.config is not None:
             self.config["thinking_time"] = tt
             self.config["start_points"] = sp   # None = 用預設
+            over = self.config.setdefault("rule_over", {})
+            if uma is None:
+                over.pop("uma", None)
+            else:
+                over["uma"] = list(uma)
 
         self.success = True
         pt_txt = i18n.t("win.points", lang, n=sp) if sp is not None else i18n.t("settings.default", lang)
         saved = i18n.t("settings.saved", lang, tt=tt, pt=pt_txt)
+        if uma is not None:
+            saved += i18n.t("settings.saved_uma", lang, uma="/".join(f"{u:+d}" if u else "0" for u in uma))
         if self.panel is not None:
             try:                               # 有面板：先更新面板上的規則摘要，確認訊息改走 followup
                 await interaction.response.edit_message(content=self.panel.panel_content(), view=self.panel)
@@ -244,7 +278,7 @@ class RoomSettingsView(View):
         if key not in rulesets.PRESETS:
             key = "default"
         self.rules = key
-        self.rule_over = {}                # 換預設就清掉細項
+        self.rule_over = {}                # 換預設就清掉細項（自訂馬點也在 rule_over 裡，一起清掉）
         self._sync_toggles_from_rules()
         self._sync_rules_select()
         await self._edit(interaction)
@@ -253,6 +287,9 @@ class RoomSettingsView(View):
     @button(label="四麻", style=discord.ButtonStyle.secondary, row=1)
     async def toggle_sanma(self, interaction: discord.Interaction, button: Button):
         self.sanma = not self.sanma
+        u = self.rule_over.get("uma")
+        if u is not None and rulesets.valid_uma(u, self.sanma) is None:
+            self.rule_over.pop("uma", None)    # 自訂馬點的項數跟新人數對不上：丟掉，改回規則預設
         if not rulesets.PRESETS[self.rules].sanma_ok:     # M聯盟／WRC 三麻退回預設：擊飛／途中流局跟著換
             self._sync_toggles_from_rules()
         await self._edit(interaction)
